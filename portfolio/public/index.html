@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Secure Dev Portfolio | Encryption Vault</title>
+  <!-- Google Fonts & Icon sets -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="index.css">
+</head>
+<body class="dark-mode">
+  <div class="background-radial"></div>
+  <div class="grid-overlay"></div>
+
+  <header class="navbar">
+    <div class="logo">
+      <span class="logo-shield"><i class="fa-solid fa-shield-halved"></i></span>
+      <span class="logo-text">SECURE<span>PORTFOLIO</span></span>
+    </div>
+    <div class="nav-links">
+      <a href="#github"><i class="fa-brands fa-github"></i> Repos</a>
+      <a href="#linkedin"><i class="fa-brands fa-linkedin"></i> LinkedIn</a>
+      <a href="#vault" class="vault-btn"><i class="fa-solid fa-lock"></i> Security Portal</a>
+      <a href="kazumi.html" class="isa-nav-btn"><i class="fa-solid fa-seedling"></i> Kazumi Space</a>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Hero Profile Section -->
+    <section class="hero-section glass-card">
+      <div class="profile-layout">
+        <div class="avatar-container">
+          <img src="avatar.png" alt="Developer Avatar" class="profile-avatar" id="avatarImg">
+          <div class="avatar-glow"></div>
+        </div>
+        <div class="profile-info">
+          <div class="badge-row">
+            <span class="badge"><i class="fa-solid fa-shield-halved"></i> Secure Core Active</span>
+            <span class="badge badge-accent"><i class="fa-solid fa-key"></i> AES-256-CBC Encrypted</span>
+          </div>
+          <h1>Autonomous Developer</h1>
+          <p class="subtitle">Cryptography, AI Integrations, and Full-Stack Engineering</p>
+          <p class="bio">
+            Welcome to my secure developer hub. This portal demonstrates localized zero-plaintext token vaulting and dynamic API gateway integration. Below, you can explore live-fetched GitHub repositories, verified LinkedIn posts, and configure encryption keys in the secure local vault. It also integrates with my autonomous, cozy companion bot.
+          </p>
+          <div class="hero-actions">
+            <a href="#vault" class="btn btn-primary"><i class="fa-solid fa-vault"></i> Access Vault</a>
+            <a href="kazumi.html" class="btn btn-accent"><i class="fa-solid fa-seedling"></i> Open Kazumi Space</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- GitHub Repos Grid -->
+    <section id="github" class="content-section">
+      <div class="section-header">
+        <h2><i class="fa-brands fa-github text-primary"></i> Secure Code Repositories</h2>
+        <p class="text-muted">Dynamic project feeds parsed via proxy API handlers with cryptographic token checks.</p>
+      </div>
+      <div class="repos-grid" id="reposGrid">
+        <div class="loading-state">
+          <div class="spinner"></div>
+          <span>Synchronizing GitHub repository logs...</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- LinkedIn Shares -->
+    <section id="linkedin" class="content-section">
+      <div class="section-header">
+        <h2><i class="fa-brands fa-linkedin text-accent"></i> Recent Activity Logs</h2>
+        <p class="text-muted">Professional updates fetched dynamically from the LinkedIn URN share endpoints.</p>
+      </div>
+      <div class="posts-grid" id="postsGrid">
+        <div class="loading-state">
+          <div class="spinner"></div>
+          <span>Synchronizing professional activity feed...</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Security Configuration Vault -->
+    <section id="vault" class="content-section">
+      <div class="section-header">
+        <h2><i class="fa-solid fa-vault text-accent"></i> Security & Credentials Portal</h2>
+        <p class="text-muted">Configure your personal API tokens to enable live API synchronization. Tokens are encrypted using SHA-256 derived key structures locally.</p>
+      </div>
+
+      <div class="vault-grid">
+        <!-- Configuration Form -->
+        <div class="glass-card vault-card">
+          <h3><i class="fa-solid fa-key"></i> Token Configuration</h3>
+          <form id="settingsForm" class="vault-form">
+            <div class="form-group">
+              <label for="githubToken">GitHub Access Token</label>
+              <div class="input-wrapper">
+                <i class="fa-brands fa-github"></i>
+                <input type="password" id="githubToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxx" autocomplete="off">
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="linkedinToken">LinkedIn Access Token</label>
+              <div class="input-wrapper">
+                <i class="fa-brands fa-linkedin"></i>
+                <input type="password" id="linkedinToken" placeholder="AQWxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off">
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-block"><i class="fa-solid fa-lock"></i> Encrypt & Save</button>
+          </form>
+        </div>
+
+        <!-- Encryption Status Panel -->
+        <div class="glass-card status-card">
+          <h3><i class="fa-solid fa-shield-halved"></i> Encryption & Memory Status</h3>
+          <div class="status-list">
+            <div class="status-item">
+              <div class="status-label">
+                <span>GitHub API Status:</span>
+                <span class="status-indicator" id="githubInd"></span>
+                <strong id="githubStatus">Unknown</strong>
+              </div>
+              <div class="meta-preview" id="githubMeta" style="display:none;">
+                <span>IV Prefix: <code id="githubIv">--</code></span>
+                <span>Cipher Size: <code id="githubLen">0</code> bytes</span>
+              </div>
+            </div>
+            <div class="status-item">
+              <div class="status-label">
+                <span>LinkedIn API Status:</span>
+                <span class="status-indicator" id="linkedinInd"></span>
+                <strong id="linkedinStatus">Unknown</strong>
+              </div>
+              <div class="meta-preview" id="linkedinMeta" style="display:none;">
+                <span>IV Prefix: <code id="linkedinIv">--</code></span>
+                <span>Cipher Size: <code id="linkedinLen">0</code> bytes</span>
+              </div>
+            </div>
+          </div>
+          <button id="clearBtn" class="btn btn-danger btn-block" style="margin-top: 1.5rem;"><i class="fa-solid fa-trash-can"></i> Clear Saved Credentials</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>&copy; 2026 Developer Portfolio. Cryptographic zero-plaintext active. Integrated with <a href="kazumi.html">Kazumi Space</a>.</p>
+  </footer>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast">Credentials synchronized successfully.</div>
+
+  <script src="index.js"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+node_modules
+__pycache__
+*.pyc
+.git
+.env
+portfolio/credentials.json
+isa_memory/conversations.json
+isa_memory/profile.json
+.gemini
+.idea
+.vscode
+.system_generated
+*.webp
+*.png
+*.zip
