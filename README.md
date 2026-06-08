@@ -1,3 +1,13 @@
+---
+title: Kazumi Companion
+emoji: 🌸
+colorFrom: purple
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # 🌸 Kazumi AI Companion & Calm Space
 
 Kazumi is a sweet, highly empathetic conversational AI companion designed for desktop interactions, paired with a web-based mindfulness dashboard named **Kazumi Space**. The project blends local conversational AI intelligence, secure credential storage, and cozy ambient exercises to create a soothing digital environment.
