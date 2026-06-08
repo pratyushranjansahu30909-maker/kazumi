@@ -190,6 +190,14 @@ class PortfolioRequestHandler(BaseHTTPRequestHandler):
         parsed_url = urlparse(self.path)
         path = parsed_url.path
         query = parse_qs(parsed_url.query)
+        
+        # Redirect root to Kazumi Space
+        if path == "/":
+            self.send_response(302)
+            self.send_header("Location", "/kazumi.html")
+            self.end_headers()
+            return
+
         # API Routes
         if path == "/api/settings/status":
             creds = read_credentials()
@@ -337,11 +345,7 @@ class PortfolioRequestHandler(BaseHTTPRequestHandler):
             })
                 
         else:
-            clean_path = path
-            if clean_path == "/":
-                clean_path = "/index.html"
-                
-            file_path = os.path.join("public", clean_path.lstrip("/"))
+            file_path = os.path.join("public", path.lstrip("/"))
             
             # Content Type Mapping
             ext = os.path.splitext(file_path)[1]

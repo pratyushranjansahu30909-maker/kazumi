@@ -13,6 +13,10 @@ const CREDENTIALS_FILE = path.join(__dirname, 'credentials.json');
 app.use(cors());
 app.use(express.json());
 
+// Redirect root to Kazumi Space
+app.get('/', (req, res) => {
+  res.redirect('/kazumi.html');
+});
 
 app.use(express.static(path.join(__dirname, 'public')));
 

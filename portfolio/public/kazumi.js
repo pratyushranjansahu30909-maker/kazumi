@@ -69,29 +69,33 @@ document.addEventListener('DOMContentLoaded', () => {
     if (currentPhase === 0) {
       // Breathe In (4 seconds)
       breathRing.style.transform = 'scale(1.25)';
-      breathRing.style.backgroundColor = 'rgba(190, 150, 230, 0.15)';
-      breathRing.style.boxShadow = '0 0 30px rgba(190, 150, 230, 0.3), inset 0 0 20px rgba(190, 150, 230, 0.15)';
+      breathRing.style.backgroundColor = '#eef4ec';
+      breathRing.style.borderColor = '#7d967a';
+      breathRing.style.boxShadow = 'none';
       breathText.textContent = 'Breathe In';
       currentPhase = 1;
     } else if (currentPhase === 1) {
       // Hold (4 seconds)
       breathRing.style.transform = 'scale(1.25)';
-      breathRing.style.backgroundColor = 'rgba(160, 140, 200, 0.15)';
-      breathRing.style.boxShadow = '0 0 35px rgba(160, 140, 200, 0.3), inset 0 0 20px rgba(160, 140, 200, 0.15)';
+      breathRing.style.backgroundColor = '#f6f0fa';
+      breathRing.style.borderColor = '#855fa3';
+      breathRing.style.boxShadow = 'none';
       breathText.textContent = 'Hold';
       currentPhase = 2;
     } else if (currentPhase === 2) {
       // Breathe Out (4 seconds)
       breathRing.style.transform = 'scale(0.95)';
-      breathRing.style.backgroundColor = 'rgba(220, 160, 180, 0.12)';
-      breathRing.style.boxShadow = '0 0 15px rgba(220, 160, 180, 0.15), inset 0 0 15px rgba(220, 160, 180, 0.1)';
+      breathRing.style.backgroundColor = '#faf5eb';
+      breathRing.style.borderColor = '#cca16a';
+      breathRing.style.boxShadow = 'none';
       breathText.textContent = 'Breathe Out';
       currentPhase = 3;
     } else {
       // Hold (4 seconds)
       breathRing.style.transform = 'scale(0.95)';
-      breathRing.style.backgroundColor = 'rgba(25, 30, 35, 0.3)';
-      breathRing.style.boxShadow = 'inset 0 0 10px rgba(255, 255, 255, 0.05)';
+      breathRing.style.backgroundColor = '#ffffff';
+      breathRing.style.borderColor = '#eae5f2';
+      breathRing.style.boxShadow = 'none';
       breathText.textContent = 'Hold';
       currentPhase = 0;
     }
@@ -745,27 +749,26 @@ document.addEventListener('DOMContentLoaded', () => {
       toast.style.position = 'fixed';
       toast.style.bottom = '30px';
       toast.style.right = '30px';
-      toast.style.background = 'rgba(25, 30, 35, 0.9)';
-      toast.style.backdropFilter = 'blur(10px)';
-      toast.style.border = '1px solid rgba(190, 150, 230, 0.3)';
-      toast.style.color = '#fff';
-      toast.style.padding = '0.75rem 1.5rem';
-      toast.style.borderRadius = '10px';
-      toast.style.boxShadow = '0 5px 25px rgba(0,0,0,0.5)';
+      toast.style.background = '#ffffff';
+      toast.style.border = '1px solid #9c78b8';
+      toast.style.color = '#553b70';
+      toast.style.padding = '0.55rem 1.15rem';
+      toast.style.borderRadius = '4px';
+      toast.style.boxShadow = '0 4px 15px rgba(116, 75, 140, 0.12)';
       toast.style.zIndex = '9999';
       toast.style.fontFamily = 'var(--font-sans)';
-      toast.style.fontSize = '0.9rem';
-      toast.style.transition = 'all 0.5s ease';
+      toast.style.fontSize = '0.85rem';
+      toast.style.transition = 'opacity 0.2s, transform 0.2s';
       toast.style.opacity = '0';
-      toast.style.transform = 'translateY(20px)';
+      toast.style.transform = 'translateY(15px)';
       document.body.appendChild(toast);
     }
-    toast.innerHTML = `<i class="fa-solid fa-bell text-accent" style="margin-right: 8px;"></i> ${message}`;
+    toast.innerHTML = message;
     toast.style.opacity = '1';
     toast.style.transform = 'translateY(0)';
     setTimeout(() => {
       toast.style.opacity = '0';
-      toast.style.transform = 'translateY(20px)';
+      toast.style.transform = 'translateY(15px)';
     }, 4500);
   };
 
