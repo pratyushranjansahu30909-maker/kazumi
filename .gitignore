@@ -13,3 +13,7 @@ isa_memory/profile.json
 *.webp
 *.png
 *.zip
+
+# Allow specific assets
+!portfolio/public/isa_avatar.png
+
