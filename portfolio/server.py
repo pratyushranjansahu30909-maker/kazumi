@@ -350,8 +350,13 @@ class PortfolioRequestHandler(BaseHTTPRequestHandler):
             })
                 
         else:
-            file_path = os.path.join("public", path.lstrip("/"))
-            
+            # Secure path resolution against directory traversal
+            base_dir = os.path.abspath("public")
+            file_path = os.path.abspath(os.path.join(base_dir, path.lstrip("/")))
+            if not file_path.startswith(base_dir):
+                self.send_error(403, "Access Denied")
+                return
+                
             # Content Type Mapping
             ext = os.path.splitext(file_path)[1]
             content_type = "text/plain"

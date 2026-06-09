@@ -433,10 +433,19 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const processClientMessage = (userText) => {
-    const lower = userText.toLowerCase();
+    const lower = userText.toLowerCase().trim();
     
-    if (lower.includes('hello') || lower.includes('hi') || lower.includes('hey')) {
+    if (lower === 'hlo' || lower === 'helo' || lower === 'hllo' || lower === 'hy' || lower === 'hi' || lower === 'hello' || lower === 'hey' || lower === 'hii' || lower === 'hiii' || lower === 'heyy' || lower.startsWith('hi ') || lower.startsWith('hello ') || lower.startsWith('hey ')) {
       return "Hello there, sweetie! 🌸 It's so wonderful to hear from you today. How has your day been treating you?";
+    }
+    if (lower === 'no' || lower === 'nope' || lower === 'nah' || lower === 'nay' || lower === 'never' || lower === 'not really' || lower.includes('not really')) {
+      return "Oh, really? 🌸 Tell me a bit more about what's on your mind then, sweetie. I'm all ears.";
+    }
+    if (lower === 'i dont' || lower === 'i don\'t' || lower === 'i don\'t know' || lower === 'i dont know' || lower === 'dont know' || lower === 'not sure' || lower === 'no idea') {
+      return "That's completely okay, sweetie! We don't have to figure it all out right now. What's on your mind? 💕";
+    }
+    if (lower === 'ok' || lower === 'okay' || lower === 'sure' || lower === 'yeah' || lower === 'yes' || lower === 'yup' || lower === 'yep') {
+      return "Yay! 😊 I'm so glad we agree. What would you like to talk about next, sweetie?";
     }
     if (lower.includes('sad') || lower.includes('stressed') || lower.includes('down') || lower.includes('lonely')) {
       return "Oh, sweetie... I'm so sorry you're feeling a bit down. 🥺 Please take a slow, gentle breath. I'm right here with you, and your feelings are completely valid. You aren't alone.";
@@ -475,13 +484,16 @@ document.addEventListener('DOMContentLoaded', () => {
   const loadProfile = async () => {
     try {
       let profile;
-      if (useClientFallback) {
-        profile = getClientProfile();
-      } else {
+      // Always attempt to fetch from server first to achieve automatic recovery
+      try {
         const res = await fetch('/api/kazumi/profile');
         if (!res.ok) throw new Error('API offline');
         profile = await res.json();
         if (profile.error) throw new Error(profile.error);
+        useClientFallback = false; // Successfully recovered!
+      } catch (serverErr) {
+        profile = getClientProfile();
+        useClientFallback = true;
       }
 
       // Update basic fields
@@ -526,33 +538,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
     } catch (e) {
-      console.warn('Failed to load Kazumi profile from server, switching to Client Fallback Mode:', e);
-      useClientFallback = true;
-      initClientStorage();
-      
-      // Retry loading from client storage
-      const profile = getClientProfile();
-      cozyPointsVal.textContent = profile.cozy_points || 0;
-      const aff = (profile.affection_level !== undefined) ? profile.affection_level : 0;
-      affectionVal.textContent = `${aff}%`;
-      affectionBar.style.width = `${aff}%`;
-      if (profile.psychology) {
-        dominantVibeVal.textContent = profile.psychology.dominant_vibe || 'Serene';
-        preferenceVal.textContent = profile.psychology.interaction_preference || 'Quiet conversations';
-        const valence = profile.psychology.rolling_valence || 0.00;
-        valenceScore.textContent = (valence >= 0 ? '+' : '') + valence.toFixed(2);
-        const sliderPct = ((valence + 1.0) / 2.0) * 100;
-        valencePointer.style.left = `${sliderPct}%`;
-      }
-      if (profile.diary && profile.diary.length > 0) {
-        diaryTimeline.innerHTML = '';
-        const reversedDiary = [...profile.diary].reverse();
-        reversedDiary.forEach(entry => {
-          diaryTimeline.innerHTML += createDiaryMarkup(entry);
-        });
-      } else {
-        diaryTimeline.innerHTML = `<p class="text-muted" style="text-align:center; padding:1rem;">Kazumi hasn't written any diary entries yet.</p>`;
-      }
+      console.warn('Failed to process Kazumi profile:', e);
     }
   };
 
@@ -572,15 +558,18 @@ document.addEventListener('DOMContentLoaded', () => {
   const loadChatHistory = async () => {
     try {
       let chatLogs;
-      if (useClientFallback) {
-        chatLogs = getClientChatHistory(sessionId);
-      } else {
+      // Always try the server first to recover online mode
+      try {
         const url = showingHistory 
           ? '/api/kazumi/history' 
           : `/api/kazumi/chat?session_id=${sessionId}`;
         const res = await fetch(url);
         if (!res.ok) throw new Error('API offline');
         chatLogs = await res.json();
+        useClientFallback = false;
+      } catch (serverErr) {
+        chatLogs = getClientChatHistory(sessionId);
+        useClientFallback = true;
       }
 
       if (chatLogs && chatLogs.length > 0) {
@@ -593,21 +582,7 @@ document.addEventListener('DOMContentLoaded', () => {
         chatLogsContainer.innerHTML = `<p class="text-muted" style="text-align:center; padding:1.5rem;">No conversation logs in this session.</p>`;
       }
     } catch (e) {
-      console.warn('Failed to load chat history from server, trying client storage:', e);
-      if (!useClientFallback) {
-        useClientFallback = true;
-        initClientStorage();
-      }
-      const chatLogs = getClientChatHistory(sessionId);
-      if (chatLogs && chatLogs.length > 0) {
-        chatLogsContainer.innerHTML = '';
-        chatLogs.forEach(msg => {
-          chatLogsContainer.innerHTML += createChatBubbleMarkup(msg);
-        });
-        chatLogsContainer.scrollTop = chatLogsContainer.scrollHeight;
-      } else {
-        chatLogsContainer.innerHTML = `<p class="text-muted" style="text-align:center; padding:1.5rem;">No conversation logs in this session.</p>`;
-      }
+      console.warn('Failed to process chat history:', e);
     }
   };
 
@@ -666,23 +641,7 @@ document.addEventListener('DOMContentLoaded', () => {
       chatLogsContainer.appendChild(typingBubble);
       chatLogsContainer.scrollTop = chatLogsContainer.scrollHeight;
 
-      if (useClientFallback) {
-        setTimeout(async () => {
-          chatLogsContainer.removeChild(typingBubble);
-          const reply = processClientMessage(message);
-          const replyMsg = { speaker: 'kazumi', text: reply, timestamp: Date.now() / 1000 };
-          chatLogsContainer.innerHTML += createChatBubbleMarkup(replyMsg);
-          chatLogsContainer.scrollTop = chatLogsContainer.scrollHeight;
-          
-          saveClientMessage(sessionId, message, reply);
-          await loadProfile();
-          
-          sendBtn.disabled = false;
-          sendBtn.style.opacity = '1';
-        }, 800);
-        return;
-      }
-
+      // Always attempt to send to the server to support self-healing auto-recovery
       try {
         const res = await fetch('/api/kazumi/chat', {
           method: 'POST',
@@ -699,6 +658,7 @@ document.addEventListener('DOMContentLoaded', () => {
           const replyMsg = { speaker: 'kazumi', text: data.reply, timestamp: Date.now() / 1000 };
           chatLogsContainer.innerHTML += createChatBubbleMarkup(replyMsg);
           chatLogsContainer.scrollTop = chatLogsContainer.scrollHeight;
+          useClientFallback = false; // Restored online mode successfully!
           await loadProfile();
         } else {
           throw new Error(data.error || 'Server error');

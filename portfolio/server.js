@@ -342,9 +342,18 @@ const callPythonHelper = (args) => {
     const py = spawn('python', [path.join(__dirname, 'kazumi_helper.py'), ...args]);
     let stdout = '';
     let stderr = '';
+    
+    // Set a safety timeout of 15 seconds to terminate hung subprocesses
+    const killTimeout = setTimeout(() => {
+      py.kill('SIGTERM');
+      reject(new Error('Python execution timeout (15s exceeded)'));
+    }, 15000);
+
     py.stdout.on('data', (data) => { stdout += data; });
     py.stderr.on('data', (data) => { stderr += data; });
+    
     py.on('close', (code) => {
+      clearTimeout(killTimeout);
       if (code !== 0) {
         reject(new Error(stderr || `Python helper exited with code ${code}`));
       } else {
