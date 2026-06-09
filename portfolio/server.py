@@ -286,6 +286,11 @@ class PortfolioRequestHandler(BaseHTTPRequestHandler):
                 self.send_json(get_fallback_posts())
                 
         elif path == "/api/kazumi/profile":
+            if kazumi_bot:
+                if not os.path.exists(kazumi_bot.memory.profile_path):
+                    kazumi_bot.memory.save_profile()
+                self.send_json(kazumi_bot.memory.profile)
+                return
             profile_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "isa_memory", "profile.json")
             if not os.path.exists(profile_path):
                 self.send_json({"error": "Profile memory not found"})

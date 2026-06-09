@@ -95,6 +95,13 @@ class ChromaMemory:
         for k, v in defaults.items():
             if k not in profile:
                 profile[k] = v
+        # Save profile to ensure the file exists on disk
+        if not os.path.exists(self.profile_path):
+            try:
+                with open(self.profile_path, "w", encoding="utf-8") as f:
+                    json.dump(profile, f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
         return profile
 
     def get_default_profile(self):
@@ -499,7 +506,7 @@ You will receive the user's message, a calculated emotional valence (-1 to 1), a
     def generate_response(self, user_text, valence, memory_context, situation="CASUAL", anger_level=0, jealousy_level=0, profile=None, persona_instruction=None, system_prompt=None, current_archetype=None, history=None):
         # For system inactivity nudges, if offline, return standard code to let Kazumi use fallback reminders
         if user_text.startswith("(System Nudge:"):
-            if not OPENAI_AVAILABLE or self.client is None or API_KEY == "your_api_key_here":
+            if not OPENAI_AVAILABLE or self.client is None or not API_KEY or API_KEY in ("your_api_key_here", ""):
                 return "(Inactivity reminder)"
             prompt = user_text
             if profile:
@@ -508,7 +515,7 @@ You will receive the user's message, a calculated emotional valence (-1 to 1), a
                 if custom_guides:
                     prompt += "\n[Custom Guidelines to Follow:\n" + "\n".join([f"- {g}" for g in custom_guides]) + "]\n"
         else:
-            if not OPENAI_AVAILABLE or self.client is None or API_KEY == "your_api_key_here":
+            if not OPENAI_AVAILABLE or self.client is None or not API_KEY or API_KEY in ("your_api_key_here", ""):
                 return self.get_fallback_chat_reply(user_text, valence, situation, anger_level, jealousy_level, profile, current_archetype)
                 
             prompt = f"User's Message: {user_text}\nEstimated Emotional Valence: {valence:.2f}\n"

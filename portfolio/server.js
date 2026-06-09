@@ -286,10 +286,15 @@ const getFallbackPosts = () => [
 const { spawn } = require('child_process');
 
 // 1. Get Profile
-app.get('/api/kazumi/profile', (req, res) => {
+app.get('/api/kazumi/profile', async (req, res) => {
   const profilePath = path.join(__dirname, '..', 'isa_memory', 'profile.json');
   if (!fs.existsSync(profilePath)) {
-    return res.json({ error: 'Profile memory not found' });
+    try {
+      const result = await callPythonHelper(['profile', 'None']);
+      return res.json(result);
+    } catch (e) {
+      return res.json({ error: 'Failed to initialize profile: ' + e.message });
+    }
   }
   try {
     const data = fs.readFileSync(profilePath, 'utf8');

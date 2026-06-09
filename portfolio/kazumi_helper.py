@@ -55,6 +55,8 @@ def main():
         elif command == "inactivity":
             reply = bot.reply_inactivity(1, session_id=session_id)
             result = {"success": True, "reply": reply}
+        elif command == "profile":
+            result = bot.memory.profile
         else:
             result = {"success": False, "error": f"Unknown command: {command}"}
     except Exception as e:
