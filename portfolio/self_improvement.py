@@ -269,6 +269,7 @@ def run_openai_optimizer(perf_results, qual_results):
         return generate_local_optimizations(perf_results, qual_results)
         
     try:
+        # pyright: ignore [reportMissingImports]
         from openai import OpenAI
         client = OpenAI(api_key=api_key)
         
