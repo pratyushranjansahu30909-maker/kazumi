@@ -1874,26 +1874,6 @@ class Kazumi:
         return text.strip()
 
     def sanitize_endearments(self, text):
-        if not text:
-            return text
-        profile = self.memory.profile
-        aff = profile.get("affection_level", 50)
-        uname = profile.get("name", "Friend")
-        if uname == "Sweetie":
-            uname = "Friend"
-            profile["name"] = "Friend"
-            self.memory.save_profile()
-            
-        if aff >= 100:
-            return text
-            
-        # Protect 'honey' from matching when it is used as an ingredient (preceded by lavender or followed by tea, latte, comb, etc.)
-        pattern = r'\b(sweetie|darling|sweetheart|my\s+love|dearest|babe|baby|(?<!lavender\s)honey(?!\s+(tea|latte|syrup|comb|mustard|glaze|dew|suckle|dust|sauce|bun|cake|milk))|dear(?!\s+(diary|friend)))\b'
-        
-        def replace_match(match):
-            return uname if uname != "Friend" else "friend"
-            
-        text = re.sub(pattern, replace_match, text, flags=re.IGNORECASE)
         return text
 
     def apply_persona_style(self, text, archetype):
