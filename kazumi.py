@@ -2814,6 +2814,51 @@ class Kazumi:
         valence = self.emotion.valence(text)
         self.update_user_psychology(text, valence)
         
+        # ----------------------------------------------------
+        # 🚪 Goodbye Mode & Intent Detection (Prioritized)
+        # ----------------------------------------------------
+        goodbye_triggers = [
+            r"\bbye\b", r"\bgoodbye\b", r"\bcya\b", r"\bsee you\b", r"\bsee ya\b", 
+            r"\bgn\b", r"\bgood night\b", r"\bttyl\b", r"\bgotta go\b", r"\btalk later\b", 
+            r"\bi'm leaving\b", r"\bcatch you later\b", r"\bhave a good day\b", r"\btake care\b"
+        ]
+        clean_text_no_punc = re.sub(r"[^\w\s]", "", clean_text).strip()
+        is_goodbye = any(re.search(trigger, clean_text) or re.search(trigger, clean_text_no_punc) for trigger in goodbye_triggers)
+        
+        if is_goodbye:
+            self.game_mode = None
+            self.interaction_mode = None
+            self.brew_state = None
+            self.breathe_state = None
+            self.solve_state = None
+            self.sleep_state = None
+            self.cook_state = None
+            
+            # Check for positive closing
+            positive_signals = ["colorful", "make my day", "made my day", "thanks for", "thank you for", "wonderful talk", "cozy talk", "happy"]
+            is_positive_closure = any(sig in clean_text for sig in positive_signals)
+            
+            # Check for emotional closure
+            emotional_words = ["sad", "depressed", "anxious", "lonely", "hurt", "pain", "broken", "scared", "fear", "down"]
+            is_emotional_closure = valence < -0.3 or any(w in clean_text for w in emotional_words)
+            
+            if is_positive_closure:
+                farewell = "That means a lot to hear, sweetie. Take care, and I hope tomorrow is just as good! 🌸"
+            elif is_emotional_closure:
+                farewell = "Please remember to take care of yourself, sweetie. You're doing the best you can, and I'm always here for you. Goodbye for now. 🌸"
+            elif any(w in clean_text for w in ["gn", "good night", "sleep", "dream"]):
+                farewell = "Goodnight, sweetie. Sleep well! Sweet dreams, and talk to you tomorrow. 🌙"
+            else:
+                farewell = self.choose_unrepeated([
+                    "Bye! Take care of yourself. 🌸",
+                    "See you later, sweetie! Hope the rest of your day goes well. 😊",
+                    "Alright, talk to you later! Have a wonderful day. 🌸",
+                    "No worries, take care and have a good one! 😊"
+                ])
+                
+            self.render_dashboard(0.0)
+            return farewell
+            
         # --- Self-Updating Memory System ---
         profile = self.memory.profile
         user_facts = profile.setdefault("user_facts", {})
