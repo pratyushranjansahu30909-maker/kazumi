@@ -1840,6 +1840,11 @@ class Kazumi:
         self.conversation_state = game_state.get("conversation_state", "ACTIVE_CHAT")
 
     def save_game_states(self):
+        # Synchronize conversation_state with active modes
+        if getattr(self, "game_mode", None) is None and getattr(self, "interaction_mode", None) is None:
+            if getattr(self, "conversation_state", "ACTIVE_CHAT") == "ACTIVE_GAME":
+                self.conversation_state = "ACTIVE_CHAT"
+                
         profile = self.memory.profile
         game_state = profile.setdefault("game_state", {})
         
