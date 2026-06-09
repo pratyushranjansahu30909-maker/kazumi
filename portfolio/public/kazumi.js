@@ -69,32 +69,32 @@ document.addEventListener('DOMContentLoaded', () => {
     if (currentPhase === 0) {
       // Breathe In (4 seconds)
       breathRing.style.transform = 'scale(1.25)';
-      breathRing.style.backgroundColor = '#eef4ec';
-      breathRing.style.borderColor = '#7d967a';
-      breathRing.style.boxShadow = 'none';
+      breathRing.style.backgroundColor = 'var(--breath-in-bg)';
+      breathRing.style.borderColor = 'var(--breath-in-border)';
+      breathRing.style.boxShadow = '0 0 15px rgba(59, 122, 72, 0.2)';
       breathText.textContent = 'Breathe In';
       currentPhase = 1;
     } else if (currentPhase === 1) {
       // Hold (4 seconds)
       breathRing.style.transform = 'scale(1.25)';
-      breathRing.style.backgroundColor = '#f6f0fa';
-      breathRing.style.borderColor = '#855fa3';
-      breathRing.style.boxShadow = 'none';
+      breathRing.style.backgroundColor = 'var(--breath-hold-bg)';
+      breathRing.style.borderColor = 'var(--breath-hold-border)';
+      breathRing.style.boxShadow = '0 0 15px rgba(189, 114, 214, 0.2)';
       breathText.textContent = 'Hold';
       currentPhase = 2;
     } else if (currentPhase === 2) {
       // Breathe Out (4 seconds)
       breathRing.style.transform = 'scale(0.95)';
-      breathRing.style.backgroundColor = '#faf5eb';
-      breathRing.style.borderColor = '#cca16a';
-      breathRing.style.boxShadow = 'none';
+      breathRing.style.backgroundColor = 'var(--breath-out-bg)';
+      breathRing.style.borderColor = 'var(--breath-out-border)';
+      breathRing.style.boxShadow = '0 0 15px rgba(209, 138, 63, 0.2)';
       breathText.textContent = 'Breathe Out';
       currentPhase = 3;
     } else {
       // Hold (4 seconds)
       breathRing.style.transform = 'scale(0.95)';
-      breathRing.style.backgroundColor = '#ffffff';
-      breathRing.style.borderColor = '#eae5f2';
+      breathRing.style.backgroundColor = 'var(--breath-empty-bg)';
+      breathRing.style.borderColor = 'var(--breath-empty-border)';
       breathRing.style.boxShadow = 'none';
       breathText.textContent = 'Hold';
       currentPhase = 0;
@@ -709,12 +709,12 @@ document.addEventListener('DOMContentLoaded', () => {
       toast.style.position = 'fixed';
       toast.style.bottom = '30px';
       toast.style.right = '30px';
-      toast.style.background = '#ffffff';
-      toast.style.border = '1px solid #9c78b8';
-      toast.style.color = '#553b70';
+      toast.style.background = 'var(--bg-secondary)';
+      toast.style.border = '1px solid var(--accent-primary)';
+      toast.style.color = 'var(--text-primary)';
       toast.style.padding = '0.55rem 1.15rem';
       toast.style.borderRadius = '4px';
-      toast.style.boxShadow = '0 4px 15px rgba(116, 75, 140, 0.12)';
+      toast.style.boxShadow = '0 4px 20px rgba(0, 0, 0, 0.4)';
       toast.style.zIndex = '9999';
       toast.style.fontFamily = 'var(--font-sans)';
       toast.style.fontSize = '0.85rem';
@@ -914,8 +914,52 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
+  // --- Theme Manager Logic ---
+  const startThemeManager = () => {
+    const themeBtns = document.querySelectorAll('.theme-btn');
+    
+    const applyTheme = (themeName) => {
+      // Reset body classes
+      document.body.classList.remove('theme-deep-dark', 'theme-calm-light');
+      
+      // Reset active buttons
+      themeBtns.forEach(btn => btn.classList.remove('active'));
+      
+      // Apply new theme class and activate button
+      if (themeName === 'deep-dark') {
+        document.body.classList.add('theme-deep-dark');
+        const activeBtn = document.querySelector('.theme-btn[data-theme="deep-dark"]');
+        if (activeBtn) activeBtn.classList.add('active');
+      } else if (themeName === 'calm-light') {
+        document.body.classList.add('theme-calm-light');
+        const activeBtn = document.querySelector('.theme-btn[data-theme="calm-light"]');
+        if (activeBtn) activeBtn.classList.add('active');
+      } else {
+        // Default Cozy Lavender theme
+        const activeBtn = document.querySelector('.theme-btn[data-theme="cozy-lavender"]');
+        if (activeBtn) activeBtn.classList.add('active');
+      }
+      
+      // Save to localStorage
+      localStorage.setItem('kazumi_theme', themeName);
+    };
+
+    // Bind theme button click handlers
+    themeBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const theme = btn.getAttribute('data-theme');
+        applyTheme(theme);
+      });
+    });
+
+    // Load persisted theme on boot
+    const savedTheme = localStorage.getItem('kazumi_theme') || 'cozy-lavender';
+    applyTheme(savedTheme);
+  };
+
   // Initial Triggers
   const init = async () => {
+    startThemeManager();
     startBreathingGuide();
     loadStickyNote();
     await loadProfile();
