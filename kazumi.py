@@ -1776,7 +1776,7 @@ class Kazumi:
             "If you could name a newly discovered star, what name would you give it? I think I'd name it after you! 🌌",
             "What is a small, everyday thing that you are deeply grateful for? For me, it's these quiet chats with you. 💕",
             "If you could spend a rainy afternoon painting, what scene would you try to paint on your canvas? 🎨🌧️",
-            "What's your favorite season of the year, and what's the coziest thing to do during that season? 🍂🌸",
+"What's your favorite season of the year, and what's the coziest thing to do during that season? 🍂🌸",
             "If you were a wizard, what shape do you think your animal patronus or guardian spirit would take? 🦄",
             "What is the most comforting meal you know how to cook? I'd love to learn your recipe! 🍳",
             "If you could visit any mythical place, like Atlantis or a hidden forest of elves, where would you go first? 🧝‍♀️",
@@ -1798,7 +1798,82 @@ class Kazumi:
             "If you could live in a cozy house boat on a calm lake, or a small treehouse in a giant forest, which would you pick? ⛵"
         ]
         
+        self.load_game_states()
         print("Kazumi: Empathetic Feminine Mode — Active 🌸✨")
+
+    def load_game_states(self):
+        profile = self.memory.profile
+        game_state = profile.setdefault("game_state", {})
+        
+        self.game_mode = game_state.get("game_mode", None)
+        self.secret_number = game_state.get("secret_number", 0)
+        self.guess_attempts = game_state.get("guess_attempts", 0)
+        self.secret_word = game_state.get("secret_word", "")
+        self.scrambled_word = game_state.get("scrambled_word", "")
+        self.scramble_attempts = game_state.get("scramble_attempts", 0)
+        self.rps_wins = game_state.get("rps_wins", 0)
+        self.rps_losses = game_state.get("rps_losses", 0)
+        self.wyr_asked_indexes = game_state.get("wyr_asked_indexes", [])
+        self.wyr_current_index = game_state.get("wyr_current_index", 0)
+        self.quiz_step = game_state.get("quiz_step", 0)
+        self.quiz_score = game_state.get("quiz_score", 0)
+        self.tod_choice = game_state.get("tod_choice", "")
+        self.riddle_index = game_state.get("riddle_index", 0)
+        self.riddle_attempts = game_state.get("riddle_attempts", 0)
+        self.trivia_index = game_state.get("trivia_index", 0)
+        
+        self.interaction_mode = profile.get("interaction_mode", None)
+        self.brew_state = profile.get("brew_state", None)
+        self.breathe_state = profile.get("breathe_state", None)
+        self.solve_state = profile.get("solve_state", None)
+        self.sleep_state = profile.get("sleep_state", None)
+        self.cook_state = profile.get("cook_state", None)
+
+        self.anger_level = game_state.get("anger_level", 0)
+        self.jealousy_level = game_state.get("jealousy_level", 0)
+        self.tease_count = game_state.get("tease_count", 0)
+        self.repeat_count = game_state.get("repeat_count", 0)
+        self.sorry_count = game_state.get("sorry_count", 0)
+        self.last_user_message = game_state.get("last_user_message", "")
+        self.turn_count = game_state.get("turn_count", 0)
+
+    def save_game_states(self):
+        profile = self.memory.profile
+        game_state = profile.setdefault("game_state", {})
+        
+        game_state["game_mode"] = getattr(self, "game_mode", None)
+        game_state["secret_number"] = getattr(self, "secret_number", 0)
+        game_state["guess_attempts"] = getattr(self, "guess_attempts", 0)
+        game_state["secret_word"] = getattr(self, "secret_word", "")
+        game_state["scrambled_word"] = getattr(self, "scrambled_word", "")
+        game_state["scramble_attempts"] = getattr(self, "scramble_attempts", 0)
+        game_state["rps_wins"] = getattr(self, "rps_wins", 0)
+        game_state["rps_losses"] = getattr(self, "rps_losses", 0)
+        game_state["wyr_asked_indexes"] = getattr(self, "wyr_asked_indexes", [])
+        game_state["wyr_current_index"] = getattr(self, "wyr_current_index", 0)
+        game_state["quiz_step"] = getattr(self, "quiz_step", 0)
+        game_state["quiz_score"] = getattr(self, "quiz_score", 0)
+        game_state["tod_choice"] = getattr(self, "tod_choice", "")
+        game_state["riddle_index"] = getattr(self, "riddle_index", 0)
+        game_state["riddle_attempts"] = getattr(self, "riddle_attempts", 0)
+        game_state["trivia_index"] = getattr(self, "trivia_index", 0)
+        
+        profile["interaction_mode"] = getattr(self, "interaction_mode", None)
+        profile["brew_state"] = getattr(self, "brew_state", None)
+        profile["breathe_state"] = getattr(self, "breathe_state", None)
+        profile["solve_state"] = getattr(self, "solve_state", None)
+        profile["sleep_state"] = getattr(self, "sleep_state", None)
+        profile["cook_state"] = getattr(self, "cook_state", None)
+
+        game_state["anger_level"] = getattr(self, "anger_level", 0)
+        game_state["jealousy_level"] = getattr(self, "jealousy_level", 0)
+        game_state["tease_count"] = getattr(self, "tease_count", 0)
+        game_state["repeat_count"] = getattr(self, "repeat_count", 0)
+        game_state["sorry_count"] = getattr(self, "sorry_count", 0)
+        game_state["last_user_message"] = getattr(self, "last_user_message", "")
+        game_state["turn_count"] = getattr(self, "turn_count", 0)
+        
+        self.memory.save_profile()
 
     def get_archetype_reaction(self, reactions_dict):
         arch_key = "TEASING" if self.active_character == "mimi" else "DEREDERE"
@@ -2731,6 +2806,7 @@ class Kazumi:
         if not (is_diary_cmd or is_generic_cmd):
             self.write_diary_entry(text, final_response)
             
+        self.save_game_states()
         return final_response
 
     def reply_internal(self, text, session_id=None):
