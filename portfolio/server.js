@@ -95,7 +95,13 @@ const readCredentials = () => {
     const raw = fs.readFileSync(readPath, 'utf8');
     return JSON.parse(raw);
   } catch (e) {
-    if (readPath === filePath && fs.existsSync(filePath + '.bak')) {
+    if (readPath === filePath && fs.existsSync(filePath)) {
+      const corruptedPath = `${filePath}.corrupted.${Math.floor(Date.now() / 1000)}`;
+      try {
+        fs.renameSync(filePath, corruptedPath);
+      } catch (err) {}
+    }
+    if (fs.existsSync(filePath + '.bak')) {
       try {
         const raw = fs.readFileSync(filePath + '.bak', 'utf8');
         return JSON.parse(raw);
@@ -111,9 +117,18 @@ const saveCredentials = (creds) => {
     if (fs.existsSync(filePath)) {
       fs.copyFileSync(filePath, filePath + '.bak');
     }
-    fs.writeFileSync(filePath, JSON.stringify(creds, null, 2), 'utf8');
+    const tmpPath = filePath + '.tmp';
+    const fd = fs.openSync(tmpPath, 'w');
+    fs.writeSync(fd, JSON.stringify(creds, null, 2), null, 'utf8');
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fs.renameSync(tmpPath, filePath);
   } catch (e) {
-    console.error('Failed to save credentials:', e.message);
+    console.error('Failed to save credentials atomically:', e.message);
+    const tmpPath = filePath + '.tmp';
+    if (fs.existsSync(tmpPath)) {
+      try { fs.unlinkSync(tmpPath); } catch (err) {}
+    }
   }
 };
 
@@ -205,7 +220,13 @@ app.post('/api/kazumi/reset', (req, res) => {
       const data = JSON.parse(fs.readFileSync(profilePath, 'utf8'));
       data.cozy_points = 0;
       data.diary = [];
-      fs.writeFileSync(profilePath, JSON.stringify(data, null, 2), 'utf8');
+      
+      const tmpPath = profilePath + '.tmp';
+      const fd = fs.openSync(tmpPath, 'w');
+      fs.writeSync(fd, JSON.stringify(data, null, 2), null, 'utf8');
+      fs.fsyncSync(fd);
+      fs.closeSync(fd);
+      fs.renameSync(tmpPath, profilePath);
     }
     res.json({ success: true, message: 'Profile reset successfully.' });
   } catch (e) {
@@ -220,13 +241,28 @@ app.post('/api/kazumi/profile', (req, res) => {
     let profile = {};
     if (fs.existsSync(profilePath)) {
       fs.copyFileSync(profilePath, profilePath + '.bak');
-      profile = JSON.parse(fs.readFileSync(profilePath, 'utf8'));
+      try {
+        profile = JSON.parse(fs.readFileSync(profilePath, 'utf8'));
+      } catch (err) {
+        if (fs.existsSync(profilePath + '.bak')) {
+          try {
+            profile = JSON.parse(fs.readFileSync(profilePath + '.bak', 'utf8'));
+          } catch (inner) {}
+        }
+      }
     }
     const body = req.body;
     for (const k in body) {
       profile[k] = body[k];
     }
-    fs.writeFileSync(profilePath, JSON.stringify(profile, null, 2), 'utf8');
+    
+    const tmpPath = profilePath + '.tmp';
+    const fd = fs.openSync(tmpPath, 'w');
+    fs.writeSync(fd, JSON.stringify(profile, null, 2), null, 'utf8');
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fs.renameSync(tmpPath, profilePath);
+    
     res.json({ success: true, message: 'Profile synced successfully.' });
   } catch (e) {
     res.json({ success: false, error: e.message });

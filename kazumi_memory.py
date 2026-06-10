@@ -34,24 +34,59 @@ class ChromaMemory:
         self.history = self.load_history()
         self.profile = self.load_profile()
 
+    def _atomic_write_json(self, file_path, data):
+        try:
+            # Step 1: Pre-write backup to .bak
+            if os.path.exists(file_path):
+                import shutil
+                shutil.copy2(file_path, file_path + ".bak")
+            
+            # Step 2: Write atomically to .tmp
+            tmp_path = file_path + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            
+            # Step 3: Atomic replacement
+            os.replace(tmp_path, file_path)
+            return True
+        except Exception as e:
+            tmp_path = file_path + ".tmp"
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+            raise e
+
     def load_profile(self):
         profile = None
-        exists = os.path.exists(self.profile_path)
-        read_path = self.profile_path
-        if not exists and os.path.exists(self.profile_path + ".bak"):
-            exists = True
-            read_path = self.profile_path + ".bak"
-        if exists:
+        
+        def attempt_read(path):
+            if os.path.exists(path) and os.path.getsize(path) > 0:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            raise FileNotFoundError()
+
+        # Attempt 1: Read main profile
+        try:
+            profile = attempt_read(self.profile_path)
+        except Exception:
+            # If main exists but failed (corruption), archive it
+            if os.path.exists(self.profile_path):
+                corrupted_path = f"{self.profile_path}.corrupted.{int(time.time())}"
+                try:
+                    os.rename(self.profile_path, corrupted_path)
+                except Exception:
+                    pass
+            
+            # Attempt 2: Read backup
             try:
-                with open(read_path, "r", encoding="utf-8") as f:
-                    profile = json.load(f)
+                profile = attempt_read(self.profile_path + ".bak")
             except Exception:
-                if read_path == self.profile_path and os.path.exists(self.profile_path + ".bak"):
-                    try:
-                        with open(self.profile_path + ".bak", "r", encoding="utf-8") as f:
-                            profile = json.load(f)
-                    except Exception:
-                        pass
+                pass
+
         if not profile:
             profile = self.get_default_profile()
             
@@ -59,6 +94,7 @@ class ChromaMemory:
             profile["name"] = "Friend"
             
         defaults = {
+            "_schema_version": 1,
             "diary": [],
             "cozy_points": 100,
             "room_decorations": [],
@@ -92,11 +128,12 @@ class ChromaMemory:
 
     def get_default_profile(self):
         return {
+            "_schema_version": 1,
             "name": "Friend",
             "favorite_drink": "None",
             "birthday": "None",
             "hobbies": [],
-            "affection_level": 0,
+            "affection_level": 50,
             "gifts_given": {},
             "diary": [],
             "cozy_points": 100,
@@ -126,42 +163,43 @@ class ChromaMemory:
     def save_profile(self):
         try:
             logger.info("Saving profile with affection_level=%s", self.profile.get("affection_level"))
-            if os.path.exists(self.profile_path):
-                import shutil
-                shutil.copy2(self.profile_path, self.profile_path + ".bak")
-            with open(self.profile_path, "w", encoding="utf-8") as f:
-                json.dump(self.profile, f, ensure_ascii=False, indent=2)
+            if self.profile and isinstance(self.profile, dict) and "cozy_points" in self.profile:
+                self._atomic_write_json(self.profile_path, self.profile)
         except Exception:
             pass
 
     def load_history(self):
         logger.info("Loading conversation history from %s", self.persist_path)
-        exists = os.path.exists(self.persist_path)
-        read_path = self.persist_path
-        if not exists and os.path.exists(self.persist_path + ".bak"):
-            exists = True
-            read_path = self.persist_path + ".bak"
-        if exists:
-            try:
-                with open(read_path, "r", encoding="utf-8") as f:
+        
+        def attempt_read(path):
+            if os.path.exists(path) and os.path.getsize(path) > 0:
+                with open(path, "r", encoding="utf-8") as f:
                     return json.load(f)
+            raise FileNotFoundError()
+
+        # Attempt 1: Read main conversations.json
+        try:
+            return attempt_read(self.persist_path)
+        except Exception:
+            # If main exists but failed (corruption), archive it
+            if os.path.exists(self.persist_path):
+                corrupted_path = f"{self.persist_path}.corrupted.{int(time.time())}"
+                try:
+                    os.rename(self.persist_path, corrupted_path)
+                except Exception:
+                    pass
+            
+            # Attempt 2: Read backup
+            try:
+                return attempt_read(self.persist_path + ".bak")
             except Exception:
-                if read_path == self.persist_path and os.path.exists(self.persist_path + ".bak"):
-                    try:
-                        with open(self.persist_path + ".bak", "r", encoding="utf-8") as f:
-                            return json.load(f)
-                    except Exception:
-                        pass
-                return []
+                pass
         return []
 
     def save_history(self):
         try:
-            if os.path.exists(self.persist_path):
-                import shutil
-                shutil.copy2(self.persist_path, self.persist_path + ".bak")
-            with open(self.persist_path, "w", encoding="utf-8") as f:
-                json.dump(self.history, f, ensure_ascii=False, indent=2)
+            if isinstance(self.history, list):
+                self._atomic_write_json(self.persist_path, self.history)
         except Exception:
             pass
 

@@ -90,6 +90,29 @@ def decrypt(enc_obj):
 # 📁 Credentials File Storage Operations
 # ----------------------------------------------------
 
+def _atomic_write_json(file_path, data):
+    try:
+        if os.path.exists(file_path):
+            import shutil
+            shutil.copy2(file_path, file_path + ".bak")
+        
+        tmp_path = file_path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        
+        os.replace(tmp_path, file_path)
+        return True
+    except Exception as e:
+        tmp_path = file_path + ".tmp"
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+        raise e
+
 def read_credentials():
     exists = os.path.exists(CREDENTIALS_FILE)
     read_path = CREDENTIALS_FILE
@@ -102,7 +125,14 @@ def read_credentials():
         with open(read_path, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception:
-        if read_path == CREDENTIALS_FILE and os.path.exists(CREDENTIALS_FILE + ".bak"):
+        if read_path == CREDENTIALS_FILE and os.path.exists(CREDENTIALS_FILE):
+            import time
+            corrupted_path = f"{CREDENTIALS_FILE}.corrupted.{int(time.time())}"
+            try:
+                os.rename(CREDENTIALS_FILE, corrupted_path)
+            except Exception:
+                pass
+        if os.path.exists(CREDENTIALS_FILE + ".bak"):
             try:
                 with open(CREDENTIALS_FILE + ".bak", "r", encoding="utf-8") as f:
                     return json.load(f)
@@ -112,13 +142,9 @@ def read_credentials():
 
 def save_credentials(creds):
     try:
-        if os.path.exists(CREDENTIALS_FILE):
-            import shutil
-            shutil.copy2(CREDENTIALS_FILE, CREDENTIALS_FILE + ".bak")
-        with open(CREDENTIALS_FILE, "w", encoding="utf-8") as f:
-            json.dump(creds, f, ensure_ascii=False, indent=2)
+        _atomic_write_json(CREDENTIALS_FILE, creds)
     except Exception as e:
-        print("Failed to save credentials:", e)
+        print("Failed to save credentials atomically:", e)
 
 # ----------------------------------------------------
 # 🪐 Mock Fallback Data (Matching Node Server)
@@ -441,12 +467,16 @@ class PortfolioRequestHandler(BaseHTTPRequestHandler):
                         if os.path.exists(profile_path):
                             import shutil
                             shutil.copy2(profile_path, profile_path + ".bak")
-                            with open(profile_path, "r", encoding="utf-8") as f:
-                                profile = json.load(f)
+                            try:
+                                with open(profile_path, "r", encoding="utf-8") as f:
+                                    profile = json.load(f)
+                            except Exception:
+                                if os.path.exists(profile_path + ".bak"):
+                                    with open(profile_path + ".bak", "r", encoding="utf-8") as f:
+                                        profile = json.load(f)
                         for k, v in body.items():
                             profile[k] = v
-                        with open(profile_path, "w", encoding="utf-8") as f:
-                            json.dump(profile, f, ensure_ascii=False, indent=2)
+                        _atomic_write_json(profile_path, profile)
                     except Exception as e:
                         self.send_json({"success": False, "error": str(e)})
                         return
@@ -464,12 +494,16 @@ class PortfolioRequestHandler(BaseHTTPRequestHandler):
                         try:
                             import shutil
                             shutil.copy2(profile_path, profile_path + ".bak")
-                            with open(profile_path, "r", encoding="utf-8") as f:
-                                profile = json.load(f)
+                            try:
+                                with open(profile_path, "r", encoding="utf-8") as f:
+                                    profile = json.load(f)
+                            except Exception:
+                                if os.path.exists(profile_path + ".bak"):
+                                    with open(profile_path + ".bak", "r", encoding="utf-8") as f:
+                                        profile = json.load(f)
                             profile["cozy_points"] = 0
                             profile["diary"] = []
-                            with open(profile_path, "w", encoding="utf-8") as f:
-                                json.dump(profile, f, ensure_ascii=False, indent=2)
+                            _atomic_write_json(profile_path, profile)
                         except Exception as e:
                             self.send_json({"success": False, "error": str(e)})
                             return
