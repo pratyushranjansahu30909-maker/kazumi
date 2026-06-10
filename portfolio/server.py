@@ -476,6 +476,8 @@ class PortfolioRequestHandler(BaseHTTPRequestHandler):
                                         profile = json.load(f)
                         for k, v in body.items():
                             profile[k] = v
+                        if profile.get("_is_default"):
+                            profile["_is_default"] = False
                         _atomic_write_json(profile_path, profile)
                     except Exception as e:
                         self.send_json({"success": False, "error": str(e)})
@@ -503,6 +505,8 @@ class PortfolioRequestHandler(BaseHTTPRequestHandler):
                                         profile = json.load(f)
                             profile["cozy_points"] = 0
                             profile["diary"] = []
+                            if profile.get("_is_default"):
+                                profile["_is_default"] = False
                             _atomic_write_json(profile_path, profile)
                         except Exception as e:
                             self.send_json({"success": False, "error": str(e)})

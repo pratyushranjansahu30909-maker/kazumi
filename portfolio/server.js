@@ -220,6 +220,9 @@ app.post('/api/kazumi/reset', (req, res) => {
       const data = JSON.parse(fs.readFileSync(profilePath, 'utf8'));
       data.cozy_points = 0;
       data.diary = [];
+      if (data._is_default) {
+        data._is_default = false;
+      }
       
       const tmpPath = profilePath + '.tmp';
       const fd = fs.openSync(tmpPath, 'w');
@@ -254,6 +257,9 @@ app.post('/api/kazumi/profile', (req, res) => {
     const body = req.body;
     for (const k in body) {
       profile[k] = body[k];
+    }
+    if (profile._is_default) {
+      profile._is_default = false;
     }
     
     const tmpPath = profilePath + '.tmp';

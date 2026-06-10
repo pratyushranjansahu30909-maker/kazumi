@@ -176,6 +176,13 @@ class ChromaMemory:
         # Ensure all default fields exist
         defaults = {
             "_schema_version": 1,
+            "_is_default": False,
+            "name": "Friend",
+            "favorite_drink": "None",
+            "birthday": "None",
+            "hobbies": [],
+            "affection_level": 50,
+            "gifts_given": {},
             "diary": [],
             "cozy_points": 100,
             "room_decorations": [],
@@ -209,6 +216,7 @@ class ChromaMemory:
     def get_default_profile(self):
         return {
             "_schema_version": 1,
+            "_is_default": True,
             "name": "Friend",
             "favorite_drink": "None",
             "birthday": "None",
@@ -245,6 +253,8 @@ class ChromaMemory:
             try:
                 # Basic layout validation to prevent saving empty/broken schemas
                 if self.profile and isinstance(self.profile, dict) and "cozy_points" in self.profile:
+                    if self.profile.get("_is_default"):
+                        self.profile["_is_default"] = False
                     self._atomic_write_json(self.profile_path, self.profile)
             except Exception:
                 pass

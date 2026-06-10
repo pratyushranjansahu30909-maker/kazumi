@@ -499,25 +499,34 @@ document.addEventListener('DOMContentLoaded', () => {
             const localProfile = JSON.parse(localProfileStr);
             let needsSync = false;
             if (localProfile && typeof localProfile === 'object') {
-              if ((localProfile.affection_level || 0) > (profile.affection_level || 0)) {
-                profile.affection_level = localProfile.affection_level;
+              if (profile._is_default && !localProfile._is_default) {
+                // Server is a default blank profile, but browser has existing user progress.
+                // Restore the entire local profile to the server!
+                profile = { ...localProfile };
+                profile._is_default = false;
                 needsSync = true;
-              }
-              if ((localProfile.cozy_points || 0) > (profile.cozy_points || 0)) {
-                profile.cozy_points = localProfile.cozy_points;
-                needsSync = true;
-              }
-              if (localProfile.room_decorations && localProfile.room_decorations.length > (profile.room_decorations || []).length) {
-                profile.room_decorations = localProfile.room_decorations;
-                needsSync = true;
-              }
-              if (localProfile.achievements && localProfile.achievements.length > (profile.achievements || []).length) {
-                profile.achievements = localProfile.achievements;
-                needsSync = true;
-              }
-              if (localProfile.diary && localProfile.diary.length > (profile.diary || []).length) {
-                profile.diary = localProfile.diary;
-                needsSync = true;
+              } else {
+                // Otherwise, merge field-by-field if local has higher progress
+                if ((localProfile.affection_level || 0) > (profile.affection_level || 0)) {
+                  profile.affection_level = localProfile.affection_level;
+                  needsSync = true;
+                }
+                if ((localProfile.cozy_points || 0) > (profile.cozy_points || 0)) {
+                  profile.cozy_points = localProfile.cozy_points;
+                  needsSync = true;
+                }
+                if (localProfile.room_decorations && localProfile.room_decorations.length > (profile.room_decorations || []).length) {
+                  profile.room_decorations = localProfile.room_decorations;
+                  needsSync = true;
+                }
+                if (localProfile.achievements && localProfile.achievements.length > (profile.achievements || []).length) {
+                  profile.achievements = localProfile.achievements;
+                  needsSync = true;
+                }
+                if (localProfile.diary && localProfile.diary.length > (profile.diary || []).length) {
+                  profile.diary = localProfile.diary;
+                  needsSync = true;
+                }
               }
               
               if (needsSync) {
