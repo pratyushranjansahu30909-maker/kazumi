@@ -13,6 +13,8 @@ import threading
 # Absolute path to companion database directory
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ISA_MEMORY_DIR = os.path.join(ROOT_DIR, "isa_memory")
+if os.environ.get("SPACE_ID") and os.path.exists("/data") and os.access("/data", os.W_OK):
+    ISA_MEMORY_DIR = os.path.join("/data", "isa_memory")
 
 KAZUMI_LOCK = threading.Lock()
 

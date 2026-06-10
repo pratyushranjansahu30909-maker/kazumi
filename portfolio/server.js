@@ -10,6 +10,23 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const CREDENTIALS_FILE = path.join(__dirname, 'credentials.json');
 
+// Resolve the isa_memory directory dynamically to support persistent volume mounts on Hugging Face Spaces
+const getIsaMemoryDir = () => {
+  if (process.env.SPACE_ID && fs.existsSync('/data')) {
+    try {
+      fs.accessSync('/data', fs.constants.W_OK);
+      const targetDir = '/data/isa_memory';
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+      }
+      return targetDir;
+    } catch (e) {
+      console.warn('Hugging Face /data directory exists but is not writable. Falling back to default:', e.message);
+    }
+  }
+  return path.join(__dirname, '..', 'isa_memory');
+};
+
 app.use(cors());
 app.use(express.json());
 
@@ -158,7 +175,7 @@ app.post('/api/settings/clear', (req, res) => {
 
 // 3b. Reset Profile
 app.post('/api/kazumi/reset', (req, res) => {
-  const profilePath = path.join(__dirname, '..', 'isa_memory', 'profile.json');
+  const profilePath = path.join(getIsaMemoryDir(), 'profile.json');
   try {
     if (fs.existsSync(profilePath)) {
       const data = JSON.parse(fs.readFileSync(profilePath, 'utf8'));
@@ -174,7 +191,7 @@ app.post('/api/kazumi/reset', (req, res) => {
 
 // 3c. Sync Profile Progress
 app.post('/api/kazumi/profile', (req, res) => {
-  const profilePath = path.join(__dirname, '..', 'isa_memory', 'profile.json');
+  const profilePath = path.join(getIsaMemoryDir(), 'profile.json');
   try {
     let profile = {};
     if (fs.existsSync(profilePath)) {
@@ -322,7 +339,7 @@ const { spawn } = require('child_process');
 
 // 1. Get Profile
 app.get('/api/kazumi/profile', async (req, res) => {
-  const profilePath = path.join(__dirname, '..', 'isa_memory', 'profile.json');
+  const profilePath = path.join(getIsaMemoryDir(), 'profile.json');
   if (!fs.existsSync(profilePath)) {
     try {
       const result = await callPythonHelper(['profile', 'None']);
@@ -341,7 +358,7 @@ app.get('/api/kazumi/profile', async (req, res) => {
 
 // 2. Get Chat (Session) - Returns existing chat logs (does not reset)
 app.get('/api/kazumi/chat', (req, res) => {
-  const chatPath = path.join(__dirname, '..', 'isa_memory', 'conversations.json');
+  const chatPath = path.join(getIsaMemoryDir(), 'conversations.json');
   if (!fs.existsSync(chatPath)) {
     return res.json([]);
   }
@@ -359,7 +376,7 @@ app.get('/api/kazumi/chat', (req, res) => {
 
 // 3. Get History (All)
 app.get('/api/kazumi/history', (req, res) => {
-  const chatPath = path.join(__dirname, '..', 'isa_memory', 'conversations.json');
+  const chatPath = path.join(getIsaMemoryDir(), 'conversations.json');
   if (!fs.existsSync(chatPath)) {
     return res.json([]);
   }
