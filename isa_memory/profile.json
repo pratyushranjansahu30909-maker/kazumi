@@ -1,0 +1,112 @@
+{
+  "name": "Sweet Friend",
+  "favorite_drink": "Dreamy Lavender Sweet Earl Grey Tea",
+  "birthday": "None",
+  "hobbies": [
+    "play chess",
+    "you so much"
+  ],
+  "affection_level": 2,
+  "gifts_given": {},
+  "diary": [],
+  "cozy_points": 0,
+  "room_decorations": [
+    "Warm Fairy Lights ✨"
+  ],
+  "unlocked_photos": [],
+  "achievements": [
+    "FIRST_TALK",
+    "DIARY_READER",
+    "RICH_COMPANION",
+    "STAR_SEEKER",
+    "BREW_MASTER",
+    "MASTER_BAKER",
+    "GAME_CHAMP",
+    "ROOM_DESIGNER"
+  ],
+  "quests": {
+    "active": [
+      {
+        "id": "game",
+        "desc": "Play a game with Kazumi",
+        "target": 1,
+        "progress": 1,
+        "points": 30
+      },
+      {
+        "id": "chat",
+        "desc": "Chat with Kazumi (5 messages)",
+        "target": 5,
+        "progress": 0,
+        "points": 20
+      },
+      {
+        "id": "tarot",
+        "desc": "Do a tarot reading",
+        "target": 1,
+        "progress": 0,
+        "points": 25
+      }
+    ],
+    "last_update": 1781018761.3687842
+  },
+  "psychology": {
+    "avg_word_count": 2.177001127395715,
+    "msg_count": 887,
+    "dominant_vibe": "Quiet/Dry Communication",
+    "interaction_preference": "Concise Comfort & Light Playful Prompts",
+    "rolling_valence": -2.9274734728413024e-12,
+    "custom_guidelines": [
+      "Keep responses ultra-short, brief and concise (under 15 words) to match the user's terse communication style."
+    ],
+    "brevity_pref": "detailed",
+    "avg_word_length": 4.0,
+    "lexical_diversity": 1.0,
+    "question_density": 0.0,
+    "exclamation_density": 0.0,
+    "emoji_density": 0.0,
+    "dominant_trait": "Terse & Brief"
+  },
+  "zodiac": "Scorpio",
+  "horoscope_date": "None",
+  "baked_inventory": {
+    "Matcha Soufflé 🍵🧁": 2
+  },
+  "character": "mimi",
+  "user_facts": {
+    "mood": "tired"
+  },
+  "archetype": "DEREDERE",
+  "game_state": {
+    "game_mode": null,
+    "secret_number": 0,
+    "guess_attempts": 0,
+    "secret_word": "",
+    "scrambled_word": "",
+    "scramble_attempts": 0,
+    "rps_wins": 0,
+    "rps_losses": 0,
+    "wyr_asked_indexes": [],
+    "wyr_current_index": 0,
+    "quiz_step": 0,
+    "quiz_score": 0,
+    "tod_choice": "",
+    "riddle_index": 0,
+    "riddle_attempts": 0,
+    "trivia_index": 0,
+    "anger_level": 0,
+    "jealousy_level": 0,
+    "tease_count": 0,
+    "repeat_count": 0,
+    "sorry_count": 0,
+    "last_user_message": "",
+    "turn_count": 0,
+    "conversation_state": "ACTIVE_CHAT"
+  },
+  "interaction_mode": null,
+  "brew_state": null,
+  "breathe_state": null,
+  "solve_state": null,
+  "sleep_state": null,
+  "cook_state": null
+}
