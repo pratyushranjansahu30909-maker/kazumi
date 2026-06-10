@@ -1,4 +1,6 @@
 import os
+import logging
+logger = logging.getLogger("kazumi_memory")
 import re
 import time
 import json
@@ -75,6 +77,7 @@ class ChromaMemory:
         for k, v in defaults.items():
             if k not in profile:
                 profile[k] = v
+        logger.info("Loaded profile with affection_level=%s", profile.get("affection_level"))
         return CozyProfileDict(profile)
 
     def get_default_profile(self):
@@ -112,12 +115,14 @@ class ChromaMemory:
 
     def save_profile(self):
         try:
+            logger.info("Saving profile with affection_level=%s", self.profile.get("affection_level"))
             with open(self.profile_path, "w", encoding="utf-8") as f:
                 json.dump(self.profile, f, ensure_ascii=False, indent=2)
         except Exception:
             pass
 
     def load_history(self):
+        logger.info("Loading conversation history from %s", self.persist_path)
         if os.path.exists(self.persist_path):
             try:
                 with open(self.persist_path, "r", encoding="utf-8") as f:
@@ -143,6 +148,7 @@ class ChromaMemory:
             "timestamp": time.time(),
             "session_id": session_id
         })
+        logger.info("Appending to history: %s", text[:30])
         self.save_history()
 
     def recall(self, text, top_k=3, speaker_filter=None):
