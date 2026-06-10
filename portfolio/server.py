@@ -35,7 +35,7 @@ except Exception as e:
     kazumi_bot = None
 
 PORT = 3000
-CREDENTIALS_FILE = "credentials.json"
+CREDENTIALS_FILE = os.path.join(ISA_MEMORY_DIR, "credentials.json")
 ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY", "my_secure_portfolio_encryption_key_hash_to_32_bytes_fallback_key")
 
 # ----------------------------------------------------
@@ -91,17 +91,34 @@ def decrypt(enc_obj):
 # ----------------------------------------------------
 
 def read_credentials():
-    if not os.path.exists(CREDENTIALS_FILE):
+    exists = os.path.exists(CREDENTIALS_FILE)
+    read_path = CREDENTIALS_FILE
+    if not exists and os.path.exists(CREDENTIALS_FILE + ".bak"):
+        exists = True
+        read_path = CREDENTIALS_FILE + ".bak"
+    if not exists:
         return {"github": None, "linkedin": None}
     try:
-        with open(CREDENTIALS_FILE, "r", encoding="utf-8") as f:
+        with open(read_path, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception:
+        if read_path == CREDENTIALS_FILE and os.path.exists(CREDENTIALS_FILE + ".bak"):
+            try:
+                with open(CREDENTIALS_FILE + ".bak", "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
         return {"github": None, "linkedin": None}
 
 def save_credentials(creds):
-    with open(CREDENTIALS_FILE, "w", encoding="utf-8") as f:
-        json.dump(creds, f, ensure_ascii=False, indent=2)
+    try:
+        if os.path.exists(CREDENTIALS_FILE):
+            import shutil
+            shutil.copy2(CREDENTIALS_FILE, CREDENTIALS_FILE + ".bak")
+        with open(CREDENTIALS_FILE, "w", encoding="utf-8") as f:
+            json.dump(creds, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print("Failed to save credentials:", e)
 
 # ----------------------------------------------------
 # 🪐 Mock Fallback Data (Matching Node Server)
@@ -422,6 +439,8 @@ class PortfolioRequestHandler(BaseHTTPRequestHandler):
                     try:
                         profile = {}
                         if os.path.exists(profile_path):
+                            import shutil
+                            shutil.copy2(profile_path, profile_path + ".bak")
                             with open(profile_path, "r", encoding="utf-8") as f:
                                 profile = json.load(f)
                         for k, v in body.items():
@@ -443,6 +462,8 @@ class PortfolioRequestHandler(BaseHTTPRequestHandler):
                     profile_path = os.path.join(ISA_MEMORY_DIR, "profile.json")
                     if os.path.exists(profile_path):
                         try:
+                            import shutil
+                            shutil.copy2(profile_path, profile_path + ".bak")
                             with open(profile_path, "r", encoding="utf-8") as f:
                                 profile = json.load(f)
                             profile["cozy_points"] = 0

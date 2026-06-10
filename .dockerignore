@@ -9,3 +9,9 @@ portfolio/credentials.json
 .gemini
 .idea
 .vscode
+portfolio_public.zip
+portfolio/backups/
+portfolio/logs/
+*.zip
+*.bak
+

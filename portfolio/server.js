@@ -8,7 +8,6 @@ require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const CREDENTIALS_FILE = path.join(__dirname, 'credentials.json');
 
 // Resolve the isa_memory directory dynamically to support persistent volume mounts on Hugging Face Spaces
 const getIsaMemoryDir = () => {
@@ -26,6 +25,9 @@ const getIsaMemoryDir = () => {
   }
   return path.join(__dirname, '..', 'isa_memory');
 };
+
+// Resolve the credentials file path dynamically to persist across Hugging Face redeployments
+const getCredentialsFilePath = () => path.join(getIsaMemoryDir(), 'credentials.json');
 
 app.use(cors());
 app.use(express.json());
@@ -79,19 +81,40 @@ const decrypt = (encryptedObj) => {
 // ----------------------------------------------------
 
 const readCredentials = () => {
-  if (!fs.existsSync(CREDENTIALS_FILE)) {
+  const filePath = getCredentialsFilePath();
+  let exists = fs.existsSync(filePath);
+  let readPath = filePath;
+  if (!exists && fs.existsSync(filePath + '.bak')) {
+    exists = true;
+    readPath = filePath + '.bak';
+  }
+  if (!exists) {
     return { github: null, linkedin: null };
   }
   try {
-    const raw = fs.readFileSync(CREDENTIALS_FILE, 'utf8');
+    const raw = fs.readFileSync(readPath, 'utf8');
     return JSON.parse(raw);
   } catch (e) {
+    if (readPath === filePath && fs.existsSync(filePath + '.bak')) {
+      try {
+        const raw = fs.readFileSync(filePath + '.bak', 'utf8');
+        return JSON.parse(raw);
+      } catch (inner) {}
+    }
     return { github: null, linkedin: null };
   }
 };
 
 const saveCredentials = (creds) => {
-  fs.writeFileSync(CREDENTIALS_FILE, JSON.stringify(creds, null, 2), 'utf8');
+  const filePath = getCredentialsFilePath();
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.copyFileSync(filePath, filePath + '.bak');
+    }
+    fs.writeFileSync(filePath, JSON.stringify(creds, null, 2), 'utf8');
+  } catch (e) {
+    console.error('Failed to save credentials:', e.message);
+  }
 };
 
 // ----------------------------------------------------
@@ -178,6 +201,7 @@ app.post('/api/kazumi/reset', (req, res) => {
   const profilePath = path.join(getIsaMemoryDir(), 'profile.json');
   try {
     if (fs.existsSync(profilePath)) {
+      fs.copyFileSync(profilePath, profilePath + '.bak');
       const data = JSON.parse(fs.readFileSync(profilePath, 'utf8'));
       data.cozy_points = 0;
       data.diary = [];
@@ -195,6 +219,7 @@ app.post('/api/kazumi/profile', (req, res) => {
   try {
     let profile = {};
     if (fs.existsSync(profilePath)) {
+      fs.copyFileSync(profilePath, profilePath + '.bak');
       profile = JSON.parse(fs.readFileSync(profilePath, 'utf8'));
     }
     const body = req.body;
@@ -340,7 +365,13 @@ const { spawn } = require('child_process');
 // 1. Get Profile
 app.get('/api/kazumi/profile', async (req, res) => {
   const profilePath = path.join(getIsaMemoryDir(), 'profile.json');
-  if (!fs.existsSync(profilePath)) {
+  let exists = fs.existsSync(profilePath);
+  let readPath = profilePath;
+  if (!exists && fs.existsSync(profilePath + '.bak')) {
+    exists = true;
+    readPath = profilePath + '.bak';
+  }
+  if (!exists) {
     try {
       const result = await callPythonHelper(['profile', 'None']);
       return res.json(result);
@@ -349,9 +380,15 @@ app.get('/api/kazumi/profile', async (req, res) => {
     }
   }
   try {
-    const data = fs.readFileSync(profilePath, 'utf8');
+    const data = fs.readFileSync(readPath, 'utf8');
     res.json(JSON.parse(data));
   } catch (e) {
+    if (readPath === profilePath && fs.existsSync(profilePath + '.bak')) {
+      try {
+        const data = fs.readFileSync(profilePath + '.bak', 'utf8');
+        return res.json(JSON.parse(data));
+      } catch (inner) {}
+    }
     res.json({ error: 'Failed to read profile: ' + e.message });
   }
 });

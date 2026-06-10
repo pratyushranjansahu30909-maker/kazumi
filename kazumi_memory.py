@@ -36,12 +36,22 @@ class ChromaMemory:
 
     def load_profile(self):
         profile = None
-        if os.path.exists(self.profile_path):
+        exists = os.path.exists(self.profile_path)
+        read_path = self.profile_path
+        if not exists and os.path.exists(self.profile_path + ".bak"):
+            exists = True
+            read_path = self.profile_path + ".bak"
+        if exists:
             try:
-                with open(self.profile_path, "r", encoding="utf-8") as f:
+                with open(read_path, "r", encoding="utf-8") as f:
                     profile = json.load(f)
             except Exception:
-                pass
+                if read_path == self.profile_path and os.path.exists(self.profile_path + ".bak"):
+                    try:
+                        with open(self.profile_path + ".bak", "r", encoding="utf-8") as f:
+                            profile = json.load(f)
+                    except Exception:
+                        pass
         if not profile:
             profile = self.get_default_profile()
             
@@ -116,6 +126,9 @@ class ChromaMemory:
     def save_profile(self):
         try:
             logger.info("Saving profile with affection_level=%s", self.profile.get("affection_level"))
+            if os.path.exists(self.profile_path):
+                import shutil
+                shutil.copy2(self.profile_path, self.profile_path + ".bak")
             with open(self.profile_path, "w", encoding="utf-8") as f:
                 json.dump(self.profile, f, ensure_ascii=False, indent=2)
         except Exception:
@@ -123,16 +136,30 @@ class ChromaMemory:
 
     def load_history(self):
         logger.info("Loading conversation history from %s", self.persist_path)
-        if os.path.exists(self.persist_path):
+        exists = os.path.exists(self.persist_path)
+        read_path = self.persist_path
+        if not exists and os.path.exists(self.persist_path + ".bak"):
+            exists = True
+            read_path = self.persist_path + ".bak"
+        if exists:
             try:
-                with open(self.persist_path, "r", encoding="utf-8") as f:
+                with open(read_path, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception:
+                if read_path == self.persist_path and os.path.exists(self.persist_path + ".bak"):
+                    try:
+                        with open(self.persist_path + ".bak", "r", encoding="utf-8") as f:
+                            return json.load(f)
+                    except Exception:
+                        pass
                 return []
         return []
 
     def save_history(self):
         try:
+            if os.path.exists(self.persist_path):
+                import shutil
+                shutil.copy2(self.persist_path, self.persist_path + ".bak")
             with open(self.persist_path, "w", encoding="utf-8") as f:
                 json.dump(self.history, f, ensure_ascii=False, indent=2)
         except Exception:
