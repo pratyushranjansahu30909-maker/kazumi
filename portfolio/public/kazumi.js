@@ -491,6 +491,52 @@ document.addEventListener('DOMContentLoaded', () => {
         profile = await res.json();
         if (profile.error) throw new Error(profile.error);
         useClientFallback = false; // Successfully recovered!
+
+        // Bidirectional Sync: Check if local storage has higher progress than the server
+        const localProfileStr = localStorage.getItem('kazumi_profile');
+        if (localProfileStr) {
+          try {
+            const localProfile = JSON.parse(localProfileStr);
+            let needsSync = false;
+            if (localProfile && typeof localProfile === 'object') {
+              if ((localProfile.affection_level || 0) > (profile.affection_level || 0)) {
+                profile.affection_level = localProfile.affection_level;
+                needsSync = true;
+              }
+              if ((localProfile.cozy_points || 0) > (profile.cozy_points || 0)) {
+                profile.cozy_points = localProfile.cozy_points;
+                needsSync = true;
+              }
+              if (localProfile.room_decorations && localProfile.room_decorations.length > (profile.room_decorations || []).length) {
+                profile.room_decorations = localProfile.room_decorations;
+                needsSync = true;
+              }
+              if (localProfile.achievements && localProfile.achievements.length > (profile.achievements || []).length) {
+                profile.achievements = localProfile.achievements;
+                needsSync = true;
+              }
+              if (localProfile.diary && localProfile.diary.length > (profile.diary || []).length) {
+                profile.diary = localProfile.diary;
+                needsSync = true;
+              }
+              
+              if (needsSync) {
+                console.log("Syncing higher local progress to server...");
+                await fetch('/api/kazumi/profile', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(profile)
+                });
+              }
+            }
+          } catch (syncErr) {
+            console.warn("Failed to merge profile with localStorage:", syncErr);
+          }
+        }
+        
+        // Persist latest profile in client-side storage
+        localStorage.setItem('kazumi_profile', JSON.stringify(profile));
+
       } catch (serverErr) {
         profile = getClientProfile();
         useClientFallback = true;
@@ -959,6 +1005,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Initial Triggers
   const init = async () => {
+    // Check URL parameters for reset action
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('reset')) {
+      // 1. Reset client-side storage
+      localStorage.removeItem('kazumi_profile');
+      localStorage.removeItem('kazumi_chat_history');
+      
+      // 2. Attempt to reset server-side profile (safely ignoring failure if offline/fallback mode)
+      try {
+        await fetch('/api/kazumi/reset', { method: 'POST' });
+      } catch (e) {
+        console.warn('Server reset failed or offline:', e);
+      }
+      
+      // 3. Remove the parameter and reload clean page
+      const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+      window.location.replace(cleanUrl);
+      return;
+    }
+
     startThemeManager();
     startBreathingGuide();
     loadStickyNote();

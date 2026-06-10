@@ -17,10 +17,11 @@ RUN npm install --omit=dev
 WORKDIR /app
 COPY . .
 
-# Set permission for Hugging Face Space cache/memory directories
-RUN mkdir -p /app/isa_memory && chmod -R 777 /app/isa_memory
+# Set permissions recursively for app directories to ensure write access on Hugging Face (non-root user 1000)
+RUN mkdir -p /app/isa_memory && chmod -R 777 /app
 
 # Expose port (Hugging Face Spaces use 7860 by default)
+VOLUME /app/isa_memory
 EXPOSE 7860
 
 # Set environment variables

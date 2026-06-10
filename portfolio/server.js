@@ -156,6 +156,41 @@ app.post('/api/settings/clear', (req, res) => {
   res.json({ success: true, message: 'API Credentials cleared successfully.' });
 });
 
+// 3b. Reset Profile
+app.post('/api/kazumi/reset', (req, res) => {
+  const profilePath = path.join(__dirname, '..', 'isa_memory', 'profile.json');
+  try {
+    if (fs.existsSync(profilePath)) {
+      const data = JSON.parse(fs.readFileSync(profilePath, 'utf8'));
+      data.cozy_points = 0;
+      data.diary = [];
+      fs.writeFileSync(profilePath, JSON.stringify(data, null, 2), 'utf8');
+    }
+    res.json({ success: true, message: 'Profile reset successfully.' });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
+
+// 3c. Sync Profile Progress
+app.post('/api/kazumi/profile', (req, res) => {
+  const profilePath = path.join(__dirname, '..', 'isa_memory', 'profile.json');
+  try {
+    let profile = {};
+    if (fs.existsSync(profilePath)) {
+      profile = JSON.parse(fs.readFileSync(profilePath, 'utf8'));
+    }
+    const body = req.body;
+    for (const k in body) {
+      profile[k] = body[k];
+    }
+    fs.writeFileSync(profilePath, JSON.stringify(profile, null, 2), 'utf8');
+    res.json({ success: true, message: 'Profile synced successfully.' });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
+
 // 4. Fetch GitHub Repositories (Proxy)
 app.get('/api/github/repos', async (req, res) => {
   const creds = readCredentials();

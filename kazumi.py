@@ -51,6 +51,44 @@ STOP_WORDS = {"the", "a", "an", "is", "are", "am", "was", "were", "be", "been", 
 # 🌿 Persistent JSON Memory Store (ChromaDB Fallback)
 
 
+class FolderLock:
+    """
+    A cross-platform, folder-based atomic lock that works on both Windows and Linux.
+    Utilizes os.mkdir() which is atomic at the OS level.
+    """
+    def __init__(self, lock_dir, timeout=12):
+        self.lock_dir = lock_dir
+        self.timeout = timeout
+        self.acquired = False
+
+    def __enter__(self):
+        start_time = time.time()
+        while time.time() - start_time < self.timeout:
+            try:
+                os.mkdir(self.lock_dir)
+                self.acquired = True
+                return self
+            except FileExistsError:
+                time.sleep(0.15)
+        
+        # Stale lock recovery
+        try:
+            os.rmdir(self.lock_dir)
+            os.mkdir(self.lock_dir)
+            self.acquired = True
+            return self
+        except Exception:
+            self.acquired = False
+            return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.acquired:
+            try:
+                os.rmdir(self.lock_dir)
+            except Exception:
+                pass
+
+
 class ChromaMemory:
     """
     A 100% compatible, pure-python persistent JSON memory database.
@@ -61,6 +99,9 @@ class ChromaMemory:
     _file_lock = threading.Lock()
 
     def __init__(self, persist_directory="isa_memory"):
+        # Detect Hugging Face Space persistent storage
+        if os.environ.get("SPACE_ID") and os.path.exists("/data") and os.access("/data", os.W_OK):
+            persist_directory = os.path.join("/data", persist_directory)
         self.persist_path = os.path.join(persist_directory, "conversations.json")
         self.profile_path = os.path.join(persist_directory, "profile.json")
         # Ensure directory exists
@@ -816,7 +857,7 @@ Every message should have clean grammar, proper capitalization, smooth transitio
                 presence_penalty=0.3,
                 max_tokens=max_t,
                 n=3,
-                timeout=8.0
+                timeout=20.0
             )
             candidates = [choice.message.content.strip() for choice in response.choices]
             return self.select_best_candidate(candidates, history)
@@ -2579,7 +2620,7 @@ class Kazumi:
                     ],
                     temperature=0.7,
                     max_tokens=80,
-                    timeout=8.0
+                    timeout=20.0
                 )
                 entry = response.choices[0].message.content.strip()
             except Exception:
@@ -3751,7 +3792,7 @@ class Kazumi:
                                 messages=messages,
                                 temperature=0.7,
                                 max_tokens=150,
-                                timeout=8.0
+                                timeout=20.0
                             )
                             verdict = response.choices[0].message.content.strip()
                         except Exception:

@@ -8,10 +8,13 @@ from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 import socketserver
 import sys
 from urllib.parse import urlparse, parse_qs
+import threading
 
 # Absolute path to companion database directory
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ISA_MEMORY_DIR = os.path.join(ROOT_DIR, "isa_memory")
+
+KAZUMI_LOCK = threading.Lock()
 
 # Import Kazumi
 sys.path.append(ROOT_DIR)
@@ -286,63 +289,67 @@ class PortfolioRequestHandler(BaseHTTPRequestHandler):
                 self.send_json(get_fallback_posts())
                 
         elif path == "/api/kazumi/profile":
-            if kazumi_bot:
-                if not os.path.exists(kazumi_bot.memory.profile_path):
-                    kazumi_bot.memory.save_profile()
-                self.send_json(kazumi_bot.memory.profile)
-                return
-            profile_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "isa_memory", "profile.json")
-            if not os.path.exists(profile_path):
-                self.send_json({"error": "Profile memory not found"})
-                return
-            try:
-                with open(profile_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                self.send_json(data)
-            except Exception as e:
-                self.send_json({"error": f"Failed to read profile: {str(e)}"})
+            with KAZUMI_LOCK:
+                if kazumi_bot:
+                    if not os.path.exists(kazumi_bot.memory.profile_path):
+                        kazumi_bot.memory.save_profile()
+                    self.send_json(kazumi_bot.memory.profile)
+                    return
+                profile_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "isa_memory", "profile.json")
+                if not os.path.exists(profile_path):
+                    self.send_json({"error": "Profile memory not found"})
+                    return
+                try:
+                    with open(profile_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    self.send_json(data)
+                except Exception as e:
+                    self.send_json({"error": f"Failed to read profile: {str(e)}"})
                 
         elif path == "/api/kazumi/chat":
-            chat_path = os.path.join(ISA_MEMORY_DIR, "conversations.json")
-            if not os.path.exists(chat_path):
-                self.send_json([])
-                return
-            try:
-                with open(chat_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                session_id = query.get("session_id", [None])[0]
-                if session_id:
-                    data = [msg for msg in data if msg.get("session_id") == session_id]
-                self.send_json(data)
-            except Exception as e:
-                self.send_json({"error": f"Failed to read chat: {str(e)}"})
+            with KAZUMI_LOCK:
+                chat_path = os.path.join(ISA_MEMORY_DIR, "conversations.json")
+                if not os.path.exists(chat_path):
+                    self.send_json([])
+                    return
+                try:
+                    with open(chat_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    session_id = query.get("session_id", [None])[0]
+                    if session_id:
+                        data = [msg for msg in data if msg.get("session_id") == session_id]
+                    self.send_json(data)
+                except Exception as e:
+                    self.send_json({"error": f"Failed to read chat: {str(e)}"})
                 
         elif path == "/api/kazumi/history":
-            chat_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "isa_memory", "conversations.json")
-            if not os.path.exists(chat_path):
-                self.send_json([])
-                return
-            try:
-                with open(chat_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                self.send_json(data)
-            except Exception as e:
-                self.send_json({"error": f"Failed to read history: {str(e)}"})
+            with KAZUMI_LOCK:
+                chat_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "isa_memory", "conversations.json")
+                if not os.path.exists(chat_path):
+                    self.send_json([])
+                    return
+                try:
+                    with open(chat_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    self.send_json(data)
+                except Exception as e:
+                    self.send_json({"error": f"Failed to read history: {str(e)}"})
                 
         elif path == "/api/kazumi/inactivity":
-            session_id = query.get("session_id", [None])[0]
-            if not kazumi_bot:
-                self.send_json({"success": False, "error": "AI core offline"})
-                return
-            try:
-                # Reload memory from disk
-                kazumi_bot.memory.history = kazumi_bot.memory.load_history()
-                kazumi_bot.memory.profile = kazumi_bot.memory.load_profile()
-                
-                reply = kazumi_bot.reply_inactivity(1, session_id=session_id)
-                self.send_json({"success": True, "reply": reply})
-            except Exception as e:
-                self.send_json({"success": False, "error": f"Failed to generate inactivity response: {str(e)}"})
+            with KAZUMI_LOCK:
+                session_id = query.get("session_id", [None])[0]
+                if not kazumi_bot:
+                    self.send_json({"success": False, "error": "AI core offline"})
+                    return
+                try:
+                    # Reload memory from disk
+                    kazumi_bot.memory.history = kazumi_bot.memory.load_history()
+                    kazumi_bot.memory.profile = kazumi_bot.memory.load_profile()
+                    
+                    reply = kazumi_bot.reply_inactivity(1, session_id=session_id)
+                    self.send_json({"success": True, "reply": reply})
+                except Exception as e:
+                    self.send_json({"success": False, "error": f"Failed to generate inactivity response: {str(e)}"})
                 
         elif path == "/api/space-info":
             self.send_json({
@@ -396,35 +403,85 @@ class PortfolioRequestHandler(BaseHTTPRequestHandler):
             save_credentials({"github": None, "linkedin": None})
             self.send_json({"success": True, "message": "Credentials cleared."})
             
-        elif path == "/api/kazumi/chat":
-            try:
-                body = json.loads(post_data.decode('utf-8'))
-            except Exception as e:
-                self.send_error(400, f"Invalid JSON: {str(e)}")
-                return
-                
-            user_msg = body.get("message", "").strip()
-            session_id = body.get("session_id", "").strip() or None
+        elif path == "/api/kazumi/profile":
+            with KAZUMI_LOCK:
+                try:
+                    body = json.loads(post_data.decode('utf-8'))
+                except Exception as e:
+                    self.send_error(400, f"Invalid JSON: {str(e)}")
+                    return
+                    
+                if kazumi_bot:
+                    for k, v in body.items():
+                        kazumi_bot.memory.profile[k] = v
+                    kazumi_bot.memory.save_profile()
+                else:
+                    profile_path = os.path.join(ISA_MEMORY_DIR, "profile.json")
+                    try:
+                        profile = {}
+                        if os.path.exists(profile_path):
+                            with open(profile_path, "r", encoding="utf-8") as f:
+                                profile = json.load(f)
+                        for k, v in body.items():
+                            profile[k] = v
+                        with open(profile_path, "w", encoding="utf-8") as f:
+                            json.dump(profile, f, ensure_ascii=False, indent=2)
+                    except Exception as e:
+                        self.send_json({"success": False, "error": str(e)})
+                        return
+                self.send_json({"success": True, "message": "Profile synced successfully."})
+
+        elif path == "/api/kazumi/reset":
+            with KAZUMI_LOCK:
+                if kazumi_bot:
+                    kazumi_bot.memory.profile["cozy_points"] = 0
+                    kazumi_bot.memory.profile["diary"] = []
+                    kazumi_bot.memory.save_profile()
+                else:
+                    profile_path = os.path.join(ISA_MEMORY_DIR, "profile.json")
+                    if os.path.exists(profile_path):
+                        try:
+                            with open(profile_path, "r", encoding="utf-8") as f:
+                                profile = json.load(f)
+                            profile["cozy_points"] = 0
+                            profile["diary"] = []
+                            with open(profile_path, "w", encoding="utf-8") as f:
+                                json.dump(profile, f, ensure_ascii=False, indent=2)
+                        except Exception as e:
+                            self.send_json({"success": False, "error": str(e)})
+                            return
+                self.send_json({"success": True, "message": "Profile reset successfully."})
             
-            if not user_msg:
-                self.send_json({"success": False, "error": "Message is empty"})
-                return
+        elif path == "/api/kazumi/chat":
+            with KAZUMI_LOCK:
+                try:
+                    body = json.loads(post_data.decode('utf-8'))
+                except Exception as e:
+                    self.send_error(400, f"Invalid JSON: {str(e)}")
+                    return
+                    
+                user_msg = body.get("message", "").strip()
+                session_id = body.get("session_id", "").strip() or None
                 
-            if not kazumi_bot:
-                self.send_json({"success": False, "error": "Kazumi AI Core is offline or not loaded"})
-                return
-                
-            try:
-                # Reload memory from disk to capture any updates from console chats
-                kazumi_bot.memory.history = kazumi_bot.memory.load_history()
-                kazumi_bot.memory.profile = kazumi_bot.memory.load_profile()
-                
-                # Generate AI response
-                reply = kazumi_bot.reply(user_msg, session_id=session_id)
-                
-                self.send_json({"success": True, "reply": reply})
-            except Exception as e:
-                self.send_json({"success": False, "error": f"Failed to generate response: {str(e)}"})
+                if not user_msg:
+                    self.send_json({"success": False, "error": "Message is empty"})
+                    return
+                    
+                if not kazumi_bot:
+                    self.send_json({"success": False, "error": "Kazumi AI Core is offline or not loaded"})
+                    return
+                    
+                try:
+                    # Reload memory from disk to capture any updates from console chats
+                    kazumi_bot.memory.history = kazumi_bot.memory.load_history()
+                    kazumi_bot.memory.profile = kazumi_bot.memory.load_profile()
+                    
+                    # Generate AI response
+                    reply = kazumi_bot.reply(user_msg, session_id=session_id)
+                    
+                    self.send_json({"success": True, "reply": reply})
+                except Exception as e:
+                    self.send_json({"success": False, "error": f"Failed to generate response: {str(e)}"})
             
         else:
             self.send_error(404, "Not Found")
