@@ -2021,9 +2021,17 @@ class Kazumi:
         self.load_game_states()
         print("Kazumi: Empathetic Feminine Mode — Active 🌸✨")
 
-    def load_game_states(self):
+    def load_game_states(self, session_id=None):
+        if session_id is None:
+            session_id = getattr(self.memory, "current_session_id", None)
+            
         profile = self.memory.profile
-        game_state = profile.setdefault("game_state", {})
+        
+        if session_id:
+            session_game_states = profile.setdefault("session_game_states", {})
+            game_state = session_game_states.setdefault(session_id, {})
+        else:
+            game_state = profile.setdefault("game_state", {})
         
         self.game_mode = game_state.get("game_mode", None)
         self.secret_number = game_state.get("secret_number", 0)
@@ -2042,12 +2050,20 @@ class Kazumi:
         self.riddle_attempts = game_state.get("riddle_attempts", 0)
         self.trivia_index = game_state.get("trivia_index", 0)
         
-        self.interaction_mode = profile.get("interaction_mode", None)
-        self.brew_state = profile.get("brew_state", None)
-        self.breathe_state = profile.get("breathe_state", None)
-        self.solve_state = profile.get("solve_state", None)
-        self.sleep_state = profile.get("sleep_state", None)
-        self.cook_state = profile.get("cook_state", None)
+        if session_id:
+            self.interaction_mode = game_state.get("interaction_mode", None)
+            self.brew_state = game_state.get("brew_state", None)
+            self.breathe_state = game_state.get("breathe_state", None)
+            self.solve_state = game_state.get("solve_state", None)
+            self.sleep_state = game_state.get("sleep_state", None)
+            self.cook_state = game_state.get("cook_state", None)
+        else:
+            self.interaction_mode = profile.get("interaction_mode", None)
+            self.brew_state = profile.get("brew_state", None)
+            self.breathe_state = profile.get("breathe_state", None)
+            self.solve_state = profile.get("solve_state", None)
+            self.sleep_state = profile.get("sleep_state", None)
+            self.cook_state = profile.get("cook_state", None)
 
         self.anger_level = game_state.get("anger_level", 0)
         self.jealousy_level = game_state.get("jealousy_level", 0)
@@ -2059,14 +2075,24 @@ class Kazumi:
         self.unwritten_turns = game_state.get("unwritten_turns", 0)
         self.conversation_state = game_state.get("conversation_state", "ACTIVE_CHAT")
 
-    def save_game_states(self):
+    def save_game_states(self, session_id=None):
+        if session_id is None:
+            session_id = getattr(self.memory, "current_session_id", None)
+            
         # Synchronize conversation_state with active modes
         if getattr(self, "game_mode", None) is None and getattr(self, "interaction_mode", None) is None:
             if getattr(self, "conversation_state", "ACTIVE_CHAT") == "ACTIVE_GAME":
                 self.conversation_state = "ACTIVE_CHAT"
                 
         profile = self.memory.profile
-        game_state = profile.setdefault("game_state", {})
+        
+        if session_id:
+            session_game_states = profile.setdefault("session_game_states", {})
+            game_state = session_game_states.setdefault(session_id, {})
+            # Keep track of when this session state was last touched
+            game_state["last_time"] = time.time()
+        else:
+            game_state = profile.setdefault("game_state", {})
         
         game_state["game_mode"] = getattr(self, "game_mode", None)
         game_state["secret_number"] = getattr(self, "secret_number", 0)
@@ -2085,12 +2111,20 @@ class Kazumi:
         game_state["riddle_attempts"] = getattr(self, "riddle_attempts", 0)
         game_state["trivia_index"] = getattr(self, "trivia_index", 0)
         
-        profile["interaction_mode"] = getattr(self, "interaction_mode", None)
-        profile["brew_state"] = getattr(self, "brew_state", None)
-        profile["breathe_state"] = getattr(self, "breathe_state", None)
-        profile["solve_state"] = getattr(self, "solve_state", None)
-        profile["sleep_state"] = getattr(self, "sleep_state", None)
-        profile["cook_state"] = getattr(self, "cook_state", None)
+        if session_id:
+            game_state["interaction_mode"] = getattr(self, "interaction_mode", None)
+            game_state["brew_state"] = getattr(self, "brew_state", None)
+            game_state["breathe_state"] = getattr(self, "breathe_state", None)
+            game_state["solve_state"] = getattr(self, "solve_state", None)
+            game_state["sleep_state"] = getattr(self, "sleep_state", None)
+            game_state["cook_state"] = getattr(self, "cook_state", None)
+        else:
+            profile["interaction_mode"] = getattr(self, "interaction_mode", None)
+            profile["brew_state"] = getattr(self, "brew_state", None)
+            profile["breathe_state"] = getattr(self, "breathe_state", None)
+            profile["solve_state"] = getattr(self, "solve_state", None)
+            profile["sleep_state"] = getattr(self, "sleep_state", None)
+            profile["cook_state"] = getattr(self, "cook_state", None)
 
         game_state["anger_level"] = getattr(self, "anger_level", 0)
         game_state["jealousy_level"] = getattr(self, "jealousy_level", 0)
@@ -2102,6 +2136,17 @@ class Kazumi:
         game_state["unwritten_turns"] = getattr(self, "unwritten_turns", 0)
         game_state["conversation_state"] = getattr(self, "conversation_state", "ACTIVE_CHAT")
         
+        # Prune older session game states if they exceed 50 to keep profile.json size bound
+        if session_id:
+            session_game_states = profile.setdefault("session_game_states", {})
+            if len(session_game_states) > 50:
+                sorted_sessions = sorted(
+                    session_game_states.items(),
+                    key=lambda x: x[1].get("last_time", 0)
+                )
+                for old_sess_id, _ in sorted_sessions[:-50]:
+                    session_game_states.pop(old_sess_id, None)
+
         self.memory.save_profile()
 
     def get_archetype_reaction(self, reactions_dict):
@@ -3232,6 +3277,7 @@ class Kazumi:
 
     def reply(self, text, session_id=None):
         self.memory.current_session_id = session_id
+        self.load_game_states(session_id)
         raw_response = self.reply_internal(text, session_id=session_id)
         cleaned = self.clean_roleplay(raw_response)
         final_response = self.sanitize_endearments(cleaned)
@@ -3244,7 +3290,7 @@ class Kazumi:
         if not (is_diary_cmd or is_generic_cmd):
             self.write_diary_entry(text, final_response)
             
-        self.save_game_states()
+        self.save_game_states(session_id)
         return final_response
 
     def reply_internal(self, text, session_id=None):
@@ -4631,11 +4677,17 @@ class Kazumi:
         
         # 5. Repetition / Stubbornness Detection (ignore short dry words like yes, no, ok, fine, and sensitive/emotional situations)
         dry_words = {"ok", "okay", "yes", "no", "cool", "yeah", "nothing", "hm", "hmm", "bored", "dunno", "fine", "same", "ah", "yep", "sure", "k", "what", "why", "how"}
+        ignored_repetition_phrases = {
+            "how are you", "how r u", "how are u", "how r you", "how you doing", 
+            "how are you doing", "hows it going", "how's it going", "how goes",
+            "hello", "hi", "hey", "yo", "sup", "good morning", "good night", "goodnight"
+        }
         sensitive_situations = {"EMOTIONAL", "CARING", "ROMANTIC", "SLEEPY", "PROBLEM_SOLVING"}
         is_repetition = (
             clean_text == self.last_user_message 
             and len(clean_text) > 0 
             and clean_text not in dry_words 
+            and clean_text not in ignored_repetition_phrases
             and len(clean_text) > 5
             and situation not in sensitive_situations
         )
@@ -4886,9 +4938,11 @@ class Kazumi:
 
     def reply_inactivity(self, reminder_number, session_id=None):
         self.memory.current_session_id = session_id
+        self.load_game_states(session_id)
         raw_response = self.reply_inactivity_internal(reminder_number, session_id=session_id)
         cleaned = self.clean_roleplay(raw_response)
         final_response = self.sanitize_endearments(cleaned)
+        self.save_game_states(session_id)
         return final_response
 
     def reply_inactivity_internal(self, reminder_number, session_id=None):
