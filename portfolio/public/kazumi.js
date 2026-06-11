@@ -646,11 +646,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
-  let sessionId = safeStorage.getItem('kazumi_session_id');
-  if (!sessionId) {
-    sessionId = 'session_' + Math.floor(Math.random() * 100000000);
-    safeStorage.setItem('kazumi_session_id', sessionId);
-  }
+  // Generate a fresh session ID on every page load to start with a clean chat log
+  let sessionId = 'session_' + Math.floor(Math.random() * 100000000);
+  // let sessionId = safeStorage.getItem('kazumi_session_id');
+  // if (!sessionId) {
+  //   sessionId = 'session_' + Math.floor(Math.random() * 100000000);
+  //   safeStorage.setItem('kazumi_session_id', sessionId);
+  // }
   let showingHistory = false;
   let chatMessagesSentInSession = 0;
   let lastMessageTime = Date.now();
