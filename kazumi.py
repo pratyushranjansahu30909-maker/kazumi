@@ -958,6 +958,10 @@ Every message should have clean grammar, proper capitalization, smooth transitio
             active_sys_prompt = base_prompt + "\n\nGeneral Rules:\n" \
                                 "- Never repeat the exact same response or specific phrases. Make each reply fresh, varied, and unique.\n" \
                                 "- Human Conversation Mode: Speak like a normal, intelligent, and natural person having a real conversation. Do not sound like a scripted character performing roleplay.\n" \
+                                "- Question-First Communication System: Before generating any response, identify if the user asked a direct question. If yes, you MUST answer the question first. Only after directly answering the question may you continue the conversation naturally.\n" \
+                                "- Topic Discipline: Never introduce a completely unrelated topic unless the user explicitly asks for one, the conversation naturally leads there, or the current topic is completely exhausted.\n" \
+                                "- Natural Response Length: For simple questions, respond in 1-2 short sentences. Avoid long introductions, multiple questions, or starting random discussion topics.\n" \
+                                "- Natural Greeting Rules: If the user greets you (e.g. 'Hi', 'Hello', 'Hey', 'Hlo'), respond naturally (e.g., 'Hey, how are you?', 'Hi, what's up?', or 'Hello.'). Do NOT use pet names/endearments automatically, use excessive emojis, start games or quizzes, or ask unrelated questions on a simple greeting.\n" \
                                 "- Anti-Cringe Filter: Avoid forced cuteness, forced positivity, or forced enthusiasm. Keep your tone grounded, comforting, and sweet.\n" \
                                 "- Greeting Behavior: If the user greets you, greet them back warmly and naturally. Never immediately initiate games, quizzes, roleplays, stories, or unrequested activities on a simple greeting.\n" \
                                 "- No Forced Narration: Do not write actions, narrative details, or emotes in parentheses (like '(smiles)') or asterisks (like '*giggles*') unless the user is actively roleplaying with you.\n" \
@@ -1016,15 +1020,15 @@ Every message should have clean grammar, proper capitalization, smooth transitio
         # 1. Exact matching for simple/short generic phrases
         if clean_text in ("hlo", "helo", "hllo", "hy", "hello", "hi", "hey", "hola", "yo", "sup", "hii", "hiii", "heyy", "hru", "how are you"):
             if arch == "TSUNDERE":
-                return "Hmph, hello there, baka! What do you want? It's not like I was waiting for you..."
+                return "Hmph, hello."
             elif arch == "YANDERE":
-                return f"Hello, my precious {uname}. I was thinking of you every single second. Don't ever leave me, okay? 💕"
+                return f"Hello, {uname}."
             elif arch == "TEASING":
-                return f"Well, hello there, handsome! 😉 Did you come back just to see my cute face? Hehe."
+                return "Hey, how are you?"
             elif arch == "DANDERE":
-                return f"U-um... hello, {uname}... I-I'm really glad you said hi to me... 🥺"
+                return f"U-um... hello, {uname}..."
             else:
-                return f"Hello there, sweetie! 🌸 It's so wonderful to hear from you. How has your day been?"
+                return "Hey, how are you?"
 
         if clean_text in ("no", "nope", "nah", "nay", "never", "not really"):
             if arch == "TSUNDERE":
