@@ -353,6 +353,30 @@ class PortfolioRequestHandler(BaseHTTPRequestHandler):
                 try:
                     with open(profile_path, "r", encoding="utf-8") as f:
                         data = json.load(f)
+                    
+                    # Merge diary.json if it exists
+                    diary_path = os.path.join(ISA_MEMORY_DIR, "diary.json")
+                    diary = None
+                    if os.path.exists(diary_path) and os.path.getsize(diary_path) > 0:
+                        try:
+                            with open(diary_path, "r", encoding="utf-8") as f_diary:
+                                diary = json.load(f_diary)
+                        except Exception:
+                            if os.path.exists(diary_path + ".bak") and os.path.getsize(diary_path + ".bak") > 0:
+                                try:
+                                    with open(diary_path + ".bak", "r", encoding="utf-8") as f_diary:
+                                        diary = json.load(f_diary)
+                                except Exception:
+                                    pass
+                    elif os.path.exists(diary_path + ".bak") and os.path.getsize(diary_path + ".bak") > 0:
+                        try:
+                            with open(diary_path + ".bak", "r", encoding="utf-8") as f_diary:
+                                diary = json.load(f_diary)
+                        except Exception:
+                            pass
+                    if diary is None:
+                        diary = data.get("diary", [])
+                    data["diary"] = diary
                     self.send_json(data)
                 except Exception as e:
                     self.send_json({"error": f"Failed to read profile: {str(e)}"})
@@ -484,6 +508,17 @@ class PortfolioRequestHandler(BaseHTTPRequestHandler):
                             profile[k] = v
                         if profile.get("_is_default"):
                             profile["_is_default"] = False
+                            
+                        # Split storage: write diary to diary.json and profile without diary key to profile.json
+                        if "diary" in profile:
+                            diary = profile["diary"]
+                            diary_path = os.path.join(ISA_MEMORY_DIR, "diary.json")
+                            try:
+                                _atomic_write_json(diary_path, diary)
+                            except Exception as diary_err:
+                                print(f"Failed to save diary atomically in Python: {diary_err}")
+                            del profile["diary"]
+                            
                         _atomic_write_json(profile_path, profile)
                     except Exception as e:
                         self.send_json({"success": False, "error": str(e)})
@@ -510,7 +545,14 @@ class PortfolioRequestHandler(BaseHTTPRequestHandler):
                                     with open(profile_path + ".bak", "r", encoding="utf-8") as f:
                                         profile = json.load(f)
                             profile["cozy_points"] = 0
-                            profile["diary"] = []
+                            # profile["diary"] = []
+                            diary_path = os.path.join(ISA_MEMORY_DIR, "diary.json")
+                            try:
+                                _atomic_write_json(diary_path, [])
+                            except Exception as diary_err:
+                                print(f"Failed to reset diary atomically in Python: {diary_err}")
+                            if "diary" in profile:
+                                del profile["diary"]
                             if profile.get("_is_default"):
                                 profile["_is_default"] = False
                             _atomic_write_json(profile_path, profile)

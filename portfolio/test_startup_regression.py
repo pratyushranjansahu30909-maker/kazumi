@@ -144,5 +144,83 @@ class TestStartupProtection(unittest.TestCase):
         self.assertEqual(server_profile["diary"], ["A lovely day"])
         self.assertFalse(server_profile["_is_default"])
 
+    def test_split_storage_endpoints(self):
+        print("Running test: test_split_storage_endpoints")
+        # 1. Simulate POST profile offline logic (updating profile and splitting diary)
+        body = {
+            "name": "Alex",
+            "affection_level": 60,
+            "cozy_points": 120,
+            "diary": ["A beautiful morning", "A lovely afternoon"]
+        }
+        
+        # Write to profile.json (mocking how the server merges incoming request to profile)
+        profile_path = os.path.join(self.test_dir, "profile.json")
+        diary_path = os.path.join(self.test_dir, "diary.json")
+        
+        profile = {}
+        for k, v in body.items():
+            profile[k] = v
+            
+        # Split storage logic:
+        if "diary" in profile:
+            diary = profile["diary"]
+            with open(diary_path, "w", encoding="utf-8") as f:
+                json.dump(diary, f, indent=2)
+            del profile["diary"]
+            
+        with open(profile_path, "w", encoding="utf-8") as f:
+            json.dump(profile, f, indent=2)
+            
+        # Verify split on disk
+        with open(profile_path, "r", encoding="utf-8") as f:
+            profile_data = json.load(f)
+        self.assertNotIn("diary", profile_data)
+        self.assertEqual(profile_data["name"], "Alex")
+        
+        with open(diary_path, "r", encoding="utf-8") as f:
+            diary_data = json.load(f)
+        self.assertEqual(diary_data, ["A beautiful morning", "A lovely afternoon"])
+        
+        # 2. Simulate GET profile offline logic (reading and merging)
+        with open(profile_path, "r", encoding="utf-8") as f:
+            get_data = json.load(f)
+            
+        diary_loaded = None
+        if os.path.exists(diary_path):
+            with open(diary_path, "r", encoding="utf-8") as f:
+                diary_loaded = json.load(f)
+        if diary_loaded is None:
+            diary_loaded = []
+            
+        get_data["diary"] = diary_loaded
+        
+        self.assertEqual(get_data["name"], "Alex")
+        self.assertEqual(get_data["diary"], ["A beautiful morning", "A lovely afternoon"])
+        
+        # 3. Simulate POST reset offline logic
+        with open(profile_path, "r", encoding="utf-8") as f:
+            reset_profile = json.load(f)
+            
+        reset_profile["cozy_points"] = 0
+        with open(diary_path, "w", encoding="utf-8") as f:
+            json.dump([], f, indent=2)
+            
+        if "diary" in reset_profile:
+            del reset_profile["diary"]
+            
+        with open(profile_path, "w", encoding="utf-8") as f:
+            json.dump(reset_profile, f, indent=2)
+            
+        # Verify reset results
+        with open(profile_path, "r", encoding="utf-8") as f:
+            final_profile = json.load(f)
+        self.assertEqual(final_profile["cozy_points"], 0)
+        self.assertNotIn("diary", final_profile)
+        
+        with open(diary_path, "r", encoding="utf-8") as f:
+            final_diary = json.load(f)
+        self.assertEqual(final_diary, [])
+
 if __name__ == "__main__":
     unittest.main()

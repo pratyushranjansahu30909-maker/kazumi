@@ -223,7 +223,24 @@ app.post('/api/kazumi/reset', (req, res) => {
       fs.copyFileSync(profilePath, profilePath + '.bak');
       const data = JSON.parse(fs.readFileSync(profilePath, 'utf8'));
       data.cozy_points = 0;
-      data.diary = [];
+      // data.diary = [];
+      const diaryPath = path.join(getIsaMemoryDir(), 'diary.json');
+      try {
+        if (fs.existsSync(diaryPath)) {
+          fs.copyFileSync(diaryPath, diaryPath + '.bak');
+        }
+        const diaryTmpPath = diaryPath + '.tmp';
+        const diaryFd = fs.openSync(diaryTmpPath, 'w');
+        fs.writeSync(diaryFd, JSON.stringify([], null, 2), null, 'utf8');
+        fs.fsyncSync(diaryFd);
+        fs.closeSync(diaryFd);
+        fs.renameSync(diaryTmpPath, diaryPath);
+      } catch (diaryErr) {
+        console.error('Failed to reset diary atomically:', diaryErr.message);
+      }
+      if (data.diary !== undefined) {
+        delete data.diary;
+      }
       if (data._is_default) {
         data._is_default = false;
       }
@@ -264,6 +281,26 @@ app.post('/api/kazumi/profile', (req, res) => {
     }
     if (profile._is_default) {
       profile._is_default = false;
+    }
+    
+    // Split storage: write diary to diary.json and profile without diary key to profile.json
+    if (profile.diary !== undefined) {
+      const diary = profile.diary || [];
+      const diaryPath = path.join(getIsaMemoryDir(), 'diary.json');
+      try {
+        if (fs.existsSync(diaryPath)) {
+          fs.copyFileSync(diaryPath, diaryPath + '.bak');
+        }
+        const diaryTmpPath = diaryPath + '.tmp';
+        const diaryFd = fs.openSync(diaryTmpPath, 'w');
+        fs.writeSync(diaryFd, JSON.stringify(diary, null, 2), null, 'utf8');
+        fs.fsyncSync(diaryFd);
+        fs.closeSync(diaryFd);
+        fs.renameSync(diaryTmpPath, diaryPath);
+      } catch (diaryErr) {
+        console.error('Failed to save diary atomically:', diaryErr.message);
+      }
+      delete profile.diary;
     }
     
     const tmpPath = profilePath + '.tmp';
@@ -427,12 +464,52 @@ app.get('/api/kazumi/profile', async (req, res) => {
   }
   try {
     const data = fs.readFileSync(readPath, 'utf8');
-    res.json(JSON.parse(data));
+    const profile = JSON.parse(data);
+    const diaryPath = path.join(getIsaMemoryDir(), 'diary.json');
+    let diary = null;
+    if (fs.existsSync(diaryPath)) {
+      try {
+        diary = JSON.parse(fs.readFileSync(diaryPath, 'utf8'));
+      } catch (err) {
+        if (fs.existsSync(diaryPath + '.bak')) {
+          try {
+            diary = JSON.parse(fs.readFileSync(diaryPath + '.bak', 'utf8'));
+          } catch (inner) {}
+        }
+      }
+    } else if (fs.existsSync(diaryPath + '.bak')) {
+      try {
+        diary = JSON.parse(fs.readFileSync(diaryPath + '.bak', 'utf8'));
+      } catch (inner) {}
+    }
+    if (diary === null) {
+      diary = profile.diary || [];
+    }
+    profile.diary = diary;
+    res.json(profile);
   } catch (e) {
     if (readPath === profilePath && fs.existsSync(profilePath + '.bak')) {
       try {
         const data = fs.readFileSync(profilePath + '.bak', 'utf8');
-        return res.json(JSON.parse(data));
+        const profile = JSON.parse(data);
+        const diaryPath = path.join(getIsaMemoryDir(), 'diary.json');
+        let diary = null;
+        if (fs.existsSync(diaryPath)) {
+          try {
+            diary = JSON.parse(fs.readFileSync(diaryPath, 'utf8'));
+          } catch (err) {
+            if (fs.existsSync(diaryPath + '.bak')) {
+              try {
+                diary = JSON.parse(fs.readFileSync(diaryPath + '.bak', 'utf8'));
+              } catch (inner) {}
+            }
+          }
+        }
+        if (diary === null) {
+          diary = profile.diary || [];
+        }
+        profile.diary = diary;
+        return res.json(profile);
       } catch (inner) {}
     }
     res.json({ error: 'Failed to read profile: ' + e.message });

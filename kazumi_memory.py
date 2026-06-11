@@ -1,5 +1,6 @@
 import os
 import logging
+# pyrefly: ignore [missing-import]
 import logging_config
 logger = logging.getLogger("kazumi_memory")
 import re
