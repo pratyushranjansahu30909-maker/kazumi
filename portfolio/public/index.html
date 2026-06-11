@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <title>Kazumi Space</title>
+  <!-- Google Fonts & Icon sets -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;1,400&family=JetBrains+Mono:wght@400;500&family=Caveat:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="kazumi.css">
+</head>
+<body class="calm-mode">
+
+  <div class="dashboard-wrapper">
+    
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-text">
+          <h2>KAZUMI</h2>
+          <span>CALM SPACE</span>
+        </div>
+      </div>
+
+      <nav class="sidebar-menu">
+        <button class="menu-item active" data-target="space-overview">
+          <span>Overview</span>
+        </button>
+        <button class="menu-item" data-target="space-calm">
+          <span>Calm Space</span>
+        </button>
+        <button class="menu-item" data-target="space-diary">
+          <span>Diary Space</span>
+        </button>
+        <button class="menu-item" data-target="space-chat">
+          <span>Chat Space</span>
+        </button>
+      </nav>
+
+      <!-- Theme Switcher -->
+      <div class="theme-switcher">
+        <button class="theme-btn active" data-theme="cozy-lavender" title="Cozy Lavender (Dark)">
+          <i class="fa-solid fa-wand-magic-sparkles"></i>
+          <span>Cozy</span>
+        </button>
+        <button class="theme-btn" data-theme="deep-dark" title="Deep Charcoal (Dark)">
+          <i class="fa-solid fa-moon"></i>
+          <span>Midnight</span>
+        </button>
+        <button class="theme-btn" data-theme="calm-light" title="Calm Warm (Light)">
+          <i class="fa-solid fa-sun"></i>
+          <span>Daylight</span>
+        </button>
+      </div>
+
+      <div class="sidebar-share">
+        <div class="share-title">Share Space</div>
+        <div class="share-url" id="shareUrlText">Loading link...</div>
+        <button id="copyShareBtn" class="btn btn-zen">Copy Link</button>
+      </div>
+    </aside>
+
+    <!-- Main Content Workspace -->
+    <main class="workspace">
+      
+      <!-- Space 1: Overview -->
+      <section id="space-overview" class="space-panel active">
+        <div class="space-header">
+          <h1>Overview</h1>
+          <p>Status, details, and psychology logs from your companion</p>
+        </div>
+
+        <div class="overview-grid">
+          <!-- Profile Card -->
+          <div class="profile-card">
+            <div class="avatar-wrapper">
+              <img src="isa_avatar.png" alt="Kazumi Avatar" class="isa-avatar" id="kazumiAvatar">
+            </div>
+            
+            <div class="profile-header">
+              <h2>Kazumi</h2>
+              <span class="status-pill"><span class="status-indicator"></span> Serene & Online</span>
+            </div>
+
+            <p class="description">Your empathetic, loving companion. Keeping you calm, listening, and sharing daily reflections.</p>
+            <div class="handwritten-signature">With love, Kazumi</div>
+
+            <div class="stats-box">
+              <div class="stat-item">
+                <div class="stat-meta">
+                  <span>Affection Level</span>
+                  <strong id="affectionVal">0%</strong>
+                </div>
+                <div class="progress-bar-container">
+                  <div class="progress-bar" id="affectionBar" style="width: 0%;"></div>
+                </div>
+              </div>
+
+              <div class="stat-grid-two">
+                <div class="stat-badge">
+                  <span class="badge-label">Cozy Points</span>
+                  <strong id="cozyPointsVal">0</strong>
+                </div>
+                <div class="stat-badge">
+                  <span class="badge-label">Current Mode</span>
+                  <strong id="currentModeVal">Deredere</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Column -->
+          <div class="overview-right-column">
+            <!-- Psychology Card -->
+            <div class="psychology-card">
+              <h3>Companion Psychology</h3>
+              
+              <div class="psych-stat">
+                <span class="psych-label">Dominant Vibe</span>
+                <span class="psych-value" id="dominantVibeVal">-</span>
+              </div>
+              <div class="psych-stat">
+                <span class="psych-label">Interaction Style</span>
+                <span class="psych-value" id="preferenceVal">-</span>
+              </div>
+
+              <div class="valence-container">
+                <div class="valence-header">
+                  <span>Emotional Valence</span>
+                  <strong id="valenceScore">0.00</strong>
+                </div>
+                <div class="valence-slider-wrapper">
+                  <div class="valence-slider">
+                    <div class="valence-pointer" id="valencePointer" style="left: 50%;"></div>
+                  </div>
+                </div>
+                <p class="valence-desc">A positive score indicates high spirits and joy, while a negative score represents a deeper, empathetic, and reflective state.</p>
+              </div>
+            </div>
+
+            <!-- Cozy Sticky Note -->
+            <div class="sticky-note">
+              <div class="sticky-text" id="stickyNoteText">"Take a deep breath and relax, darling. I'm right here with you." — Kazumi</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Space 2: Calm Space -->
+      <section id="space-calm" class="space-panel">
+        <div class="space-header">
+          <h1>Calm Space</h1>
+          <p>Take a quiet moment to focus, breathe, and rest your mind</p>
+        </div>
+
+        <div class="calm-garden-layout">
+          <div class="breathing-focus-card">
+            <div class="breath-guide-container">
+              <div class="breath-ring" id="breathRing">
+                <span id="breathText">Breathe In</span>
+              </div>
+              <span class="breath-subtext">Follow the rhythm to center your thoughts</span>
+              <button class="btn btn-zen btn-breath-control" id="breathPauseBtn">
+                <span class="icon-pause-breath">Pause Guide</span>
+                <span class="icon-play-breath" style="display:none;">Resume Guide</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="chimes-ambient-card">
+            <h2>Procedural Ambient Chimes</h2>
+            <p class="chimes-desc">Generates soothing, randomized pentatonic chimes in real-time. Turn them on to create a calm background ambience.</p>
+            
+            <button class="btn btn-zen" id="chimeBtn">
+              <span class="icon-play">Enable Chimes</span>
+              <span class="icon-stop" style="display:none;">Silence Chimes</span>
+            </button>
+
+            <div class="chime-volume-container">
+              <label for="chimeVolRange">Wind Speed (Frequency of strikes)</label>
+              <div class="range-wrapper">
+                <input type="range" id="chimeVolRange" min="1" max="5" value="3">
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Space 3: Diary Space -->
+      <section id="space-diary" class="space-panel">
+        <div class="space-header">
+          <h1>Kazumi's Diary</h1>
+          <p>Read her reflections and logs about us</p>
+        </div>
+
+        <div class="diary-space-layout">
+          <div class="diary-card-expanded">
+            <div class="diary-book-header">
+              <h2>Kazumi's Journal</h2>
+            </div>
+            
+            <div class="diary-timeline" id="diaryTimeline">
+              <div class="loading-state">Reading diary pages...</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Space 4: Chat Space -->
+      <section id="space-chat" class="space-panel">
+        <div class="space-header">
+          <h1>Chat Space</h1>
+          <p>Chat logs with your companion</p>
+        </div>
+
+        <div class="chat-space-layout">
+          <div class="chat-card-expanded">
+            <div class="chat-space-header">
+              <div>
+                <h2>Dialogue Console</h2>
+                <span class="chat-status" id="chatStatusText">Active Session Log</span>
+              </div>
+              <button class="btn btn-zen" id="historyToggleBtn">
+                View Full History
+              </button>
+            </div>
+            
+            <div class="chat-logs-container" id="chatLogsContainer">
+              <div class="loading-state">Retrieving conversation log...</div>
+            </div>
+            
+            <form id="chatForm" class="chat-input-form">
+              <div class="chat-input-wrapper">
+                <input type="text" id="chatInput" placeholder="Type a message to Kazumi..." autocomplete="off">
+                <button type="submit" id="sendBtn">Send</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="kazumi.js"></script>
+</body>
+</html>

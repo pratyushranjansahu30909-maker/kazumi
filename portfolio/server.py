@@ -239,11 +239,10 @@ class PortfolioRequestHandler(BaseHTTPRequestHandler):
         path = parsed_url.path
         query = parse_qs(parsed_url.query)
         
-        # Redirect root to Kazumi Space
-        if path == "/":
-            self.send_response(302)
-            self.send_header("Location", "/kazumi.html")
-            self.end_headers()
+        # Serve index.html directly at root to prevent cross-origin iframe redirect blocks
+        if path == "/" or path == "/index.html":
+            file_path = os.path.abspath(os.path.join("public", "index.html"))
+            self.serve_static(file_path, "text/html")
             return
 
         # API Routes

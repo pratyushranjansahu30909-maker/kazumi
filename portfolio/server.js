@@ -32,9 +32,13 @@ const getCredentialsFilePath = () => path.join(getIsaMemoryDir(), 'credentials.j
 app.use(cors());
 app.use(express.json());
 
-// Redirect root to Kazumi Space
+// Serve main page at root directly to prevent cross-origin iframe redirect blocks
 app.get('/', (req, res) => {
-  res.redirect('/kazumi.html');
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/index.html', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
