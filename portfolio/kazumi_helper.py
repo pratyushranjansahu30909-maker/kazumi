@@ -46,9 +46,15 @@ def main():
             # Override memory paths to use absolute root database directory
             bot.memory.persist_path = os.path.join(ISA_MEMORY_DIR, "conversations.json")
             bot.memory.profile_path = os.path.join(ISA_MEMORY_DIR, "profile.json")
+            bot.memory.diary_path = os.path.join(ISA_MEMORY_DIR, "diary.json")
             # Re-load memory with corrected paths
             bot.memory.history = bot.memory.load_history()
             bot.memory.profile = bot.memory.load_profile()
+            bot.active_character = bot.memory.profile.get("character", "kazumi")
+            if bot.active_character not in bot.CHARACTERS:
+                bot.active_character = "kazumi"
+            bot.current_archetype = "TEASING" if bot.active_character == "mimi" else "DEREDERE"
+            bot.load_game_states()
         except Exception as e:
             sys.stdout = sys.__stdout__
             print(json.dumps({"success": False, "error": f"Initialization failed: {str(e)}"}))

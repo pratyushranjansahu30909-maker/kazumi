@@ -27,9 +27,16 @@ try:
     # Override memory paths to use absolute root database directory
     kazumi_bot.memory.persist_path = os.path.join(ISA_MEMORY_DIR, "conversations.json")
     kazumi_bot.memory.profile_path = os.path.join(ISA_MEMORY_DIR, "profile.json")
+    kazumi_bot.memory.diary_path = os.path.join(ISA_MEMORY_DIR, "diary.json")
     # Re-load memory with corrected paths
     kazumi_bot.memory.history = kazumi_bot.memory.load_history()
     kazumi_bot.memory.profile = kazumi_bot.memory.load_profile()
+    # Re-initialize character and game states from corrected profile
+    kazumi_bot.active_character = kazumi_bot.memory.profile.get("character", "kazumi")
+    if kazumi_bot.active_character not in kazumi_bot.CHARACTERS:
+        kazumi_bot.active_character = "kazumi"
+    kazumi_bot.current_archetype = "TEASING" if kazumi_bot.active_character == "mimi" else "DEREDERE"
+    kazumi_bot.load_game_states()
 except Exception as e:
     print(f"Error importing Kazumi: {e}")
     kazumi_bot = None

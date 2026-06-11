@@ -1,5 +1,6 @@
 import os
 import logging
+import logging_config
 logger = logging.getLogger("kazumi_memory")
 import re
 import time
@@ -26,6 +27,7 @@ class ChromaMemory:
     def __init__(self, persist_directory="isa_memory"):
         self.persist_path = os.path.join(persist_directory, "conversations.json")
         self.profile_path = os.path.join(persist_directory, "profile.json")
+        self.diary_path = os.path.join(persist_directory, "diary.json")
         if not os.path.exists(persist_directory):
             try:
                 os.makedirs(persist_directory)
@@ -62,6 +64,7 @@ class ChromaMemory:
 
     def load_profile(self):
         profile = None
+        diary = None
         
         def attempt_read(path):
             if os.path.exists(path) and os.path.getsize(path) > 0:
@@ -87,9 +90,37 @@ class ChromaMemory:
             except Exception:
                 pass
 
+        # Attempt to read diary
+        try:
+            diary = attempt_read(self.diary_path)
+        except Exception:
+            if os.path.exists(self.diary_path):
+                corrupted_path = f"{self.diary_path}.corrupted.{int(time.time())}"
+                try:
+                    os.rename(self.diary_path, corrupted_path)
+                except Exception:
+                    pass
+            try:
+                diary = attempt_read(self.diary_path + ".bak")
+            except Exception:
+                pass
+
         if not profile:
             profile = self.get_default_profile()
             
+        # Migrate old diary entries from profile to diary.json if necessary (Phase 6)
+        if diary is None:
+            if "diary" in profile and isinstance(profile["diary"], list):
+                diary = profile["diary"]
+                try:
+                    self._atomic_write_json(self.diary_path, diary)
+                except Exception:
+                    pass
+            else:
+                diary = []
+
+        profile["diary"] = diary
+
         if profile.get("name") == "Sweetie":
             profile["name"] = "Friend"
             
@@ -174,7 +205,16 @@ class ChromaMemory:
             if self.profile and isinstance(self.profile, dict) and "cozy_points" in self.profile:
                 if self.profile.get("_is_default"):
                     self.profile["_is_default"] = False
-                self._atomic_write_json(self.profile_path, self.profile)
+                
+                # Split storage: write diary to diary.json and profile without diary key to profile.json
+                diary = self.profile.get("diary", [])
+                self._atomic_write_json(self.diary_path, diary)
+                
+                profile_to_save = dict(self.profile)
+                if "diary" in profile_to_save:
+                    del profile_to_save["diary"]
+                    
+                self._atomic_write_json(self.profile_path, profile_to_save)
         except Exception:
             pass
 
