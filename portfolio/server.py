@@ -427,9 +427,13 @@ class PortfolioRequestHandler(BaseHTTPRequestHandler):
                     self.send_json({"success": False, "error": f"Failed to generate inactivity response: {str(e)}"})
                 
         elif path == "/api/space-info":
+            space_id = os.environ.get("SPACE_ID")
+            if space_id:
+                space_id = space_id.replace("kazum1-companion", "kazumi-companion").replace("kazum1", "kazumi")
             self.send_json({
-                "spaceId": os.environ.get("SPACE_ID")
+                "spaceId": space_id
             })
+                
                 
         else:
             # Secure path resolution against directory traversal
@@ -451,6 +455,7 @@ class PortfolioRequestHandler(BaseHTTPRequestHandler):
             self.serve_static(file_path, content_type)
 
     def do_POST(self):
+        global kazumi_bot
         parsed_url = urlparse(self.path)
         path = parsed_url.path
         
@@ -528,7 +533,6 @@ class PortfolioRequestHandler(BaseHTTPRequestHandler):
         elif path == "/api/kazumi/reset":
             with KAZUMI_LOCK:
                 try:
-                    global kazumi_bot
                     if kazumi_bot:
                         kazumi_bot = None
                     

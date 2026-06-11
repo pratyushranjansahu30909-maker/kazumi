@@ -587,8 +587,13 @@ app.get('/api/kazumi/inactivity', async (req, res) => {
 
 // 6. Get Hugging Face Space Info for visitor duplication link
 app.get('/api/space-info', (req, res) => {
+  let spaceId = process.env.SPACE_ID || null;
+  if (spaceId) {
+    spaceId = spaceId.replace(/kazum1-companion/g, 'kazumi-companion')
+                     .replace(/kazum1/g, 'kazumi');
+  }
   res.json({
-    spaceId: process.env.SPACE_ID || null
+    spaceId: spaceId
   });
 });
 
