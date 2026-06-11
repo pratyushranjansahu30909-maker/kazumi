@@ -529,6 +529,7 @@ class PortfolioRequestHandler(BaseHTTPRequestHandler):
             with KAZUMI_LOCK:
                 if kazumi_bot:
                     kazumi_bot.memory.profile["cozy_points"] = 0
+                    kazumi_bot.memory.profile["affection_level"] = 0
                     kazumi_bot.memory.profile["diary"] = []
                     kazumi_bot.memory.save_profile()
                 else:
@@ -545,6 +546,7 @@ class PortfolioRequestHandler(BaseHTTPRequestHandler):
                                     with open(profile_path + ".bak", "r", encoding="utf-8") as f:
                                         profile = json.load(f)
                             profile["cozy_points"] = 0
+                            profile["affection_level"] = 0
                             # profile["diary"] = []
                             diary_path = os.path.join(ISA_MEMORY_DIR, "diary.json")
                             try:

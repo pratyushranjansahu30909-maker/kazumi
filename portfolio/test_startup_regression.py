@@ -99,7 +99,7 @@ class TestStartupProtection(unittest.TestCase):
         memory = ChromaMemory(persist_directory=self.test_dir)
         
         # Verify default profile loaded
-        self.assertEqual(memory.profile["affection_level"], 50)
+        self.assertEqual(memory.profile["affection_level"], 0)
         self.assertEqual(memory.profile["cozy_points"], 0)
         self.assertTrue(memory.profile["_is_default"])
 
@@ -124,7 +124,7 @@ class TestStartupProtection(unittest.TestCase):
         client_profile = {
             "_schema_version": 1,
             "name": "Friend",
-            "affection_level": 30, # Lower than default (50), but user's real progress!
+            "affection_level": 30, # Higher than default (0), but user's real progress!
             "cozy_points": 80,    # Higher than default (0)
             "diary": ["A lovely day"],
             "_is_default": False

@@ -223,6 +223,7 @@ app.post('/api/kazumi/reset', (req, res) => {
       fs.copyFileSync(profilePath, profilePath + '.bak');
       const data = JSON.parse(fs.readFileSync(profilePath, 'utf8'));
       data.cozy_points = 0;
+      data.affection_level = 0;
       // data.diary = [];
       const diaryPath = path.join(getIsaMemoryDir(), 'diary.json');
       try {
