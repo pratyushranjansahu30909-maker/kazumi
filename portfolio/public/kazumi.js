@@ -989,11 +989,6 @@ document.addEventListener('DOMContentLoaded', () => {
       const info = await res.json();
       if (info.spaceId) {
         let spaceId = info.spaceId;
-        if (spaceId.includes('kazum1-companion')) {
-          spaceId = spaceId.replace('kazum1-companion', 'kazumi-companion');
-        } else if (spaceId.includes('kazum1')) {
-          spaceId = spaceId.replace('kazum1', 'kazumi');
-        }
         shareUrl = `https://huggingface.co/spaces/${spaceId}`;
         isHuggingFaceSpace = true;
         
@@ -1087,11 +1082,6 @@ document.addEventListener('DOMContentLoaded', () => {
           const info = await res.json();
           if (info.spaceId) {
             let spaceId = info.spaceId;
-            if (spaceId.includes('kazum1-companion')) {
-              spaceId = spaceId.replace('kazum1-companion', 'kazumi-companion');
-            } else if (spaceId.includes('kazum1')) {
-              spaceId = spaceId.replace('kazum1', 'kazumi');
-            }
             spaceUrl = `https://huggingface.co/spaces/${spaceId}`;
           }
         } catch (e) {
