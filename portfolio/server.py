@@ -527,41 +527,40 @@ class PortfolioRequestHandler(BaseHTTPRequestHandler):
 
         elif path == "/api/kazumi/reset":
             with KAZUMI_LOCK:
-                if kazumi_bot:
-                    kazumi_bot.memory.profile["cozy_points"] = 0
-                    kazumi_bot.memory.profile["affection_level"] = 0
-                    kazumi_bot.memory.profile["diary"] = []
-                    kazumi_bot.memory.save_profile()
-                else:
-                    profile_path = os.path.join(ISA_MEMORY_DIR, "profile.json")
-                    if os.path.exists(profile_path):
-                        try:
-                            import shutil
-                            shutil.copy2(profile_path, profile_path + ".bak")
-                            try:
-                                with open(profile_path, "r", encoding="utf-8") as f:
-                                    profile = json.load(f)
-                            except Exception:
-                                if os.path.exists(profile_path + ".bak"):
-                                    with open(profile_path + ".bak", "r", encoding="utf-8") as f:
-                                        profile = json.load(f)
-                            profile["cozy_points"] = 0
-                            profile["affection_level"] = 0
-                            # profile["diary"] = []
-                            diary_path = os.path.join(ISA_MEMORY_DIR, "diary.json")
-                            try:
-                                _atomic_write_json(diary_path, [])
-                            except Exception as diary_err:
-                                print(f"Failed to reset diary atomically in Python: {diary_err}")
-                            if "diary" in profile:
-                                del profile["diary"]
-                            if profile.get("_is_default"):
-                                profile["_is_default"] = False
-                            _atomic_write_json(profile_path, profile)
-                        except Exception as e:
-                            self.send_json({"success": False, "error": str(e)})
-                            return
-                self.send_json({"success": True, "message": "Profile reset successfully."})
+                try:
+                    global kazumi_bot
+                    if kazumi_bot:
+                        kazumi_bot = None
+                    
+                    files = [
+                        'profile.json', 'profile.json.bak', 'profile.json.tmp',
+                        'diary.json', 'diary.json.bak', 'diary.json.tmp',
+                        'conversations.json', 'conversations.json.bak', 'conversations.json.tmp'
+                    ]
+                    for f in files:
+                        file_path = os.path.join(ISA_MEMORY_DIR, f)
+                        if os.path.exists(file_path):
+                            os.remove(file_path)
+                            
+                    # Re-initialize bot instance to clean memory files
+                    try:
+                        from kazumi import Kazumi
+                        kazumi_bot = Kazumi()
+                        kazumi_bot.memory.persist_path = os.path.join(ISA_MEMORY_DIR, "conversations.json")
+                        kazumi_bot.memory.profile_path = os.path.join(ISA_MEMORY_DIR, "profile.json")
+                        kazumi_bot.memory.diary_path = os.path.join(ISA_MEMORY_DIR, "diary.json")
+                        kazumi_bot.memory.history = kazumi_bot.memory.load_history()
+                        kazumi_bot.memory.profile = kazumi_bot.memory.load_profile()
+                        kazumi_bot.active_character = "kazumi"
+                        kazumi_bot.current_archetype = "DEREDERE"
+                        kazumi_bot.load_game_states()
+                    except Exception as bot_err:
+                        print(f"Failed to re-initialize clean bot: {bot_err}")
+                        
+                    self.send_json({"success": True, "message": "Profile and chat history cleared successfully."})
+                except Exception as e:
+                    self.send_json({"success": False, "error": str(e)})
+
             
         elif path == "/api/kazumi/chat":
             with KAZUMI_LOCK:

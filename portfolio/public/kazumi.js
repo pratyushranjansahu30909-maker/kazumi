@@ -1151,6 +1151,21 @@ document.addEventListener('DOMContentLoaded', () => {
     startOfflineTracker();
     startShareLinkHandler();
     startIframeWarningHandler();
+
+    // Bind Reset Space button click handler
+    const resetSpaceBtn = document.getElementById('resetSpaceBtn');
+    if (resetSpaceBtn) {
+      resetSpaceBtn.addEventListener('click', () => {
+        const confirmReset = confirm(
+          "Are you sure you want to reset all data?\n\nThis will completely clear your affection level progress, cozy points, diary entries, and all conversation history. This action cannot be undone."
+        );
+        if (confirmReset) {
+          safeStorage.removeItem('kazumi_profile');
+          safeStorage.removeItem('kazumi_chat_history');
+          window.location.replace(window.location.protocol + "//" + window.location.host + window.location.pathname + "?reset=true");
+        }
+      });
+    }
   };
 
   init();

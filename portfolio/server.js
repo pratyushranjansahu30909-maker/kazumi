@@ -217,47 +217,25 @@ app.post('/api/settings/clear', (req, res) => {
 
 // 3b. Reset Profile
 app.post('/api/kazumi/reset', (req, res) => {
-  const profilePath = path.join(getIsaMemoryDir(), 'profile.json');
   try {
-    if (fs.existsSync(profilePath)) {
-      fs.copyFileSync(profilePath, profilePath + '.bak');
-      const data = JSON.parse(fs.readFileSync(profilePath, 'utf8'));
-      data.cozy_points = 0;
-      data.affection_level = 0;
-      // data.diary = [];
-      const diaryPath = path.join(getIsaMemoryDir(), 'diary.json');
-      try {
-        if (fs.existsSync(diaryPath)) {
-          fs.copyFileSync(diaryPath, diaryPath + '.bak');
-        }
-        const diaryTmpPath = diaryPath + '.tmp';
-        const diaryFd = fs.openSync(diaryTmpPath, 'w');
-        fs.writeSync(diaryFd, JSON.stringify([], null, 2), null, 'utf8');
-        fs.fsyncSync(diaryFd);
-        fs.closeSync(diaryFd);
-        fs.renameSync(diaryTmpPath, diaryPath);
-      } catch (diaryErr) {
-        console.error('Failed to reset diary atomically:', diaryErr.message);
+    const memoryDir = getIsaMemoryDir();
+    const files = [
+      'profile.json', 'profile.json.bak', 'profile.json.tmp',
+      'diary.json', 'diary.json.bak', 'diary.json.tmp',
+      'conversations.json', 'conversations.json.bak', 'conversations.json.tmp'
+    ];
+    files.forEach(f => {
+      const filePath = path.join(memoryDir, f);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
       }
-      if (data.diary !== undefined) {
-        delete data.diary;
-      }
-      if (data._is_default) {
-        data._is_default = false;
-      }
-      
-      const tmpPath = profilePath + '.tmp';
-      const fd = fs.openSync(tmpPath, 'w');
-      fs.writeSync(fd, JSON.stringify(data, null, 2), null, 'utf8');
-      fs.fsyncSync(fd);
-      fs.closeSync(fd);
-      fs.renameSync(tmpPath, profilePath);
-    }
-    res.json({ success: true, message: 'Profile reset successfully.' });
+    });
+    res.json({ success: true, message: 'Profile and chat history cleared successfully.' });
   } catch (e) {
     res.json({ success: false, error: e.message });
   }
 });
+
 
 // 3c. Sync Profile Progress
 app.post('/api/kazumi/profile', (req, res) => {
