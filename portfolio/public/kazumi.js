@@ -3,6 +3,55 @@
 // ----------------------------------------------------
 
 document.addEventListener('DOMContentLoaded', () => {
+  // Safe Storage Wrapper to handle browser security settings (e.g. Brave/Safari blocking iframe localStorage)
+  let isLocalStorageAvailable = false;
+  try {
+    const testKey = '__storage_test__';
+    window.localStorage.setItem(testKey, testKey);
+    window.localStorage.removeItem(testKey);
+    isLocalStorageAvailable = true;
+  } catch (e) {
+    console.warn("localStorage is not accessible (likely blocked by browser security/shields in iframe). Falling back to in-memory cache.");
+    isLocalStorageAvailable = false;
+  }
+
+  const memoryStorage = {};
+
+  const safeStorage = {
+    getItem: (key) => {
+      if (isLocalStorageAvailable) {
+        try {
+          return window.localStorage.getItem(key);
+        } catch (e) {
+          return memoryStorage[key] || null;
+        }
+      }
+      return memoryStorage[key] || null;
+    },
+    setItem: (key, value) => {
+      if (isLocalStorageAvailable) {
+        try {
+          window.localStorage.setItem(key, value);
+          return;
+        } catch (e) {
+          // fall through
+        }
+      }
+      memoryStorage[key] = String(value);
+    },
+    removeItem: (key) => {
+      if (isLocalStorageAvailable) {
+        try {
+          window.localStorage.removeItem(key);
+          return;
+        } catch (e) {
+          // fall through
+        }
+      }
+      delete memoryStorage[key];
+    }
+  };
+
   // Navigation / Space switching bindings
   const menuItems = document.querySelectorAll('.menu-item');
   const spacePanels = document.querySelectorAll('.space-panel');
@@ -353,26 +402,26 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const initClientStorage = () => {
-    if (!localStorage.getItem('kazumi_profile')) {
-      localStorage.setItem('kazumi_profile', JSON.stringify(DEFAULT_PROFILE));
+    if (!safeStorage.getItem('kazumi_profile')) {
+      safeStorage.setItem('kazumi_profile', JSON.stringify(DEFAULT_PROFILE));
     }
-    if (!localStorage.getItem('kazumi_chat_history')) {
-      localStorage.setItem('kazumi_chat_history', JSON.stringify([]));
+    if (!safeStorage.getItem('kazumi_chat_history')) {
+      safeStorage.setItem('kazumi_chat_history', JSON.stringify([]));
     }
   };
 
   const getClientProfile = () => {
     initClientStorage();
-    return JSON.parse(localStorage.getItem('kazumi_profile'));
+    return JSON.parse(safeStorage.getItem('kazumi_profile'));
   };
 
   const saveClientProfile = (profile) => {
-    localStorage.setItem('kazumi_profile', JSON.stringify(profile));
+    safeStorage.setItem('kazumi_profile', JSON.stringify(profile));
   };
 
   const getClientChatHistory = (sessId) => {
     initClientStorage();
-    const history = JSON.parse(localStorage.getItem('kazumi_chat_history'));
+    const history = JSON.parse(safeStorage.getItem('kazumi_chat_history'));
     if (showingHistory) {
       return history;
     }
@@ -381,11 +430,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const saveClientMessage = (sessId, userText, replyText) => {
     initClientStorage();
-    const history = JSON.parse(localStorage.getItem('kazumi_chat_history'));
+    const history = JSON.parse(safeStorage.getItem('kazumi_chat_history'));
     const nowSec = Date.now() / 1000;
     history.push({ speaker: 'user', text: userText, timestamp: nowSec, sessionId: sessId });
     history.push({ speaker: 'kazumi', text: replyText, timestamp: nowSec + 0.1, sessionId: sessId });
-    localStorage.setItem('kazumi_chat_history', JSON.stringify(history));
+    safeStorage.setItem('kazumi_chat_history', JSON.stringify(history));
 
     // Update stats
     const profile = getClientProfile();
@@ -493,7 +542,7 @@ document.addEventListener('DOMContentLoaded', () => {
         useClientFallback = false; // Successfully recovered!
 
         // Bidirectional Sync: Check if local storage has higher progress than the server
-        const localProfileStr = localStorage.getItem('kazumi_profile');
+        const localProfileStr = safeStorage.getItem('kazumi_profile');
         if (localProfileStr) {
           try {
             const localProfile = JSON.parse(localProfileStr);
@@ -544,7 +593,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         // Persist latest profile in client-side storage
-        localStorage.setItem('kazumi_profile', JSON.stringify(profile));
+        safeStorage.setItem('kazumi_profile', JSON.stringify(profile));
 
       } catch (serverErr) {
         profile = getClientProfile();
@@ -597,10 +646,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
-  let sessionId = localStorage.getItem('kazumi_session_id');
+  let sessionId = safeStorage.getItem('kazumi_session_id');
   if (!sessionId) {
     sessionId = 'session_' + Math.floor(Math.random() * 100000000);
-    localStorage.setItem('kazumi_session_id', sessionId);
+    safeStorage.setItem('kazumi_session_id', sessionId);
   }
   let showingHistory = false;
   let chatMessagesSentInSession = 0;
@@ -996,7 +1045,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       
       // Save to localStorage
-      localStorage.setItem('kazumi_theme', themeName);
+      safeStorage.setItem('kazumi_theme', themeName);
     };
 
     // Bind theme button click handlers
@@ -1008,7 +1057,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Load persisted theme on boot
-    const savedTheme = localStorage.getItem('kazumi_theme') || 'cozy-lavender';
+    const savedTheme = safeStorage.getItem('kazumi_theme') || 'cozy-lavender';
     applyTheme(savedTheme);
   };
 
@@ -1018,8 +1067,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has('reset')) {
       // 1. Reset client-side storage
-      localStorage.removeItem('kazumi_profile');
-      localStorage.removeItem('kazumi_chat_history');
+      safeStorage.removeItem('kazumi_profile');
+      safeStorage.removeItem('kazumi_chat_history');
       
       // 2. Attempt to reset server-side profile (safely ignoring failure if offline/fallback mode)
       try {
