@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,14 +9,17 @@
   <!-- Google Fonts & Icon sets -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;1,400&family=JetBrains+Mono:wght@400;500&family=Caveat:wght@400;700&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;1,400&family=JetBrains+Mono:wght@400;500&family=Caveat:wght@400;700&display=swap"
+    rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="stylesheet" href="kazumi.css">
 </head>
+
 <body class="calm-mode">
 
   <div class="dashboard-wrapper">
-    
+
     <!-- Sidebar Navigation -->
     <aside class="sidebar">
       <div class="sidebar-brand">
@@ -65,16 +69,19 @@
 
     <!-- Main Content Workspace -->
     <main class="workspace">
-      
+
       <!-- Frame Escape Warning Banner -->
-      <div id="iframeWarning" style="display: none; background: rgba(189, 114, 214, 0.12); border: 1px solid rgba(189, 114, 214, 0.25); padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1.5rem; font-size: 0.85rem; color: #ebdcef; line-height: 1.4; align-items: center; gap: 0.5rem;">
-        <i class="fa-solid fa-circle-info" style="color: #c084fc;"></i> 
-        <span>Running inside an iframe. Browser blocking local storage? 
-          <a href="#" id="directLink" target="_blank" style="color: #c084fc; font-weight: 600; text-decoration: underline; cursor: pointer;">Open directly in new tab</a> 
+      <div id="iframeWarning"
+        style="display: none; background: rgba(189, 114, 214, 0.12); border: 1px solid rgba(189, 114, 214, 0.25); padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1.5rem; font-size: 0.85rem; color: #ebdcef; line-height: 1.4; align-items: center; gap: 0.5rem;">
+        <i class="fa-solid fa-circle-info" style="color: #c084fc;"></i>
+        <span>Running inside an iframe. Browser blocking local storage?
+          <a href="#" id="directLink" target="_blank"
+            style="color: #c084fc; font-weight: 600; text-decoration: underline; cursor: pointer;">Open directly in new
+            tab</a>
           to enable persistent saving & progress tracking!
         </span>
       </div>
-      
+
       <!-- Space 1: Overview -->
       <section id="space-overview" class="space-panel active">
         <div class="space-header">
@@ -88,13 +95,14 @@
             <div class="avatar-wrapper">
               <img src="isa_avatar.png" alt="Kazumi Avatar" class="isa-avatar" id="kazumiAvatar">
             </div>
-            
+
             <div class="profile-header">
               <h2>Kazumi</h2>
               <span class="status-pill"><span class="status-indicator"></span> Serene & Online</span>
             </div>
 
-            <p class="description">Your empathetic, loving companion. Keeping you calm, listening, and sharing daily reflections.</p>
+            <p class="description">Your empathetic, loving companion. Keeping you calm, listening, and sharing daily
+              reflections.</p>
             <div class="handwritten-signature">With love, Kazumi</div>
 
             <div class="stats-box">
@@ -126,7 +134,7 @@
             <!-- Psychology Card -->
             <div class="psychology-card">
               <h3>Companion Psychology</h3>
-              
+
               <div class="psych-stat">
                 <span class="psych-label">Dominant Vibe</span>
                 <span class="psych-value" id="dominantVibeVal">-</span>
@@ -146,13 +154,15 @@
                     <div class="valence-pointer" id="valencePointer" style="left: 50%;"></div>
                   </div>
                 </div>
-                <p class="valence-desc">A positive score indicates high spirits and joy, while a negative score represents a deeper, empathetic, and reflective state.</p>
+                <p class="valence-desc">A positive score indicates high spirits and joy, while a negative score
+                  represents a deeper, empathetic, and reflective state.</p>
               </div>
             </div>
 
             <!-- Cozy Sticky Note -->
             <div class="sticky-note">
-              <div class="sticky-text" id="stickyNoteText">"Take a deep breath and relax, darling. I'm right here with you." — Kazumi</div>
+              <div class="sticky-text" id="stickyNoteText">"Take a deep breath and relax, darling. I'm right here with
+                you." — Kazumi</div>
             </div>
           </div>
         </div>
@@ -181,8 +191,9 @@
 
           <div class="chimes-ambient-card">
             <h2>Procedural Ambient Chimes</h2>
-            <p class="chimes-desc">Generates soothing, randomized pentatonic chimes in real-time. Turn them on to create a calm background ambience.</p>
-            
+            <p class="chimes-desc">Generates soothing, randomized pentatonic chimes in real-time. Turn them on to create
+              a calm background ambience.</p>
+
             <button class="btn btn-zen" id="chimeBtn">
               <span class="icon-play">Enable Chimes</span>
               <span class="icon-stop" style="display:none;">Silence Chimes</span>
@@ -210,7 +221,7 @@
             <div class="diary-book-header">
               <h2>Kazumi's Journal</h2>
             </div>
-            
+
             <div class="diary-timeline" id="diaryTimeline">
               <div class="loading-state">Reading diary pages...</div>
             </div>
@@ -236,11 +247,11 @@
                 View Full History
               </button>
             </div>
-            
+
             <div class="chat-logs-container" id="chatLogsContainer">
               <div class="loading-state">Retrieving conversation log...</div>
             </div>
-            
+
             <form id="chatForm" class="chat-input-form">
               <div class="chat-input-wrapper">
                 <input type="text" id="chatInput" placeholder="Type a message to Kazumi..." autocomplete="off">
@@ -256,4 +267,5 @@
 
   <script src="kazumi.js"></script>
 </body>
+
 </html>
