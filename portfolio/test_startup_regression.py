@@ -100,7 +100,7 @@ class TestStartupProtection(unittest.TestCase):
         
         # Verify default profile loaded
         self.assertEqual(memory.profile["affection_level"], 50)
-        self.assertEqual(memory.profile["cozy_points"], 100)
+        self.assertEqual(memory.profile["cozy_points"], 0)
         self.assertTrue(memory.profile["_is_default"])
 
         # Save profile
@@ -125,7 +125,7 @@ class TestStartupProtection(unittest.TestCase):
             "_schema_version": 1,
             "name": "Friend",
             "affection_level": 30, # Lower than default (50), but user's real progress!
-            "cozy_points": 80,    # Lower than default (100)
+            "cozy_points": 80,    # Higher than default (0)
             "diary": ["A lovely day"],
             "_is_default": False
         }

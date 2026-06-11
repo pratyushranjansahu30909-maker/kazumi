@@ -380,7 +380,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const DEFAULT_PROFILE = {
     name: "Sweetie",
     affection_level: 0,
-    cozy_points: 120,
+    cozy_points: 0,
     zodiac: "None",
     room_decorations: [],
     quests: {
@@ -391,9 +391,7 @@ document.addEventListener('DOMContentLoaded', () => {
       ]
     },
     achievements: ["FIRST_TALK"],
-    diary: [
-      "[2026-06-05 21:00] (Mode: DEREDERE)\nDear Diary,\n\nI was dreaming about clouds and tea bubbles today... and my favorite person was right there in my thoughts. Talking to them feels like floating in a beautiful, warm sky. 💕"
-    ],
+    diary: [],
     psychology: {
       dominant_vibe: "Serene",
       rolling_valence: 0.00,
@@ -439,7 +437,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Update stats
     const profile = getClientProfile();
     profile.affection_level = Math.min((profile.affection_level || 0) + (Math.random() < 0.15 ? 1 : 0), 100);
-    profile.cozy_points = (profile.cozy_points || 120) + (Math.random() < 0.2 ? 1 : 0);
+    profile.cozy_points = (profile.cozy_points || 0) + (Math.random() < 0.2 ? 1 : 0);
     
     // Update active chat quest
     if (profile.quests && profile.quests.active) {
