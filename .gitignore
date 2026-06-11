@@ -4,8 +4,13 @@ __pycache__
 .git
 .env
 portfolio/credentials.json
-isa_memory/conversations.json
-isa_memory/profile.json
+isa_memory/
+logs/
+portfolio/logs/
+portfolio/backups/
+*.tmp
+*.bak
+*.corrupted.*
 .gemini
 .idea
 .vscode
@@ -13,6 +18,11 @@ isa_memory/profile.json
 *.webp
 *.png
 *.zip
+
+.agent/
+portfolio/proposed_config.json
+portfolio/stress_test_log.json
+portfolio/version_track.json
 
 # Allow specific assets
 !portfolio/public/isa_avatar.png
