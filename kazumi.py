@@ -3316,7 +3316,7 @@ class Kazumi:
         is_goodbye = any(re.search(trigger, clean_text) or re.search(trigger, clean_text_no_punc) for trigger in goodbye_triggers) or any(sig in clean_text for sig in ["colorful", "make my day", "made my day", "thanks for making my day"])
         
         greetings = {"hi", "hello", "hey", "greetings", "sup", "yo", "good morning", "good afternoon", "good evening", "goodnight", "hlo", "hii", "heyy", "hllo", "howdy"}
-        is_greeting = clean_text_no_punc in greetings or any(clean_text_no_punc.startswith(g + " ") for g in greetings)
+        is_greeting = clean_text_no_punc in greetings or (any(clean_text_no_punc.startswith(g + " ") for g in greetings) and len(clean_text_no_punc.split()) <= 2)
         
         is_exit = any(w in clean_text_no_punc.split() for w in ["stop", "exit", "cancel", "leave", "quit"]) or clean_text == "/exit"
         
