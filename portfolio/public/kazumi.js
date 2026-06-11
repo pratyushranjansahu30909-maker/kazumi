@@ -988,7 +988,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await fetch('/api/space-info');
       const info = await res.json();
       if (info.spaceId) {
-        shareUrl = `https://huggingface.co/spaces/${info.spaceId}?duplicate=true`;
+        let spaceId = info.spaceId;
+        if (spaceId.includes('kazum1-companion')) {
+          spaceId = spaceId.replace('kazum1-companion', 'kazumi-companion');
+        } else if (spaceId.includes('kazum1')) {
+          spaceId = spaceId.replace('kazum1', 'kazumi');
+        }
+        shareUrl = `https://huggingface.co/spaces/${spaceId}?duplicate=true`;
         isDuplicationLink = true;
         
         // Update share title icon/text if running on Hugging Face
@@ -1061,6 +1067,25 @@ document.addEventListener('DOMContentLoaded', () => {
     applyTheme(savedTheme);
   };
 
+  // --- Handle iframe warning ---
+  const startIframeWarningHandler = () => {
+    const iframeWarning = document.getElementById('iframeWarning');
+    const directLink = document.getElementById('directLink');
+    if (iframeWarning && directLink) {
+      const inIframe = () => {
+        try {
+          return window.self !== window.top;
+        } catch (e) {
+          return true;
+        }
+      };
+      if (inIframe()) {
+        iframeWarning.style.display = 'flex';
+        directLink.href = window.location.origin;
+      }
+    }
+  };
+
   // Initial Triggers
   const init = async () => {
     // Check URL parameters for reset action
@@ -1095,6 +1120,7 @@ document.addEventListener('DOMContentLoaded', () => {
     startRandomDailyNotifications();
     startOfflineTracker();
     startShareLinkHandler();
+    startIframeWarningHandler();
   };
 
   init();
