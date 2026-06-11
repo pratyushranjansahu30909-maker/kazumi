@@ -982,7 +982,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const shareUrlText = document.getElementById('shareUrlText');
     const copyShareBtn = document.getElementById('copyShareBtn');
     let shareUrl = window.location.origin + '/';
-    let isDuplicationLink = false;
+    let isHuggingFaceSpace = false;
 
     try {
       const res = await fetch('/api/space-info');
@@ -994,13 +994,13 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (spaceId.includes('kazum1')) {
           spaceId = spaceId.replace('kazum1', 'kazumi');
         }
-        shareUrl = `https://huggingface.co/spaces/${spaceId}?duplicate=true`;
-        isDuplicationLink = true;
+        shareUrl = `https://huggingface.co/spaces/${spaceId}`;
+        isHuggingFaceSpace = true;
         
         // Update share title icon/text if running on Hugging Face
         const shareTitle = document.querySelector('.sidebar-share div:first-child');
         if (shareTitle) {
-          shareTitle.innerHTML = '<i class="fa-solid fa-clone"></i> Duplicate Space';
+          shareTitle.innerHTML = '<i class="fa-solid fa-arrow-up-right-from-square"></i> Space URL';
         }
       }
     } catch (e) {
@@ -1011,14 +1011,14 @@ document.addEventListener('DOMContentLoaded', () => {
       shareUrlText.textContent = shareUrl;
     }
     if (copyShareBtn) {
-      if (isDuplicationLink) {
-        copyShareBtn.innerHTML = '<i class="fa-solid fa-clone"></i> Copy Duplicate Link';
+      if (isHuggingFaceSpace) {
+        copyShareBtn.innerHTML = '<i class="fa-solid fa-copy"></i> Copy Space Link';
       }
       copyShareBtn.addEventListener('click', () => {
         navigator.clipboard.writeText(shareUrl);
-        showToast(isDuplicationLink 
-          ? "Duplication link copied! Share this so others can run their own private server. 🌸"
-          : "Link copied to clipboard! Share it with others. 🌸"
+        showToast(isHuggingFaceSpace 
+          ? "Space link copied! Share this so others can chat with Kazumi. 🌸"
+          : "Link copied to clipboard! 🌸"
         );
       });
     }
@@ -1068,7 +1068,7 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   // --- Handle iframe warning ---
-  const startIframeWarningHandler = () => {
+  const startIframeWarningHandler = async () => {
     const iframeWarning = document.getElementById('iframeWarning');
     const directLink = document.getElementById('directLink');
     if (iframeWarning && directLink) {
@@ -1081,16 +1081,46 @@ document.addEventListener('DOMContentLoaded', () => {
       };
       if (inIframe()) {
         iframeWarning.style.display = 'flex';
-        directLink.href = window.location.origin;
+        let spaceUrl = 'https://huggingface.co/spaces/kaizen2157/kazumi-companion';
+        try {
+          const res = await fetch('/api/space-info');
+          const info = await res.json();
+          if (info.spaceId) {
+            let spaceId = info.spaceId;
+            if (spaceId.includes('kazum1-companion')) {
+              spaceId = spaceId.replace('kazum1-companion', 'kazumi-companion');
+            } else if (spaceId.includes('kazum1')) {
+              spaceId = spaceId.replace('kazum1', 'kazumi');
+            }
+            spaceUrl = `https://huggingface.co/spaces/${spaceId}`;
+          }
+        } catch (e) {
+          console.warn("Failed to get spaceUrl:", e);
+        }
+        directLink.href = spaceUrl;
       }
     }
   };
 
   // Initial Triggers
   const init = async () => {
-    // Check URL parameters for reset action
+    // Check URL parameters or iframe referrer for reset action
     const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.has('reset')) {
+    const hasResetDoneHash = window.location.hash === '#reset_done';
+    
+    let hasReset = urlParams.has('reset');
+    if (!hasReset && !hasResetDoneHash && document.referrer) {
+      try {
+        const refUrl = new URL(document.referrer);
+        if (refUrl.searchParams.has('reset')) {
+          hasReset = true;
+        }
+      } catch (e) {
+        console.warn("Failed to parse referrer URL for reset parameter:", e);
+      }
+    }
+
+    if (hasReset) {
       // 1. Reset client-side storage
       safeStorage.removeItem('kazumi_profile');
       safeStorage.removeItem('kazumi_chat_history');
@@ -1102,8 +1132,8 @@ document.addEventListener('DOMContentLoaded', () => {
         console.warn('Server reset failed or offline:', e);
       }
       
-      // 3. Remove the parameter and reload clean page
-      const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+      // 3. Remove the parameter and reload clean page with reset_done hash to prevent loop
+      const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + "#reset_done";
       window.location.replace(cleanUrl);
       return;
     }
