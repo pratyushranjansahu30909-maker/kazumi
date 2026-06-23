@@ -27,3 +27,12 @@ portfolio/version_track.json
 # Allow specific assets
 !portfolio/public/isa_avatar.png
 
+# Local environment and model directories
+.venv/
+GPT-SoVITS/
+voices/
+portfolio/gpt_manager_status.json
+portfolio/gpt_setup_status.json
+portfolio/public/temp/
+portfolio/public/audio/reference_voice.webm
+

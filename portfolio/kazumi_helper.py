@@ -74,6 +74,8 @@ def main():
                 result = {"success": True, "reply": reply}
             elif command == "profile":
                 result = bot.memory.profile
+            elif command == "tts":
+                result = {"success": False, "error": "TTS engine has been removed from this system."}
             else:
                 result = {"success": False, "error": f"Unknown command: {command}"}
         except Exception as e:

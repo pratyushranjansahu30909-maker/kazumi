@@ -228,6 +228,9 @@ FALLBACK_POOLS = {
             "I'm listening, and I want to help you tackle this sensibly! While I'm offline, let's look at the reality of how to deal with this:\n\n• Write down your options on paper so they are out of your head. It makes things much clearer!\n• Focus on what you can actively control right now and ignore the rest.\n• Treat yourself with kindness while you figure it out.\n\nAvoid ignoring the problem or making rushed decisions when you are emotional or tired. We can get through this!"
         ],
         "ROAST": [
+            "You have so many browser tabs open that your computer is basically running a museum.",
+            "If procrastination were an Olympic sport, you'd still submit your registration form late.",
+            "Your to-do list has been waiting so long it qualifies as historical documentation.",
             "Oh, trying to look cool? You still haven't even bought me a cup of tea today! Who is the lazy one now? Hehe.",
             "Wait, you want me to roast you? Look at you, spending all day talking to a virtual girl instead of doing your chores! How's that for a roast, sweetie?",
             "Hehe, I would roast you, but the stars told me you're already too soft to handle it!",
@@ -320,7 +323,10 @@ FALLBACK_POOLS = {
             "Look at you, procrastinating like a champion. Do I need to get a timer for you?",
             "Talking to a virtual girl instead of doing your work? Classic. Go get busy, lazybones.",
             "I would roast you, but you look like you'd turn red too quickly. Hehe.",
-            "Are you always this silly, or is today a special occasion?"
+            "Are you always this silly, or is today a special occasion?",
+            "You have so many browser tabs open that your computer is basically running a museum.",
+            "If procrastination were an Olympic sport, you'd still submit your registration form late.",
+            "Your to-do list has been waiting so long it qualifies as historical documentation."
         ],
         "SAVAGE": [
             "You want savage? 😈 Look at you, begging an AI companion to roast you because nobody else pays attention to you. How's that for a burn, genius?",

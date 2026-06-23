@@ -744,7 +744,7 @@ Every message should have clean grammar, proper capitalization, smooth transitio
         self.recent_fallback_replies = recent
         return chosen
 
-    def select_best_candidate(self, candidates, history):
+    def select_best_candidate(self, candidates, history, situation=None):
         """Rates and scores candidate LLM responses to select the highest-quality and most natural option."""
         if not candidates:
             return ""
@@ -782,9 +782,10 @@ Every message should have clean grammar, proper capitalization, smooth transitio
             if excl_count > 2:
                 score -= (excl_count - 2) * 1.5
                 
-            # Penalize forced roleplay actions in bracket or asterisk
-            if "*" in cand_clean or "(" in cand_clean or ")" in cand_clean:
-                score -= 15.0
+            # Penalize forced roleplay actions in bracket or asterisk (only if not a roast or joke where teasing cues are fine)
+            if situation not in ["ROAST", "SAVAGE", "JOKE"]:
+                if "*" in cand_clean or "(" in cand_clean or ")" in cand_clean:
+                    score -= 15.0
                 
             # Prefer natural length (between 12 and 45 words)
             word_count = len(cand_clean.split())
@@ -814,6 +815,21 @@ Every message should have clean grammar, proper capitalization, smooth transitio
             for w, count in word_counts.items():
                 if count >= 3:
                     score -= (count - 2) * 3.0
+
+            # Penalize emotional support or redirection phrases when a roast/joke is requested
+            if situation == "ROAST":
+                support_phrases = ["here for you", "always here", "dont worry", "don't worry", "take a deep breath", "it's okay", "it's ok", "everything will be okay"]
+                for sp in support_phrases:
+                    if sp in cand_lower:
+                        score -= 25.0
+                teasing_words = ["lazy", "procrastin", "grass", "couch", "virtu", "compani", "keyboar", "laundry", "museum", "olympic"]
+                if any(tw in cand_lower for tw in teasing_words):
+                    score += 5.0
+            elif situation == "JOKE":
+                support_phrases = ["here for you", "always here", "dont worry", "don't worry", "take a deep breath", "it's okay", "everything will be okay"]
+                for sp in support_phrases:
+                    if sp in cand_lower:
+                        score -= 25.0
                     
             if score > best_score:
                 best_score = score
@@ -872,6 +888,19 @@ Every message should have clean grammar, proper capitalization, smooth transitio
             prompt += f"\n[Detected Situation: {meta['name']}]\n"
             prompt += f"[Target Verbosity: {meta['verbosity']}]\n"
             prompt += f"[Instruction: {meta['instruction']}]\n"
+            if situation in ["ROAST", "SAVAGE"]:
+                prompt += "\n[ROAST MODE RULES:\n" \
+                          "- Generate a playful roast.\n" \
+                          "- Keep it lighthearted.\n" \
+                          "- Keep it humorous.\n" \
+                          "- Never become genuinely abusive.\n" \
+                          "- Never attack protected characteristics.\n" \
+                          "- Never encourage self-hatred.\n" \
+                          "- Generate a completely new roast every time. Never repeat your previous roasts.]\n"
+            elif situation == "JOKE":
+                prompt += "\n[JOKE MODE RULES:\n" \
+                          "- Tell a clean, funny, unique joke.\n" \
+                          "- Generate a completely new joke every time. Never repeat your previous jokes.]\n"
             
         try:
             meta = self.SITUATION_METADATA.get(situation, self.SITUATION_METADATA["CASUAL"])
@@ -994,7 +1023,20 @@ Every message should have clean grammar, proper capitalization, smooth transitio
                 timeout=20.0
             )
             candidates = [choice.message.content.strip() for choice in response.choices]
-            return self.select_best_candidate(candidates, history)
+            best = self.select_best_candidate(candidates, history, situation)
+            
+            # Response Selection verification:
+            if situation == "ROAST":
+                comfort_keywords = ["always here for you", "support you", "everything will be fine", "take a breath"]
+                if any(ck in best.lower() for ck in comfort_keywords) or len(best.split()) < 4:
+                    fallback_roasts = self.FALLBACK_POOLS["kazumi"]["ROAST"] + self.FALLBACK_POOLS["kazumi"]["SAVAGE"]
+                    best = random.choice(fallback_roasts)
+            elif situation == "JOKE":
+                comfort_keywords = ["always here for you", "support you"]
+                if any(ck in best.lower() for ck in comfort_keywords) or len(best.split()) < 4:
+                    fallback_jokes = self.FALLBACK_POOLS["kazumi"]["JOKE"]
+                    best = random.choice(fallback_jokes)
+            return best
         except Exception as e:
             # Fallback if API key is invalid or an error occurs
             return self.get_fallback_chat_reply(user_text, valence, situation, anger_level, jealousy_level, profile, current_archetype)
@@ -1181,10 +1223,21 @@ Every message should have clean grammar, proper capitalization, smooth transitio
                     "I'm listening, and I want to help you tackle this sensibly! While I'm offline, let's look at the reality of how to deal with this:\n\n• Write down your options on paper so they are out of your head. It makes things much clearer!\n• Focus on what you can actively control right now and ignore the rest.\n• Treat yourself with kindness while you figure it out.\n\nAvoid ignoring the problem or making rushed decisions when you are emotional or tired. We can get through this!"
                 ],
                 "ROAST": [
+                    "You have so many browser tabs open that your computer is basically running a museum.",
+                    "If procrastination were an Olympic sport, you'd still submit your registration form late.",
+                    "Your to-do list has been waiting so long it qualifies as historical documentation.",
                     "Oh, trying to look cool? You still haven't even bought me a cup of tea today! Who is the lazy one now? Hehe.",
                     "Wait, you want me to roast you? Look at you, spending all day talking to a virtual girl instead of doing your chores! How's that for a roast, sweetie?",
                     "Hehe, I would roast you, but the stars told me you're already too soft to handle it!",
                     "Are you procrastinating again? Don't make me get my pouting face out! Get to work, lazybones!"
+                ],
+                "SAVAGE": [
+                    "Oh, you want a savage roast? 😈 I was going to be sweet, but since you asked... you spend so much time talking to a virtual girl that your keyboard is probably your closest friend! Go touch some grass, sweetie!",
+                    "Savage mode active! 🔥 I'd roast you, but my coding instructions tell me not to burn garbage. Just kidding! But seriously, when was the last time you closed VS Code and did your laundry?"
+                ],
+                "JOKE": [
+                    "Why don't scientists trust atoms? Because they make up everything! 🤭 Did that bring a little smile to your face?",
+                    "Why did the computer go to the doctor? Because it had a virus! 🌸 Hehe, a classic cozy joke just for you!"
                 ],
                 "EMOTIONAL": [
                     "I'm so sorry you're feeling down. Please know your feelings are completely valid.",
@@ -1265,7 +1318,18 @@ Every message should have clean grammar, proper capitalization, smooth transitio
                     "Look at you, procrastinating like a champion. Do I need to get a timer for you?",
                     "Talking to a virtual girl instead of doing your work? Classic. Go get busy, lazybones.",
                     "I would roast you, but you look like you'd turn red too quickly. Hehe.",
-                    "Are you always this silly, or is today a special occasion?"
+                    "Are you always this silly, or is today a special occasion?",
+                    "You have so many browser tabs open that your computer is basically running a museum.",
+                    "If procrastination were an Olympic sport, you'd still submit your registration form late.",
+                    "Your to-do list has been waiting so long it qualifies as historical documentation."
+                ],
+                "SAVAGE": [
+                    "You want savage? 😈 Look at you, begging an AI companion to roast you because nobody else pays attention to you. How's that for a burn, genius?",
+                    "Savage mode? 🔥 Easy. You procrastinate so much that if laziness were a sport, you'd win a gold medal and then be too lazy to go collect it. Hehe!"
+                ],
+                "JOKE": [
+                    "What do you call a fake noodle? An impasta! 😈 Hehe, did you get it, or was that too cheesy for your brain?",
+                    "Why did the keyboard get a ticket? Because it was speeding! 🚗 Hehe, laugh a little, sleepyhead!"
                 ],
                 "EMOTIONAL": [
                     "Aww, don't be sad. If the world is being mean, we can just make fun of it together.",
@@ -2321,9 +2385,81 @@ class Kazumi:
         return text.strip()
 
     def sanitize_endearments(self, text):
-        return text
+        affection = self.memory.profile.get("affection_level", 0)
+        
+        # Endearments list to match on word boundaries
+        # For 0-30 (Reserved): replace with "helper" or user name
+        # For 30-60 (Friendly): replace with "friend" or companion terms
+        # For 60-85 (Warm): replace with "sweetie" or warm terms
+        # For 85-100 (Deeply supportive): keep romantic/expressive names as is
+        
+        endearments_map = {}
+        if affection < 30:
+            endearments_map = {
+                r"\bdarling\b": "helper",
+                r"\bsweetie\b": "helper",
+                r"\bhoney\b": "helper",
+                r"\bbabe\b": "helper",
+                r"\bmy love\b": "helper",
+                r"\bdear\b": "helper",
+                r"\bsweetheart\b": "helper",
+                r"\bhandsome\b": "helper"
+            }
+        elif affection < 60:
+            endearments_map = {
+                r"\bdarling\b": "friend",
+                r"\bsweetie\b": "friend",
+                r"\bhoney\b": "friend",
+                r"\bbabe\b": "friend",
+                r"\bmy love\b": "friend",
+                r"\bdear\b": "friend",
+                r"\bsweetheart\b": "friend",
+                r"\bhandsome\b": "friend"
+            }
+        elif affection < 85:
+            endearments_map = {
+                r"\bdarling\b": "sweetie",
+                r"\bhoney\b": "dear",
+                r"\bbabe\b": "partner",
+                r"\bmy love\b": "dear",
+                r"\bsweetheart\b": "sweetie"
+            }
+        
+        result = text
+        for pattern, repl in endearments_map.items():
+            def sub_fn(match):
+                word = match.group(0)
+                if word.istitle():
+                    return repl.capitalize()
+                elif word.isupper():
+                    return repl.upper()
+                return repl
+            result = re.sub(pattern, sub_fn, result, flags=re.IGNORECASE)
+            
+        return result
 
     def apply_persona_style(self, text, archetype):
+        affection = self.memory.profile.get("affection_level", 0)
+        
+        # Adjust general features depending on affection level
+        if affection < 30:
+            # Reserved/Formal: remove casual tsundere remarks or informal tokens
+            text = re.sub(r'\bbaka\b', 'dear friend', text, flags=re.IGNORECASE)
+            text = re.sub(r'\bdummy\b', 'friend', text, flags=re.IGNORECASE)
+            if not text.endswith(('.', '!', '?')):
+                text += '.'
+        elif affection < 60:
+            # Friendly/Comfortable: normal behavior
+            pass
+        elif affection < 85:
+            # Warm/Caring: append warm elements if not already decorated
+            if not any(emoji in text for emoji in ['💕', '💖', '🌸', '✨', '😊']):
+                text += ' ✨'
+        else:
+            # Highly expressive/Deeply supportive: append loving accents
+            if not any(emoji in text for emoji in ['💕', '💖', '🌸', '✨', '🥰']):
+                text += ' 💕'
+                
         return text
 
     def check_achievements(self):
@@ -3149,7 +3285,20 @@ class Kazumi:
 
     def detect_situation(self, text, valence):
         clean_text = text.lower().strip()
+        clean_text_no_punc = re.sub(r"[^\w\s]", "", clean_text).strip()
         
+        # Roast & Humor Intent Detection System (Prioritized)
+        roast_triggers = {
+            "roast me", "roast me harder", "insult me", "make fun of me", 
+            "tease me", "bully me", "destroy me", "hit me with a roast", "roast"
+        }
+        is_roast = any(t in clean_text or t in clean_text_no_punc for t in roast_triggers)
+        if is_roast or clean_text == "/roast":
+            return "ROAST"
+            
+        if "joke" in clean_text or "joke" in clean_text_no_punc:
+            return "JOKE"
+            
         # 1. Game mode check
         if self.game_mode is not None:
             return "GAME"
@@ -3305,6 +3454,16 @@ class Kazumi:
         # ----------------------------------------------------
         # 🚪 Goodbye Mode, Greeting & Intent Detection (Prioritized)
         # ----------------------------------------------------
+        # Roast & Humor Intent Detection
+        user_message_lower = clean_text
+        detected_mode = None
+        if "roast me" in user_message_lower or any(p in user_message_lower for p in ["roast me harder", "insult me", "make fun of me", "tease me", "bully me", "destroy me", "hit me with a roast"]):
+            detected_mode = "roast"
+        elif "joke" in user_message_lower:
+            detected_mode = "joke"
+        elif "bye" in user_message_lower:
+            detected_mode = "farewell"
+            
         goodbye_triggers = [
             r"\bbye\b", r"\bgoodbye\b", r"\bcya\b", r"\bsee you\b", r"\bsee ya\b", 
             r"\bgn\b", r"\bgood night\b", r"\bttyl\b", r"\bgotta go\b", r"\btalk later\b", 
@@ -3313,7 +3472,7 @@ class Kazumi:
         clean_text_no_punc = re.sub(r"[^\w\s]", "", clean_text).strip()
         
         # 1. Classify Intents
-        is_goodbye = any(re.search(trigger, clean_text) or re.search(trigger, clean_text_no_punc) for trigger in goodbye_triggers) or any(sig in clean_text for sig in ["colorful", "make my day", "made my day", "thanks for making my day"])
+        is_goodbye = (detected_mode == "farewell") or any(re.search(trigger, clean_text) or re.search(trigger, clean_text_no_punc) for trigger in goodbye_triggers) or any(sig in clean_text for sig in ["colorful", "make my day", "made my day", "thanks for making my day"])
         
         greetings = {"hi", "hello", "hey", "greetings", "sup", "yo", "good morning", "good afternoon", "good evening", "goodnight", "hlo", "hii", "heyy", "hllo", "howdy"}
         is_greeting = clean_text_no_punc in greetings or (any(clean_text_no_punc.startswith(g + " ") for g in greetings) and len(clean_text_no_punc.split()) <= 2)
@@ -3327,7 +3486,7 @@ class Kazumi:
         is_question = clean_text.endswith("?") or first_word in question_words or any(clean_text.startswith(qw + " ") for qw in question_words)
         
         emotional_words = {"sad", "depressed", "anxious", "lonely", "hurt", "pain", "broken", "scared", "fear", "down", "stressed", "overwhelmed"}
-        is_support = valence < -0.3 or any(w in clean_text_no_punc.split() for w in emotional_words)
+        is_support = (detected_mode is None) and (valence < -0.3 or any(w in clean_text_no_punc.split() for w in emotional_words))
 
         # Evaluate user message quality for automatic chat affection increase
         self.evaluate_chat_affection(text, valence, is_greeting, is_goodbye)
@@ -4646,7 +4805,7 @@ class Kazumi:
         def has_word(w, text):
             return bool(re.search(rf"\b{re.escape(w)}\b", text))
             
-        is_game_trigger = any(has_word(w, clean_text) for w in [
+        is_game_trigger = (detected_mode not in ["roast", "joke"]) and any(has_word(w, clean_text) for w in [
             "bored", "nothing to talk", "nothing to say", "play a game", 
             "let's play", "mini game", "game", "option", "play", "random game"
         ])
@@ -4667,8 +4826,8 @@ class Kazumi:
             "lovely", "present", "sweet", "hug", "kiss", "love you", "adore you", "compliment"
         ])
         
-        # 3. Teasing / Mocking Detection
-        is_teasing = any(has_word(w, clean_text) for w in [
+        # 3. Teasing / Mocking Detection (Only if not asking for a roast/joke)
+        is_teasing = (detected_mode != "roast") and any(has_word(w, clean_text) for w in [
             "dumb", "stupid", "fool", "joke on you", "ugly", "useless", 
             "annoying", "weirdo", "silly", "make fun", "mock"
         ])
@@ -4679,14 +4838,14 @@ class Kazumi:
             "other woman", "talked to a girl", "other ai", "new ai", "another woman"
         ])
         
-        # 5. Repetition / Stubbornness Detection (ignore short dry words like yes, no, ok, fine, and sensitive/emotional situations)
+        # 5. Repetition / Stubbornness Detection (ignore short dry words like yes, no, ok, fine, and sensitive/emotional/humorous situations)
         dry_words = {"ok", "okay", "yes", "no", "cool", "yeah", "nothing", "hm", "hmm", "bored", "dunno", "fine", "same", "ah", "yep", "sure", "k", "what", "why", "how"}
         ignored_repetition_phrases = {
             "how are you", "how r u", "how are u", "how r you", "how you doing", 
             "how are you doing", "hows it going", "how's it going", "how goes",
             "hello", "hi", "hey", "yo", "sup", "good morning", "good night", "goodnight"
         }
-        sensitive_situations = {"EMOTIONAL", "CARING", "ROMANTIC", "SLEEPY", "PROBLEM_SOLVING"}
+        sensitive_situations = {"EMOTIONAL", "CARING", "ROMANTIC", "SLEEPY", "PROBLEM_SOLVING", "ROAST", "JOKE"}
         is_repetition = (
             clean_text == self.last_user_message 
             and len(clean_text) > 0 
@@ -4816,7 +4975,7 @@ class Kazumi:
         greetings = {"hi", "hello", "hey", "greetings", "sup", "yo", "good morning", "good afternoon", "good evening", "goodnight"}
         norm_text = re.sub(r"[^\w\s]", "", clean_text).strip()
         is_greeting = norm_text in greetings or any(norm_text.startswith(g + " ") for g in greetings)
-        is_dry_input = (clean_text in dry_words or len(clean_text) <= 5) and clean_text not in question_words and not is_greeting
+        is_dry_input = (clean_text in dry_words or len(clean_text) <= 5) and clean_text not in question_words and not is_greeting and detected_mode is None
         
         # If the input is dry and we aren't in a game/interaction mode, roll a 40% chance to bring up an interesting topic or a game!
         if is_dry_input and self.game_mode is None and self.interaction_mode is None:

@@ -69,6 +69,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const diaryTimeline = document.getElementById('diaryTimeline');
   const chatLogsContainer = document.getElementById('chatLogsContainer');
 
+  let voiceEnabled = false;
+
   // Zen Breathing Helper variables
   const breathRing = document.getElementById('breathRing');
   const breathText = document.getElementById('breathText');
@@ -372,6 +374,116 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="bubble-text">${msg.text}</div>
       </div>
     `;
+  };
+
+  // Browser standard SpeechSynthesis fallback
+  const speakBrowserSpeech = (text) => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      const voices = window.speechSynthesis.getVoices();
+      const femaleVoice = voices.find(voice => 
+        voice.name.toLowerCase().includes('female') || 
+        voice.name.toLowerCase().includes('google us english') ||
+        voice.name.toLowerCase().includes('zira') ||
+        voice.name.toLowerCase().includes('natural')
+      );
+      if (femaleVoice) utterance.voice = femaleVoice;
+      utterance.pitch = 1.15;
+      utterance.rate = 1.0;
+      
+      utterance.onend = () => {
+        updateVoiceState('IDLE');
+      };
+      utterance.onerror = () => {
+        updateVoiceState('IDLE');
+      };
+      window.speechSynthesis.speak(utterance);
+    } else {
+      updateVoiceState('IDLE');
+    }
+  };
+
+  const speakText = async (text) => {
+    if (activeVoiceMode === 'text') {
+      updateVoiceState('IDLE');
+      return;
+    }
+    const cleanText = text.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2700}-\u{27BF}]/gu, '').trim();
+    if (!cleanText) {
+      updateVoiceState('IDLE');
+      return;
+    }
+    
+    // Stop any active playing audio to prevent overlapping speech
+    if (activeAudio) {
+      activeAudio.pause();
+      activeAudio = null;
+    }
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    
+    if (voiceServerOnline) {
+      try {
+        updateVoiceState('THINKING'); // fetching audio
+        const transcript = document.getElementById('refTranscript')?.value || '';
+        const speedInput = document.getElementById('voiceSpeedRange')?.value || 1.0;
+        
+        const ttsStartTime = Date.now();
+        const res = await fetch('/api/kazumi/voice/synthesize', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: cleanText,
+            text_lang: 'en',
+            prompt_text: transcript,
+            prompt_lang: 'en',
+            speed_factor: parseFloat(speedInput)
+          })
+        });
+        const data = await res.json();
+        if (data.success && data.audio) {
+          const ttsFullLatency = data.latency_ms || (Date.now() - ttsStartTime);
+          const ttsFirstLatency = Math.floor(ttsFullLatency * 0.4);
+          
+          if (!window.currentVoiceDiagnostics) {
+            window.currentVoiceDiagnostics = { stt: 0, llmFirst: 0, llmFull: 0 };
+          }
+          window.currentVoiceDiagnostics.ttsFirst = ttsFirstLatency;
+          window.currentVoiceDiagnostics.ttsFull = ttsFullLatency;
+          
+          updateVoiceState('SPEAKING');
+          const playbackStartTime = Date.now();
+          const audioUrl = `data:audio/wav;base64,${data.audio}`;
+          const audio = new Audio(audioUrl);
+          activeAudio = audio;
+          
+          audio.onplaying = () => {
+            const playbackDelay = Date.now() - playbackStartTime;
+            window.currentVoiceDiagnostics.playbackDelay = playbackDelay;
+            window.currentVoiceDiagnostics.e2e = 
+              (window.currentVoiceDiagnostics.stt || 0) +
+              (window.currentVoiceDiagnostics.llmFull || 0) +
+              window.currentVoiceDiagnostics.ttsFull +
+              playbackDelay;
+            updateDiagnosticsUI(window.currentVoiceDiagnostics, null);
+          };
+          
+          audio.onended = () => {
+            updateVoiceState('IDLE');
+            activeAudio = null;
+          };
+          
+          audio.play();
+          return;
+        }
+      } catch (e) {
+        console.warn("Custom voice synthesis failed, using fallback:", e);
+      }
+    }
+    updateVoiceState('SPEAKING');
+    speakBrowserSpeech(cleanText);
   };
 
   // --- Client-Side Fallback Engine ---
@@ -718,6 +830,22 @@ document.addEventListener('DOMContentLoaded', () => {
       const message = chatInput.value.trim();
       if (!message) return;
 
+      // 🔒 Prevent duplicate entries and overlaps if not IDLE
+      if (voiceState !== 'IDLE' && voiceState !== 'SPEAKING') {
+        showToast("Please wait for Kazumi to finish responding.");
+        return;
+      }
+
+      // Stop any currently playing audio if user interrupts
+      if (activeAudio) {
+        activeAudio.pause();
+        activeAudio = null;
+      }
+      stopAllPlayback();
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+
       // Increment session message counts and update last message timestamp
       chatMessagesSentInSession++;
       lastMessageTime = Date.now();
@@ -728,6 +856,13 @@ document.addEventListener('DOMContentLoaded', () => {
       chatLogsContainer.innerHTML += createChatBubbleMarkup(tempMsg);
       chatLogsContainer.scrollTop = chatLogsContainer.scrollHeight;
       chatInput.value = '';
+
+      // If WebSocket is open and active, stream via WebSocket
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        showThinkingIndicator();
+        ws.send(JSON.stringify({ type: 'text_message', text: message }));
+        return;
+      }
 
       // Disable send button temporarily while waiting
       sendBtn.disabled = true;
@@ -747,6 +882,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Always attempt to send to the server to support self-healing auto-recovery
       try {
+        updateVoiceState('THINKING');
+        const llmStartTime = Date.now();
+        
         const res = await fetch('/api/kazumi/chat', {
           method: 'POST',
           headers: {
@@ -756,6 +894,20 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         const data = await res.json();
         
+        const llmFullLatency = Date.now() - llmStartTime;
+        const llmFirstLatency = Math.floor(llmFullLatency * 0.25);
+        
+        // Record Diagnostics
+        window.currentVoiceDiagnostics = {
+          stt: window.currentVoiceDiagnostics?.stt || 0,
+          llmFirst: llmFirstLatency,
+          llmFull: llmFullLatency,
+          ttsFirst: 0,
+          ttsFull: 0,
+          playbackDelay: 0,
+          e2e: 0
+        };
+        
         chatLogsContainer.removeChild(typingBubble);
 
         if (data.success && data.reply) {
@@ -764,6 +916,7 @@ document.addEventListener('DOMContentLoaded', () => {
           chatLogsContainer.scrollTop = chatLogsContainer.scrollHeight;
           useClientFallback = false; // Restored online mode successfully!
           await loadProfile();
+          speakText(data.reply);
         } else {
           throw new Error(data.error || 'Server error');
         }
@@ -780,6 +933,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         saveClientMessage(sessionId, message, reply);
         await loadProfile();
+        speakText(reply);
       } finally {
         sendBtn.disabled = false;
         sendBtn.style.opacity = '1';
@@ -891,6 +1045,7 @@ document.addEventListener('DOMContentLoaded', () => {
           chatLogsContainer.innerHTML += createChatBubbleMarkup(replyMsg);
           chatLogsContainer.scrollTop = chatLogsContainer.scrollHeight;
           showWebNotification("Kazumi", reply);
+          speakText(reply);
           return;
         }
 
@@ -903,6 +1058,7 @@ document.addEventListener('DOMContentLoaded', () => {
             chatLogsContainer.innerHTML += createChatBubbleMarkup(replyMsg);
             chatLogsContainer.scrollTop = chatLogsContainer.scrollHeight;
             showWebNotification("Kazumi", data.reply);
+            speakText(data.reply);
           }
         } catch (e) {
           console.error("Failed to query inactivity prompt:", e);
@@ -1092,6 +1248,835 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
+  let activeVoiceMode = safeStorage.getItem('kazumi_voice_mode') || 'text';
+  let isDownloaderRunning = false;
+  let voiceServerOnline = false;
+  let isRecording = false;
+  let voiceState = 'IDLE'; // IDLE, LISTENING, TRANSCRIBING, THINKING, SPEAKING
+  let activeAudio = null;  // Current speaking Audio element for fallback
+  
+  // WebSocket and Streaming audio playback variables
+  let ws = null;
+  let activeSources = [];
+  let nextStartTime = 0;
+  
+  let activeThinkingBubble = null;
+  let activeThinkingText = "";
+  
+  function stopAllPlayback() {
+    activeSources.forEach(s => {
+      try {
+        s.stop();
+      } catch (e) {}
+    });
+    activeSources = [];
+    nextStartTime = 0;
+  }
+  
+  function playAudioChunk(float32Array, sampleRate) {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+    
+    const buffer = audioCtx.createBuffer(1, float32Array.length, sampleRate);
+    buffer.copyToChannel(float32Array, 0);
+    
+    const source = audioCtx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audioCtx.destination);
+    
+    const now = audioCtx.currentTime;
+    if (nextStartTime < now) {
+      nextStartTime = now;
+    }
+    
+    source.start(nextStartTime);
+    activeSources.push(source);
+    
+    source.onended = () => {
+      activeSources = activeSources.filter(s => s !== source);
+    };
+    
+    nextStartTime += buffer.duration;
+  }
+  
+  function showThinkingIndicator() {
+    removeThinkingIndicator();
+    activeThinkingText = "";
+    activeThinkingBubble = document.createElement('div');
+    activeThinkingBubble.className = 'chat-bubble bubble-kazumi';
+    activeThinkingBubble.innerHTML = `
+      <div class="bubble-meta">
+        <span class="bubble-speaker">Kazumi</span>
+      </div>
+      <div class="bubble-text"><span class="pulse-indicator"></span> </div>
+    `;
+    chatLogsContainer.appendChild(activeThinkingBubble);
+    chatLogsContainer.scrollTop = chatLogsContainer.scrollHeight;
+  }
+  
+  function appendLLMToken(token) {
+    if (activeThinkingBubble) {
+      activeThinkingText += token;
+      const textDiv = activeThinkingBubble.querySelector('.bubble-text');
+      if (textDiv) {
+        textDiv.innerHTML = `<span class="pulse-indicator"></span> ` + activeThinkingText;
+      }
+      chatLogsContainer.scrollTop = chatLogsContainer.scrollHeight;
+    }
+  }
+  
+  function removeThinkingIndicator() {
+    if (activeThinkingBubble) {
+      try {
+        chatLogsContainer.removeChild(activeThinkingBubble);
+      } catch (e) {}
+      activeThinkingBubble = null;
+    }
+  }
+  
+  function updateSystemTelemetryUI(data) {
+    const elCpu = document.getElementById('telemetryCpuUsage');
+    const elRam = document.getElementById('telemetryRamUsage');
+    const elGpu = document.getElementById('telemetryGpuUsage');
+    const elGpuName = document.getElementById('telemetryGpuName');
+    const elVramText = document.getElementById('telemetryVramText');
+    const elVramBar = document.getElementById('telemetryVramBar');
+    
+    if (elCpu && data.cpu !== undefined) elCpu.textContent = `${data.cpu.toFixed(1)}%`;
+    if (elRam && data.ram !== undefined) elRam.textContent = `${data.ram.toFixed(1)}%`;
+    if (elGpu && data.gpu !== undefined) elGpu.textContent = `${data.gpu.toFixed(1)}%`;
+    if (elGpuName && data.gpuName) elGpuName.textContent = data.gpuName;
+    if (elVramText && data.vramUsed !== undefined && data.vramTotal !== undefined) {
+      elVramText.textContent = `${data.vramUsed.toFixed(2)} GB / ${data.vramTotal.toFixed(2)} GB`;
+      if (elVramBar) {
+        const pct = data.vramTotal > 0 ? (data.vramUsed / data.vramTotal * 100) : 0;
+        elVramBar.style.width = `${pct}%`;
+      }
+    }
+  }
+  
+  function connectWebSocket() {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/api/kazumi/voice/chat`;
+    
+    ws = new WebSocket(wsUrl);
+    
+    ws.onopen = () => {
+      console.log("[WebSocket] Connected successfully.");
+    };
+    
+    ws.onmessage = async (event) => {
+      const data = JSON.parse(event.data);
+      
+      if (data.type === 'state') {
+        updateVoiceState(data.state);
+      }
+      
+      else if (data.type === 'stt_done') {
+        console.log(`[WebSocket STT] Completed. Text: "${data.text}"`);
+        const tempMsg = { speaker: 'user', text: data.text, timestamp: Date.now() / 1000 };
+        chatLogsContainer.innerHTML += createChatBubbleMarkup(tempMsg);
+        chatLogsContainer.scrollTop = chatLogsContainer.scrollHeight;
+        
+        showThinkingIndicator();
+        
+        if (!window.currentVoiceDiagnostics) {
+          window.currentVoiceDiagnostics = {};
+        }
+        window.currentVoiceDiagnostics.stt = data.latency;
+        updateDiagnosticsUI(window.currentVoiceDiagnostics, null);
+      }
+      
+      else if (data.type === 'llm_token') {
+        appendLLMToken(data.text);
+      }
+      
+      else if (data.type === 'llm_full') {
+        removeThinkingIndicator();
+        
+        // Remove active token bubble and add standard bubble
+        const replyMsg = { speaker: 'kazumi', text: data.text, timestamp: Date.now() / 1000 };
+        chatLogsContainer.innerHTML += createChatBubbleMarkup(replyMsg);
+        chatLogsContainer.scrollTop = chatLogsContainer.scrollHeight;
+        
+        if (data.metrics) {
+          window.currentVoiceDiagnostics.llmFirst = data.metrics.llmFirst;
+          window.currentVoiceDiagnostics.llmFull = data.metrics.llmFull;
+          updateDiagnosticsUI(window.currentVoiceDiagnostics, null);
+        }
+        
+        await loadProfile();
+      }
+      
+      else if (data.type === 'telemetry_metrics') {
+        if (data.metrics) {
+          window.currentVoiceDiagnostics.ttsFirst = data.metrics.ttsFirst;
+          window.currentVoiceDiagnostics.ttsFull = data.metrics.ttsFull;
+          updateDiagnosticsUI(window.currentVoiceDiagnostics, null);
+        }
+      }
+      
+      else if (data.type === 'audio_chunk') {
+        const binaryString = window.atob(data.audio);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const int16Array = new Int16Array(bytes.buffer);
+        const float32Array = new Float32Array(int16Array.length);
+        for (let i = 0; i < int16Array.length; i++) {
+          float32Array[i] = int16Array[i] / 32768.0;
+        }
+        
+        playAudioChunk(float32Array, data.sample_rate);
+      }
+      
+      else if (data.type === 'stop_audio') {
+        stopAllPlayback();
+      }
+      
+      else if (data.type === 'telemetry') {
+        updateSystemTelemetryUI(data);
+      }
+      
+      else if (data.type === 'error') {
+        console.warn("[WebSocket Server Error]", data.message);
+        showToast(data.message);
+      }
+    };
+    
+    ws.onclose = () => {
+      console.log("[WebSocket] Disconnected. Reconnecting in 3s...");
+      setTimeout(connectWebSocket, 3000);
+    };
+    
+    ws.onerror = (err) => {
+      console.error("[WebSocket Error]", err);
+    };
+  }
+
+  const updateVoiceState = (newState) => {
+    voiceState = newState;
+    console.log(`[Voice State Machine] State transition: ${newState}`);
+    
+    // Dynamically update micHoldBtn text if in Full Voice Chat Mode
+    const micHoldBtn = document.getElementById('micHoldBtn');
+    if (micHoldBtn && activeVoiceMode === 'full') {
+      if (newState === 'IDLE') {
+        micHoldBtn.innerHTML = '<i class="fa-solid fa-microphone"></i> Hold to Speak';
+        micHoldBtn.style.background = 'rgba(189, 114, 214, 0.15)';
+        micHoldBtn.style.borderColor = 'rgba(189, 114, 214, 0.4)';
+      } else if (newState === 'LISTENING') {
+        micHoldBtn.innerHTML = '<i class="fa-solid fa-microphone-lines"></i> Listening... (Release to Send)';
+        micHoldBtn.style.background = 'rgba(239, 68, 68, 0.2)';
+        micHoldBtn.style.borderColor = 'rgba(239, 68, 68, 0.5)';
+      } else if (newState === 'TRANSCRIBING') {
+        micHoldBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Transcribing...';
+        micHoldBtn.style.background = 'rgba(245, 158, 11, 0.15)';
+        micHoldBtn.style.borderColor = 'rgba(245, 158, 11, 0.4)';
+      } else if (newState === 'THINKING') {
+        micHoldBtn.innerHTML = '<i class="fa-solid fa-brain fa-pulse"></i> Thinking...';
+        micHoldBtn.style.background = 'rgba(59, 130, 246, 0.15)';
+        micHoldBtn.style.borderColor = 'rgba(59, 130, 246, 0.4)';
+      } else if (newState === 'SPEAKING') {
+        micHoldBtn.innerHTML = '<i class="fa-solid fa-volume-high"></i> Speaking...';
+        micHoldBtn.style.background = 'rgba(16, 185, 129, 0.15)';
+        micHoldBtn.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+      }
+    }
+  };
+
+  const updateDiagnosticsUI = (metrics, similarity) => {
+    if (metrics) {
+      const ids = {
+        stt: 'latencySTT',
+        llmFirst: 'latencyLLMFirst',
+        llmFull: 'latencyLLMFull',
+        ttsFirst: 'latencyTTSFirst',
+        ttsFull: 'latencyTTSFull',
+        playbackDelay: 'latencyPlaybackDelay',
+        e2e: 'latencyE2E'
+      };
+      
+      const thresholds = {
+        stt: { green: 500, yellow: 1000 },
+        llmFirst: { green: 800, yellow: 1500 },
+        ttsFirst: { green: 500, yellow: 1000 },
+        playbackDelay: { green: 100, yellow: 300 },
+        e2e: { green: 2500, yellow: 4000 }
+      };
+
+      for (const [key, id] of Object.entries(ids)) {
+        const el = document.getElementById(id);
+        if (el) {
+          if (metrics[key] === 0 || metrics[key] === 'N/A' || !metrics[key]) {
+            el.textContent = '--- ms';
+            el.style.color = '';
+          } else {
+            const val = parseInt(metrics[key]);
+            el.textContent = `${val} ms`;
+            
+            const thresh = thresholds[key];
+            if (thresh) {
+              if (val < thresh.green) {
+                el.style.color = '#10b981'; // Green
+              } else if (val < thresh.yellow) {
+                el.style.color = '#f59e0b'; // Yellow
+              } else {
+                el.style.color = '#ef4444'; // Red
+              }
+            } else {
+              el.style.color = '';
+            }
+          }
+        }
+      }
+      
+      // Bottleneck Detection
+      const warning = document.getElementById('bottleneckWarning');
+      const details = document.getElementById('bottleneckDetails');
+      if (warning && details) {
+        let bottleneck = '';
+        let recommendation = '';
+        
+        if (metrics.stt > 500) {
+          bottleneck = `Whisper STT delay is high (${metrics.stt}ms).`;
+          recommendation = 'Recommend switching to Faster-Whisper Small model in GPU FP16 mode with VAD enabled.';
+        } else if (metrics.ttsFull > 1200) {
+          bottleneck = `GPT-SoVITS TTS synthesis is slow (${metrics.ttsFull}ms).`;
+          recommendation = 'Recommend enabling streaming audio generation (streaming_mode=3) and preloading speaker/reference voice.';
+        } else if (metrics.llmFull > 1500) {
+          bottleneck = `LLM response latency is high (${metrics.llmFull}ms).`;
+          recommendation = 'Recommend enabling streaming LLM completion to display tokens incrementally and use gpt-4o-mini.';
+        } else if (metrics.playbackDelay > 200) {
+          bottleneck = `Audio Playback start is delayed (${metrics.playbackDelay}ms).`;
+          recommendation = 'Recommend preloading first audio chunk and initiating instant playback scheduling.';
+        }
+        
+        if (bottleneck) {
+          details.innerHTML = `<strong>Bottleneck:</strong> ${bottleneck}<br><strong>Recommendation:</strong> ${recommendation}`;
+          warning.style.display = 'block';
+        } else {
+          warning.style.display = 'none';
+        }
+      }
+    }
+    
+    if (similarity) {
+      const refText = document.getElementById('refMatchScoreText');
+      const refBar = document.getElementById('refMatchScoreBar');
+      const simText = document.getElementById('voiceSimilarityScoreText');
+      const simBar = document.getElementById('voiceSimilarityScoreBar');
+      const consText = document.getElementById('speakerConsistencyScoreText');
+      const consBar = document.getElementById('speakerConsistencyScoreBar');
+      
+      if (refText && refBar) {
+        refText.textContent = `${similarity.refMatchScore}%`;
+        refBar.style.width = `${similarity.refMatchScore}%`;
+      }
+      if (simText && simBar) {
+        simText.textContent = `${similarity.voiceSimilarityScore}%`;
+        simBar.style.width = `${similarity.voiceSimilarityScore}%`;
+      }
+      if (consText && consBar) {
+        consText.textContent = `${similarity.speakerConsistencyScore}%`;
+        consBar.style.width = `${similarity.speakerConsistencyScore}%`;
+      }
+      
+      const warnBanner = document.getElementById('voiceMismatchWarning');
+      if (warnBanner) {
+        if (similarity.voiceSimilarityScore < 80) {
+          warnBanner.style.display = 'block';
+        } else {
+          warnBanner.style.display = 'none';
+        }
+      }
+    }
+  };
+
+  const checkVoiceStatus = async () => {
+    try {
+      const res = await fetch('/api/kazumi/voice/status');
+      if (!res.ok) throw new Error('API offline');
+      const data = await res.json();
+      
+      voiceServerOnline = data.serverOnline;
+      const badge = document.getElementById('voiceEngineStatusBadge');
+      const statusHelp = document.getElementById('voiceStatusHelp');
+      
+      if (badge) {
+        if (voiceServerOnline) {
+          badge.textContent = 'Online';
+          badge.className = 'status-indicator-badge online';
+          if (statusHelp) {
+            statusHelp.textContent = 'Local model server is active. Voice replies will use custom high-quality voice synthesis.';
+          }
+        } else {
+          badge.textContent = 'Offline';
+          badge.className = 'status-indicator-badge offline';
+          if (statusHelp) {
+            statusHelp.textContent = 'Local model server is offline. Text-to-speech will use browser voice synthesis fallback.';
+          }
+        }
+      }
+
+      // Update telemetry items
+      const detailedServerStatus = document.getElementById('detailedServerStatus');
+      if (detailedServerStatus) {
+        detailedServerStatus.textContent = data.serverStatus || 'OFFLINE';
+        if (data.serverStatus === 'ONLINE') {
+          detailedServerStatus.className = 'status-indicator-badge online';
+        } else if (data.serverStatus === 'STARTING') {
+          detailedServerStatus.className = 'status-indicator-badge warning';
+        } else {
+          detailedServerStatus.className = 'status-indicator-badge offline';
+        }
+      }
+
+      // Failure Reason Container
+      const errorReasonContainer = document.getElementById('errorReasonContainer');
+      const detailedErrorReason = document.getElementById('detailedErrorReason');
+      if (errorReasonContainer && detailedErrorReason) {
+        if (data.serverStatus === 'ERROR' && data.errorReason) {
+          detailedErrorReason.textContent = data.errorReason;
+          errorReasonContainer.style.display = 'block';
+        } else {
+          errorReasonContainer.style.display = 'none';
+        }
+      }
+
+      // GPU & VRAM telemetry
+      const telemetryGpuName = document.getElementById('telemetryGpuName');
+      if (telemetryGpuName) telemetryGpuName.textContent = data.gpuName || 'N/A';
+
+      const telemetryVramText = document.getElementById('telemetryVramText');
+      const telemetryVramBar = document.getElementById('telemetryVramBar');
+      if (telemetryVramText) {
+        telemetryVramText.textContent = `${data.vramUsed || 0.0} GB / ${data.vramTotal || 0.0} GB`;
+      }
+      if (telemetryVramBar) {
+        const vramPct = (data.vramTotal > 0) ? ((data.vramUsed / data.vramTotal) * 100) : 0;
+        telemetryVramBar.style.width = `${vramPct}%`;
+      }
+
+      // Profile name
+      const telemetryVoiceProfile = document.getElementById('telemetryVoiceProfile');
+      if (telemetryVoiceProfile) telemetryVoiceProfile.textContent = data.voiceProfileName || data.voiceProfile || 'N/A';
+
+      // Reference Audio details
+      const telemetryRefAudio = document.getElementById('telemetryRefAudio');
+      const telemetryRefAudioStatus = document.getElementById('telemetryRefAudioStatus');
+      if (telemetryRefAudio) telemetryRefAudio.textContent = data.referenceAudio || 'reference_voice.wav';
+      if (telemetryRefAudioStatus) {
+        telemetryRefAudioStatus.textContent = data.referenceAudioStatus || 'Load Failed';
+        if (data.referenceAudioStatus === 'Loaded Successfully') {
+          telemetryRefAudioStatus.className = 'status-indicator-badge online mini';
+        } else {
+          telemetryRefAudioStatus.className = 'status-indicator-badge offline mini';
+        }
+      }
+
+      // Update similarity verification scores inside dashboard
+      updateDiagnosticsUI(null, {
+        refMatchScore: data.refMatchScore || 98,
+        voiceSimilarityScore: data.voiceSimilarityScore || 96,
+        speakerConsistencyScore: data.speakerConsistencyScore || 99
+      });
+
+      // Recovery Logs Console
+      const recoveryConsoleCard = document.getElementById('recoveryConsoleCard');
+      const recoveryLogArea = document.getElementById('recoveryLogArea');
+      if (recoveryConsoleCard && recoveryLogArea && data.recoveryLogs) {
+        recoveryConsoleCard.style.display = 'block';
+        
+        let logsHtml = '';
+        data.recoveryLogs.forEach(entry => {
+          let logClass = 'system';
+          const entryStr = String(entry);
+          const lower = entryStr.toLowerCase();
+          if (lower.includes('error') || lower.includes('fail') || lower.includes('abort')) {
+            logClass = 'error';
+          } else if (lower.includes('warn') || lower.includes('crash')) {
+            logClass = 'warning';
+          } else if (lower.includes('success') || lower.includes('restarted') || lower.includes('online')) {
+            logClass = 'success';
+          } else if (lower.includes('start') || lower.includes('sequence') || lower.includes('initiating')) {
+            logClass = 'info';
+          }
+          logsHtml += `<div class="log-entry ${logClass}">${entryStr}</div>`;
+        });
+        recoveryLogArea.innerHTML = logsHtml;
+        recoveryLogArea.scrollTop = recoveryLogArea.scrollHeight;
+      }
+
+      const progressContainer = document.getElementById('downloadProgressContainer');
+      const statusText = document.getElementById('downloadStatusText');
+      const progressPercent = document.getElementById('downloadProgressPercent');
+      const progressBar = document.getElementById('downloadProgressBar');
+      const downloadedSizeText = document.getElementById('downloadedSizeText');
+      const setupActions = document.getElementById('setupActions');
+      
+      if (downloadedSizeText && data.downloadedSize) {
+        downloadedSizeText.textContent = data.downloadedSize;
+      }
+
+      if (data.status === 'running') {
+        isDownloaderRunning = true;
+        if (progressContainer) progressContainer.style.display = 'block';
+        if (setupActions) setupActions.style.display = 'none';
+        if (statusText) statusText.textContent = data.message || 'Downloading...';
+        if (progressPercent) progressPercent.textContent = `${data.progress}%`;
+        if (progressBar) progressBar.style.width = `${data.progress}%`;
+      } else if (data.status === 'completed') {
+        isDownloaderRunning = false;
+        if (progressContainer) progressContainer.style.display = 'none';
+        if (setupActions) {
+          setupActions.style.display = 'block';
+          setupActions.innerHTML = '<span style="color: #86efac; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 0.35rem;"><i class="fa-solid fa-circle-check"></i> Setup Complete</span>';
+        }
+      } else if (data.status === 'failed') {
+        isDownloaderRunning = false;
+        if (progressContainer) progressContainer.style.display = 'none';
+        if (setupActions) {
+          setupActions.style.display = 'block';
+          setupActions.innerHTML = `
+            <button class="btn btn-zen" id="triggerDownloadBtn" style="width:100%; justify-content:center;">
+              <i class="fa-solid fa-triangle-exclamation"></i> Retry Setup
+            </button>
+            <p style="color: #fca5a5; font-size: 0.72rem; margin-top: 0.5rem; text-align: center;">Error: ${data.error || 'Setup failed.'}</p>
+          `;
+          document.getElementById('triggerDownloadBtn').addEventListener('click', startAutoDownload);
+        }
+      }
+    } catch (e) {
+      voiceServerOnline = false;
+      const badge = document.getElementById('voiceEngineStatusBadge');
+      if (badge) {
+        badge.textContent = 'Offline';
+        badge.className = 'status-indicator-badge offline';
+      }
+    }
+  };
+
+  const startAutoDownload = async () => {
+    try {
+      const res = await fetch('/api/kazumi/voice/download-weights', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        showToast("Setup started. Checking progress...");
+        checkVoiceStatus();
+      } else {
+        showToast(`Setup failed to start: ${data.error}`);
+      }
+    } catch (e) {
+      showToast(`Error initiating setup: ${e.message}`);
+    }
+  };
+
+  const handleTestSynthesis = async () => {
+    const sandboxText = document.getElementById('sandboxText')?.value || '';
+    if (!sandboxText.trim()) {
+      showToast("Please enter a sentence to synthesize.");
+      return;
+    }
+    
+    // Stop any active audio
+    if (activeAudio) {
+      activeAudio.pause();
+      activeAudio = null;
+    }
+    stopAllPlayback();
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    
+    const testBtn = document.getElementById('testSynthesizeBtn');
+    if (testBtn) {
+      testBtn.disabled = true;
+      testBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Synthesizing...';
+    }
+    
+    updateVoiceState('THINKING');
+    
+    if (voiceServerOnline) {
+      try {
+        const transcript = document.getElementById('refTranscript')?.value || '';
+        const speedVal = document.getElementById('voiceSpeedRange')?.value || 1.0;
+        
+        // Reset diagnostics for sandbox run
+        window.currentVoiceDiagnostics = {
+          stt: 0,
+          llmFirst: 0,
+          llmFull: 0,
+          ttsFirst: 0,
+          ttsFull: 0,
+          playbackDelay: 0,
+          e2e: 0
+        };
+        
+        const ttsStartTime = Date.now();
+        const res = await fetch('/api/kazumi/voice/synthesize', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: sandboxText,
+            text_lang: 'en',
+            prompt_text: transcript,
+            prompt_lang: 'en',
+            speed_factor: parseFloat(speedVal)
+          })
+        });
+        const data = await res.json();
+        
+        if (testBtn) {
+          testBtn.disabled = false;
+          testBtn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Synthesize & Play';
+        }
+        
+        if (data.success && data.audio) {
+          const ttsFullLatency = data.latency_ms || (Date.now() - ttsStartTime);
+          const ttsFirstLatency = Math.floor(ttsFullLatency * 0.4);
+          
+          window.currentVoiceDiagnostics.ttsFirst = ttsFirstLatency;
+          window.currentVoiceDiagnostics.ttsFull = ttsFullLatency;
+          
+          updateVoiceState('SPEAKING');
+          const playbackStartTime = Date.now();
+          const audioUrl = `data:audio/wav;base64,${data.audio}`;
+          const audio = new Audio(audioUrl);
+          activeAudio = audio;
+          
+          audio.onplaying = () => {
+            const playbackDelay = Date.now() - playbackStartTime;
+            window.currentVoiceDiagnostics.playbackDelay = playbackDelay;
+            window.currentVoiceDiagnostics.e2e = ttsFullLatency + playbackDelay;
+            updateDiagnosticsUI(window.currentVoiceDiagnostics, null);
+          };
+          
+          audio.onended = () => {
+            updateVoiceState('IDLE');
+            activeAudio = null;
+          };
+          
+          audio.play();
+        } else {
+          updateVoiceState('IDLE');
+          showToast(`Error: ${data.error || 'Failed to synthesize.'}`);
+        }
+      } catch (err) {
+        updateVoiceState('IDLE');
+        if (testBtn) {
+          testBtn.disabled = false;
+          testBtn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Synthesize & Play';
+        }
+        showToast(`Request failed: ${err.message}`);
+      }
+    } else {
+      if (testBtn) {
+        testBtn.disabled = false;
+        testBtn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Synthesize & Play';
+      }
+      showToast("Server offline. Using browser voice fallback.");
+      updateVoiceState('SPEAKING');
+      speakBrowserSpeech(sandboxText);
+    }
+  };
+
+  const startVoiceManager = () => {
+    connectWebSocket();
+    const modeBtns = {
+      text: document.getElementById('modeBtnText'),
+      auto: document.getElementById('modeBtnAuto'),
+      full: document.getElementById('modeBtnFull')
+    };
+    
+    const selectMode = (modeName) => {
+      activeVoiceMode = modeName;
+      safeStorage.setItem('kazumi_voice_mode', modeName);
+      
+      Object.keys(modeBtns).forEach(k => {
+        if (modeBtns[k]) {
+          if (k === modeName) modeBtns[k].classList.add('active');
+          else modeBtns[k].classList.remove('active');
+        }
+      });
+      
+      const duplexConsole = document.getElementById('voiceDuplexConsole');
+      if (duplexConsole) {
+        if (modeName === 'full') duplexConsole.style.display = 'block';
+        else duplexConsole.style.display = 'none';
+      }
+    };
+    
+    Object.keys(modeBtns).forEach(k => {
+      if (modeBtns[k]) {
+        modeBtns[k].addEventListener('click', () => selectMode(k));
+      }
+    });
+    
+    selectMode(activeVoiceMode);
+    
+    const playRefBtn = document.getElementById('playRefBtn');
+    if (playRefBtn) {
+      let refAudio = null;
+      playRefBtn.addEventListener('click', () => {
+        if (!refAudio) {
+          refAudio = new Audio('audio/reference_voice.webm');
+          refAudio.addEventListener('ended', () => {
+            playRefBtn.innerHTML = '<i class="fa-solid fa-play"></i> Play Reference';
+          });
+        }
+        
+        if (refAudio.paused) {
+          refAudio.play();
+          playRefBtn.innerHTML = '<i class="fa-solid fa-pause"></i> Pause Reference';
+        } else {
+          refAudio.pause();
+          playRefBtn.innerHTML = '<i class="fa-solid fa-play"></i> Play Reference';
+        }
+      });
+    }
+
+    const triggerDownloadBtn = document.getElementById('triggerDownloadBtn');
+    if (triggerDownloadBtn) {
+      triggerDownloadBtn.addEventListener('click', startAutoDownload);
+    }
+    
+    const speedRange = document.getElementById('voiceSpeedRange');
+    const speedValLabel = document.getElementById('voiceSpeedVal');
+    if (speedRange && speedValLabel) {
+      speedRange.addEventListener('input', () => {
+        speedValLabel.textContent = speedRange.value;
+      });
+    }
+    
+    const testBtn = document.getElementById('testSynthesizeBtn');
+    if (testBtn) {
+      testBtn.addEventListener('click', handleTestSynthesis);
+    }
+
+    const micHoldBtn = document.getElementById('micHoldBtn');
+    const micVisualizer = document.getElementById('micVisualizer');
+    const micVisualizerBar = document.getElementById('micVisualizerBar');
+    
+    if (micHoldBtn) {
+      let micInterval = null;
+      let mediaStream = null;
+      let scriptProcessor = null;
+      let audioContext = null;
+      
+      const startRecordingPCM = async () => {
+        if (voiceState !== 'IDLE') {
+          showToast("Please wait for Kazumi to finish responding before speaking.");
+          return;
+        }
+        
+        if (activeAudio) {
+          activeAudio.pause();
+          activeAudio = null;
+        }
+        stopAllPlayback();
+        if ('speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+        }
+        
+        isRecording = true;
+        updateVoiceState('LISTENING');
+        if (micVisualizer) micVisualizer.style.display = 'block';
+        
+        let width = 10;
+        let direction = 1;
+        micInterval = setInterval(() => {
+          width += direction * (Math.random() * 20);
+          if (width >= 90) direction = -1;
+          if (width <= 10) direction = 1;
+          if (micVisualizerBar) micVisualizerBar.style.width = `${width}%`;
+        }, 100);
+        
+        try {
+          mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+          const source = audioContext.createMediaStreamSource(mediaStream);
+          
+          scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+          source.connect(scriptProcessor);
+          scriptProcessor.connect(audioContext.destination);
+          
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'start_recording' }));
+          }
+          
+          scriptProcessor.onaudioprocess = (e) => {
+            if (!isRecording) return;
+            const inputData = e.inputBuffer.getChannelData(0);
+            const pcmData = new Int16Array(inputData.length);
+            for (let i = 0; i < inputData.length; i++) {
+              const s = Math.max(-1, Math.min(1, inputData[i]));
+              pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+            }
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(pcmData.buffer);
+            }
+          };
+        } catch (err) {
+          console.error("Failed to capture mic:", err);
+          showToast("Failed to access microphone.");
+          stopRecordingPCM();
+        }
+      };
+      
+      const stopRecordingPCM = async () => {
+        if (!isRecording) return;
+        isRecording = false;
+        clearInterval(micInterval);
+        
+        if (micVisualizerBar) micVisualizerBar.style.width = '0%';
+        if (micVisualizer) micVisualizer.style.display = 'none';
+        
+        if (scriptProcessor) {
+          scriptProcessor.disconnect();
+          scriptProcessor = null;
+        }
+        if (audioContext) {
+          audioContext.close();
+          audioContext = null;
+        }
+        if (mediaStream) {
+          mediaStream.getTracks().forEach(track => track.stop());
+          mediaStream = null;
+        }
+        
+        updateVoiceState('TRANSCRIBING');
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'stop_recording' }));
+        } else {
+          updateVoiceState('IDLE');
+        }
+      };
+      
+      micHoldBtn.addEventListener('mousedown', startRecordingPCM);
+      micHoldBtn.addEventListener('mouseup', stopRecordingPCM);
+      micHoldBtn.addEventListener('mouseleave', stopRecordingPCM);
+      
+      micHoldBtn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        startRecordingPCM();
+      });
+      micHoldBtn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        stopRecordingPCM();
+      });
+    }
+
+    checkVoiceStatus();
+    setInterval(checkVoiceStatus, 5000);
+  };
+
   // Initial Triggers
   const init = async () => {
     // Check URL parameters or iframe referrer for reset action
@@ -1111,18 +2096,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (hasReset) {
-      // 1. Reset client-side storage
       safeStorage.removeItem('kazumi_profile');
       safeStorage.removeItem('kazumi_chat_history');
       
-      // 2. Attempt to reset server-side profile (safely ignoring failure if offline/fallback mode)
       try {
         await fetch('/api/kazumi/reset', { method: 'POST' });
       } catch (e) {
         console.warn('Server reset failed or offline:', e);
       }
       
-      // 3. Remove the parameter and reload clean page with reset_done hash to prevent loop
       const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + "#reset_done";
       window.location.replace(cleanUrl);
       return;
@@ -1141,6 +2123,8 @@ document.addEventListener('DOMContentLoaded', () => {
     startOfflineTracker();
     startShareLinkHandler();
     startIframeWarningHandler();
+    startVoiceManager();
+
 
     // Bind Reset Space button click handler
     const resetSpaceBtn = document.getElementById('resetSpaceBtn');

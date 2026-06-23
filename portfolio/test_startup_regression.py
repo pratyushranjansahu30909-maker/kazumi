@@ -217,10 +217,51 @@ class TestStartupProtection(unittest.TestCase):
             final_profile = json.load(f)
         self.assertEqual(final_profile["cozy_points"], 0)
         self.assertNotIn("diary", final_profile)
-        
         with open(diary_path, "r", encoding="utf-8") as f:
             final_diary = json.load(f)
         self.assertEqual(final_diary, [])
+
+    def test_affection_personality_evolution(self):
+        print("Running test: test_affection_personality_evolution")
+        memory = ChromaMemory(persist_directory=self.test_dir)
+        bot = Kazumi()
+        bot.memory = memory
+        
+        # Scenario A: Affection 20 (Reserved/Formal)
+        bot.memory.profile["affection_level"] = 20
+        msg = "Hello darling, you are baka"
+        sanitized = bot.sanitize_endearments(msg)
+        styled = bot.apply_persona_style(sanitized, "DEREDERE")
+        self.assertIn("helper", sanitized.lower())
+        self.assertNotIn("darling", sanitized.lower())
+        self.assertIn("dear friend", styled.lower())
+        self.assertNotIn("baka", styled.lower())
+        self.assertTrue(styled.endswith('.'))
+        
+        # Scenario B: Affection 45 (Friendly/Comfortable)
+        bot.memory.profile["affection_level"] = 45
+        msg = "Hello darling, my love!"
+        sanitized = bot.sanitize_endearments(msg)
+        self.assertIn("friend", sanitized.lower())
+        self.assertNotIn("darling", sanitized.lower())
+        self.assertNotIn("my love", sanitized.lower())
+        
+        # Scenario C: Affection 75 (Warm/Caring)
+        bot.memory.profile["affection_level"] = 75
+        msg = "Hello darling!"
+        sanitized = bot.sanitize_endearments(msg)
+        styled = bot.apply_persona_style(sanitized, "DEREDERE")
+        self.assertIn("sweetie", sanitized.lower())
+        self.assertNotIn("darling", sanitized.lower())
+        self.assertIn("✨", styled)
+        
+        # Scenario D: Affection 95 (Highly expressive/Deeply supportive)
+        bot.memory.profile["affection_level"] = 95
+        msg = "Hello darling, my love!"
+        sanitized = bot.sanitize_endearments(msg)
+        styled = bot.apply_persona_style(sanitized, "DEREDERE")
+        self.assertEqual(sanitized, msg)
+        self.assertIn("💕", styled)
 
 if __name__ == "__main__":
     unittest.main()
