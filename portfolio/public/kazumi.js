@@ -859,6 +859,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // If WebSocket is open and active, stream via WebSocket
       if (ws && ws.readyState === WebSocket.OPEN) {
+        window.currentVoiceDiagnostics = {
+          startTime: Date.now(),
+          firstChunkPlayed: false,
+          stt: 0,
+          llmFirst: 0,
+          llmFull: 0,
+          ttsFirst: 0,
+          ttsFull: 0,
+          playbackDelay: 0,
+          e2e: 0
+        };
         showThinkingIndicator();
         ws.send(JSON.stringify({ type: 'text_message', text: message }));
         return;
@@ -1254,6 +1265,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let isRecording = false;
   let voiceState = 'IDLE'; // IDLE, LISTENING, TRANSCRIBING, THINKING, SPEAKING
   let activeAudio = null;  // Current speaking Audio element for fallback
+  let stopRecordingPCMSilentRef = null;
   
   // WebSocket and Streaming audio playback variables
   let ws = null;
@@ -1376,6 +1388,13 @@ document.addEventListener('DOMContentLoaded', () => {
         updateVoiceState(data.state);
       }
       
+      else if (data.type === 'stt_interim') {
+        const micHoldBtn = document.getElementById('micHoldBtn');
+        if (micHoldBtn && voiceState === 'LISTENING' && data.text) {
+          micHoldBtn.innerHTML = `<i class="fa-solid fa-microphone-lines"></i> Listening: "${data.text}"`;
+        }
+      }
+      
       else if (data.type === 'stt_done') {
         console.log(`[WebSocket STT] Completed. Text: "${data.text}"`);
         const tempMsg = { speaker: 'user', text: data.text, timestamp: Date.now() / 1000 };
@@ -1404,6 +1423,9 @@ document.addEventListener('DOMContentLoaded', () => {
         chatLogsContainer.scrollTop = chatLogsContainer.scrollHeight;
         
         if (data.metrics) {
+          if (!window.currentVoiceDiagnostics) {
+            window.currentVoiceDiagnostics = {};
+          }
           window.currentVoiceDiagnostics.llmFirst = data.metrics.llmFirst;
           window.currentVoiceDiagnostics.llmFull = data.metrics.llmFull;
           updateDiagnosticsUI(window.currentVoiceDiagnostics, null);
@@ -1414,6 +1436,9 @@ document.addEventListener('DOMContentLoaded', () => {
       
       else if (data.type === 'telemetry_metrics') {
         if (data.metrics) {
+          if (!window.currentVoiceDiagnostics) {
+            window.currentVoiceDiagnostics = {};
+          }
           window.currentVoiceDiagnostics.ttsFirst = data.metrics.ttsFirst;
           window.currentVoiceDiagnostics.ttsFull = data.metrics.ttsFull;
           updateDiagnosticsUI(window.currentVoiceDiagnostics, null);
@@ -1421,6 +1446,16 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       
       else if (data.type === 'audio_chunk') {
+        // Measure end-to-end and playback start latencies for streaming mode
+        if (window.currentVoiceDiagnostics && window.currentVoiceDiagnostics.startTime && !window.currentVoiceDiagnostics.firstChunkPlayed) {
+          window.currentVoiceDiagnostics.firstChunkPlayed = true;
+          const e2e = Date.now() - window.currentVoiceDiagnostics.startTime;
+          const playbackDelay = e2e - (window.currentVoiceDiagnostics.stt || 0) - (window.currentVoiceDiagnostics.llmFirst || 0) - (window.currentVoiceDiagnostics.ttsFirst || 0);
+          window.currentVoiceDiagnostics.e2e = e2e;
+          window.currentVoiceDiagnostics.playbackDelay = Math.max(1, playbackDelay);
+          updateDiagnosticsUI(window.currentVoiceDiagnostics, null);
+        }
+        
         const binaryString = window.atob(data.audio);
         const len = binaryString.length;
         const bytes = new Uint8Array(len);
@@ -1434,6 +1469,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         playAudioChunk(float32Array, data.sample_rate);
+      }
+      
+      else if (data.type === 'stop_recording') {
+        if (stopRecordingPCMSilentRef) {
+          stopRecordingPCMSilentRef();
+        }
       }
       
       else if (data.type === 'stop_audio') {
@@ -2030,8 +2071,48 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       };
       
+      const stopRecordingPCMSilent = () => {
+        if (!isRecording) return;
+        isRecording = false;
+        clearInterval(micInterval);
+        
+        if (micVisualizerBar) micVisualizerBar.style.width = '0%';
+        if (micVisualizer) micVisualizer.style.display = 'none';
+        
+        if (scriptProcessor) {
+          scriptProcessor.disconnect();
+          scriptProcessor = null;
+        }
+        if (audioContext) {
+          audioContext.close();
+          audioContext = null;
+        }
+        if (mediaStream) {
+          mediaStream.getTracks().forEach(track => track.stop());
+          mediaStream = null;
+        }
+        
+        updateVoiceState('TRANSCRIBING');
+      };
+      
+      stopRecordingPCMSilentRef = stopRecordingPCMSilent;
+
       const stopRecordingPCM = async () => {
         if (!isRecording) return;
+        
+        // Initialize voice diagnostics startTime upon ending speech
+        window.currentVoiceDiagnostics = {
+          startTime: Date.now(),
+          firstChunkPlayed: false,
+          stt: 0,
+          llmFirst: 0,
+          llmFull: 0,
+          ttsFirst: 0,
+          ttsFull: 0,
+          playbackDelay: 0,
+          e2e: 0
+        };
+        
         isRecording = false;
         clearInterval(micInterval);
         

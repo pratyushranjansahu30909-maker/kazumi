@@ -23,6 +23,7 @@ import psutil
 import torch
 import aiohttp
 import numpy as np
+from openai import AsyncOpenAI
 
 # Configure sys path to imports
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -258,6 +259,23 @@ def get_fallback_posts():
 # FastAPI Application setup
 # ----------------------------------------------------
 app = FastAPI(title="Kazumi Space API Server")
+
+# Global persistent HTTP session for connection pooling
+http_session = None
+
+@app.on_event("startup")
+async def startup_event():
+    global http_session
+    # Disable limit to allow fast concurrent requests to local TTS server
+    http_session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=None, keepalive_timeout=30))
+    logger.info("[Voice System] Global aiohttp ClientSession initialized.")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    global http_session
+    if http_session:
+        await http_session.close()
+        logger.info("[Voice System] Global aiohttp ClientSession closed.")
 
 class SettingsPayload(BaseModel):
     githubToken: Optional[str] = None
@@ -517,10 +535,8 @@ async def get_kazumi_inactivity(session_id: Optional[str] = None):
             return {"success": False, "error": "AI core offline"}
         try:
             loop = asyncio.get_event_loop()
-            # Reload memory and reply
+            # Reply using cached in-memory state
             def call_inactivity():
-                kazumi_bot.memory.history = kazumi_bot.memory.load_history()
-                kazumi_bot.memory.profile = kazumi_bot.memory.load_profile()
                 return kazumi_bot.reply_inactivity(1, session_id=session_id)
             reply = await loop.run_in_executor(None, call_inactivity)
             return {"success": True, "reply": reply}
@@ -595,8 +611,6 @@ async def chat_post(body: ChatPayload):
     try:
         loop = asyncio.get_event_loop()
         def process():
-            kazumi_bot.memory.history = kazumi_bot.memory.load_history()
-            kazumi_bot.memory.profile = kazumi_bot.memory.load_profile()
             return kazumi_bot.reply(user_msg, session_id=session_id)
             
         reply = await loop.run_in_executor(None, process)
@@ -649,7 +663,13 @@ async def voice_synthesize(body: SynthesizePayload):
         audio_data = None
         max_retries = 3
         
-        async with aiohttp.ClientSession() as session:
+        session = http_session
+        created_session = False
+        if not session:
+            session = aiohttp.ClientSession()
+            created_session = True
+            
+        try:
             for attempt in range(max_retries):
                 try:
                     async with session.post("http://127.0.0.1:9880/tts", json=payload, timeout=12.0) as resp:
@@ -661,6 +681,9 @@ async def voice_synthesize(body: SynthesizePayload):
                     if attempt == max_retries - 1:
                         raise attempt_err
                     await asyncio.sleep(0.5)
+        finally:
+            if created_session:
+                await session.close()
                     
         if not audio_data:
             return {"success": False, "error": "No audio synthesized"}
@@ -703,11 +726,19 @@ async def voice_stream_endpoint(
         }
         
         async def event_generator():
-            async with aiohttp.ClientSession() as session:
+            session = http_session
+            created_session = False
+            if not session:
+                session = aiohttp.ClientSession()
+                created_session = True
+            try:
                 async with session.post("http://127.0.0.1:9880/tts", json=payload) as resp:
                     if resp.status == 200:
                         async for chunk in resp.content.iter_any():
                             yield chunk
+            finally:
+                if created_session:
+                    await session.close()
                             
         return StreamingResponse(event_generator(), media_type="audio/wav")
     except Exception as e:
@@ -746,38 +777,43 @@ async def synthesize_and_send_worker(sentence: str, speed_factor: float, websock
     tts_start = time.time()
     first_chunk = True
     
+    session = http_session
+    created_session = False
+    if not session:
+        session = aiohttp.ClientSession()
+        created_session = True
+        
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post("http://127.0.0.1:9880/tts", json=payload, timeout=20.0) as resp:
-                if resp.status == 200:
-                    rate = 32000
-                    async for chunk in resp.content.iter_any():
-                        if first_chunk:
-                            # Parse WAV header to detect actual sample rate
-                            if len(chunk) >= 44 and chunk.startswith(b'RIFF'):
-                                rate = int.from_bytes(chunk[24:28], byteorder='little')
-                                pcm_data = chunk[44:]
-                            else:
-                                pcm_data = chunk
-                            first_chunk = False
-                            # Mark first chunk latency
-                            if "ttsFirst" not in task_metrics:
-                                task_metrics["ttsFirst"] = int((time.time() - tts_start) * 1000)
-                                await websocket.send_json({
-                                    "type": "telemetry_metrics",
-                                    "metrics": task_metrics
-                                })
+        async with session.post("http://127.0.0.1:9880/tts", json=payload, timeout=20.0) as resp:
+            if resp.status == 200:
+                rate = 32000
+                async for chunk in resp.content.iter_any():
+                    if first_chunk:
+                        # Parse WAV header to detect actual sample rate
+                        if len(chunk) >= 44 and chunk.startswith(b'RIFF'):
+                            rate = int.from_bytes(chunk[24:28], byteorder='little')
+                            pcm_data = chunk[44:]
                         else:
                             pcm_data = chunk
-                        
-                        if pcm_data:
-                            # Send base64 raw PCM int16 chunks to client
-                            b64_pcm = base64.b64encode(pcm_data).decode('utf-8')
+                        first_chunk = False
+                        # Mark first chunk latency
+                        if "ttsFirst" not in task_metrics:
+                            task_metrics["ttsFirst"] = int((time.time() - tts_start) * 1000)
                             await websocket.send_json({
-                                "type": "audio_chunk",
-                                "audio": b64_pcm,
-                                "sample_rate": rate
+                                "type": "telemetry_metrics",
+                                "metrics": task_metrics
                             })
+                    else:
+                        pcm_data = chunk
+                    
+                    if pcm_data:
+                        # Send base64 raw PCM int16 chunks to client
+                        b64_pcm = base64.b64encode(pcm_data).decode('utf-8')
+                        await websocket.send_json({
+                            "type": "audio_chunk",
+                            "audio": b64_pcm,
+                            "sample_rate": rate
+                        })
                             
         # Complete full sentence synthesis latency
         if "ttsFull" not in task_metrics:
@@ -788,6 +824,9 @@ async def synthesize_and_send_worker(sentence: str, speed_factor: float, websock
             "type": "error",
             "message": "Local voice engine offline. Falling back to browser speech synthesis."
         })
+    finally:
+        if created_session:
+            await session.close()
 
 async def session_synthesis_queue_loop(queue: asyncio.Queue, speed_factor: float, websocket: WebSocket, task_metrics: dict):
     try:
@@ -837,14 +876,85 @@ async def send_telemetry_loop(websocket: WebSocket):
     except Exception:
         pass
 
+async def stt_stream_loop(websocket: WebSocket, session_id: str, task_metrics: dict, stt_start_time: float):
+    global whisper_model
+    # Access the active session state and buffer
+    session_data = websocket_sessions.get(session_id)
+    if not session_data:
+        return
+        
+    last_len = 0
+    last_transcribed_text = ""
+    
+    try:
+        while True:
+            await asyncio.sleep(0.4)
+            # Check if session is still active and listening
+            session_data = websocket_sessions.get(session_id)
+            if not session_data or session_data.get("state") != "LISTENING":
+                break
+                
+            audio_buffer = session_data.get("audio_buffer")
+            current_len = len(audio_buffer)
+            if current_len == last_len:
+                continue
+                
+            # Run Whisper on the current accumulated buffer
+            if current_len >= 8000: # at least 0.25 seconds of 16kHz audio
+                audio_np = np.frombuffer(audio_buffer, dtype=np.int16).astype(np.float32) / 32768.0
+                
+                loop = asyncio.get_event_loop()
+                def transcribe():
+                    # Set beam_size=1 (greedy decoding) for maximum speed (<500ms target)
+                    segments, info = whisper_model.transcribe(audio_np, beam_size=1, vad_filter=True)
+                    return " ".join([seg.text for seg in segments]).strip()
+                    
+                text = await loop.run_in_executor(None, transcribe)
+                
+                if text and text != last_transcribed_text:
+                    last_transcribed_text = text
+                    await websocket.send_json({
+                        "type": "stt_interim",
+                        "text": text
+                    })
+                
+                # VAD Silence/Speech End Detection
+                # 1.2 seconds of silence = 16000 * 1.2 * 2 = 38400 bytes
+                if current_len >= 48000: # At least 1.5 seconds of total recording to prevent early trigger
+                    latest_samples = np.frombuffer(audio_buffer[-38400:], dtype=np.int16)
+                    rms = np.sqrt(np.mean(latest_samples.astype(np.float64)**2))
+                    
+                    # If RMS is below 250 (silence) and we have transcribed some words
+                    if rms < 250 and last_transcribed_text:
+                        logger.info(f"[VAD] Speech end detected automatically (RMS: {rms:.1f}). Triggering response.")
+                        session_data["state"] = "TRANSCRIBING"
+                        await websocket.send_json({"type": "state", "state": "TRANSCRIBING"})
+                        await websocket.send_json({"type": "stop_recording"}) # Force client to clean up mic
+                        
+                        stt_latency = int((time.time() - stt_start_time) * 1000)
+                        task_metrics["stt"] = stt_latency
+                        
+                        await websocket.send_json({
+                            "type": "stt_done",
+                            "text": last_transcribed_text,
+                            "latency": stt_latency
+                        })
+                        
+                        # Auto trigger response generation
+                        session_data["state"] = "THINKING"
+                        await websocket.send_json({"type": "state", "state": "THINKING"})
+                        asyncio.create_task(run_response_generation(last_transcribed_text, session_id, websocket, task_metrics))
+                        break
+            last_len = current_len
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        logger.error(f"[STT Stream Loop] Error: {e}")
+
 @app.websocket("/api/kazumi/voice/chat")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     session_id = f"ws_session_{int(time.time())}"
-    
-    # State tracking
-    state = "IDLE"
-    audio_buffer = bytearray()
     
     # Queue for sequential speech synthesis
     synthesis_queue = asyncio.Queue()
@@ -856,11 +966,17 @@ async def websocket_endpoint(websocket: WebSocket):
     # Track current synthesis worker
     queue_worker_task = asyncio.create_task(session_synthesis_queue_loop(synthesis_queue, 1.0, websocket, task_metrics))
     
+    # Session state dictionary containing queue, worker, metrics, state, and audio_buffer
     websocket_sessions[session_id] = {
         "queue": synthesis_queue,
         "worker": queue_worker_task,
-        "metrics": task_metrics
+        "metrics": task_metrics,
+        "state": "IDLE",
+        "audio_buffer": bytearray()
     }
+    
+    stt_stream_task = None
+    stt_start_time = 0
     
     logger.info(f"[WebSocket] Connected session {session_id}")
     
@@ -885,12 +1001,15 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             message = await websocket.receive()
-            
+            session_data = websocket_sessions.get(session_id)
+            if not session_data:
+                break
+                
             # Handle Binary messages (Mic Audio Chunks)
             if "bytes" in message:
                 pcm_data = message["bytes"]
-                if state == "LISTENING":
-                    audio_buffer.extend(pcm_data)
+                if session_data["state"] == "LISTENING":
+                    session_data["audio_buffer"].extend(pcm_data)
                 continue
                 
             # Handle Text messages
@@ -900,23 +1019,36 @@ async def websocket_endpoint(websocket: WebSocket):
                 
                 if msg_type == "start_recording":
                     logger.info("[WebSocket] Client started speaking.")
-                    state = "LISTENING"
-                    audio_buffer.clear()
+                    session_data["state"] = "LISTENING"
+                    session_data["audio_buffer"].clear()
+                    stt_start_time = time.time()
                     await cancel_active_speech()
                     await websocket.send_json({"type": "state", "state": "LISTENING"})
                     
+                    # Spawn streaming Whisper STT background loop
+                    if stt_stream_task and not stt_stream_task.done():
+                        stt_stream_task.cancel()
+                    stt_stream_task = asyncio.create_task(
+                        stt_stream_loop(websocket, session_id, task_metrics, stt_start_time)
+                    )
+                    
                 elif msg_type == "stop_recording":
-                    if state != "LISTENING":
+                    if session_data["state"] != "LISTENING":
                         continue
-                    logger.info(f"[WebSocket] Client stopped speaking. Captured {len(audio_buffer)} bytes.")
-                    state = "TRANSCRIBING"
+                    logger.info(f"[WebSocket] Client stopped speaking. Captured {len(session_data['audio_buffer'])} bytes.")
+                    
+                    if stt_stream_task and not stt_stream_task.done():
+                        stt_stream_task.cancel()
+                        
+                    session_data["state"] = "TRANSCRIBING"
                     await websocket.send_json({"type": "state", "state": "TRANSCRIBING"})
                     
                     # Process Whisper transcription asynchronously in background thread
                     stt_start = time.time()
                     
+                    audio_buffer = session_data["audio_buffer"]
                     if not audio_buffer:
-                        state = "IDLE"
+                        session_data["state"] = "IDLE"
                         await websocket.send_json({"type": "state", "state": "IDLE"})
                         continue
                         
@@ -925,7 +1057,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     
                     loop = asyncio.get_event_loop()
                     def transcribe():
-                        segments, info = whisper_model.transcribe(audio_np, beam_size=5, vad_filter=True)
+                        # Set beam_size=1 (greedy decoding) for maximum speed (<500ms target)
+                        segments, info = whisper_model.transcribe(audio_np, beam_size=1, vad_filter=True)
                         return " ".join([seg.text for seg in segments]).strip()
                         
                     text = await loop.run_in_executor(None, transcribe)
@@ -940,12 +1073,12 @@ async def websocket_endpoint(websocket: WebSocket):
                     })
                     
                     if not text:
-                        state = "IDLE"
+                        session_data["state"] = "IDLE"
                         await websocket.send_json({"type": "state", "state": "IDLE"})
                         continue
                         
                     # Auto trigger response generation
-                    state = "THINKING"
+                    session_data["state"] = "THINKING"
                     await websocket.send_json({"type": "state", "state": "THINKING"})
                     asyncio.create_task(run_response_generation(text, session_id, websocket, task_metrics))
                     
@@ -955,14 +1088,14 @@ async def websocket_endpoint(websocket: WebSocket):
                         continue
                     logger.info(f"[WebSocket] Received text message: '{text}'")
                     await cancel_active_speech()
-                    state = "THINKING"
+                    session_data["state"] = "THINKING"
                     task_metrics["stt"] = 0
                     await websocket.send_json({"type": "state", "state": "THINKING"})
                     asyncio.create_task(run_response_generation(text, session_id, websocket, task_metrics))
                     
                 elif msg_type == "cancel_speech":
                     await cancel_active_speech()
-                    state = "IDLE"
+                    session_data["state"] = "IDLE"
                     await websocket.send_json({"type": "state", "state": "IDLE"})
                     
     except WebSocketDisconnect:
@@ -970,6 +1103,8 @@ async def websocket_endpoint(websocket: WebSocket):
     finally:
         telemetry_task.cancel()
         queue_worker_task.cancel()
+        if stt_stream_task and not stt_stream_task.done():
+            stt_stream_task.cancel()
         if session_id in websocket_sessions:
             del websocket_sessions[session_id]
 
@@ -985,8 +1120,6 @@ async def run_response_generation(user_text: str, session_id: str, websocket: We
     
     # Sync memory reload
     def sync_setup():
-        kazumi_bot.memory.history = kazumi_bot.memory.load_history()
-        kazumi_bot.memory.profile = kazumi_bot.memory.load_profile()
         kazumi_bot.active_character = kazumi_bot.memory.profile.get("character", "kazumi")
         if kazumi_bot.active_character not in kazumi_bot.CHARACTERS:
             kazumi_bot.active_character = "kazumi"
