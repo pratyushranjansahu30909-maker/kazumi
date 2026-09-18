@@ -23,9 +23,7 @@ import socket
 # Force IPv4 resolution in Docker/cloud environments where IPv6 is not routed to prevent ConnectionResetError
 _orig_getaddrinfo = socket.getaddrinfo
 def _ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-    if family == 0 or family == socket.AF_UNSPEC:
-        family = socket.AF_INET
-    return _orig_getaddrinfo(host, port, family, type, proto, flags)
+    return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
 socket.getaddrinfo = _ipv4_getaddrinfo
 
 import discord
@@ -462,25 +460,20 @@ def main():
         print_discord_setup_guide()
         sys.exit(1)
 
-    retry_delay = 5
-    max_delay = 60
-    while True:
-        logger.info(f"🌸 Connecting to Discord Gateway (prefix: {PREFIX}, channel: {DISCORD_CHANNEL_ID or 'all'})...")
-        try:
-            bot.run(DISCORD_BOT_TOKEN, log_handler=None)
-            logger.info("🌸 Discord bot run loop finished cleanly.")
-            break
-        except discord.errors.LoginFailure as lf:
-            logger.error(f"❌ Login failure: Invalid Discord Bot Token: {lf}")
-            sys.exit(1)
-        except (KeyboardInterrupt, SystemExit):
-            logger.info("🌸 Bot stopped by signal.")
-            break
-        except Exception as e:
-            logger.warning(f"⚠️ Discord connection interrupted or failed: {e}. Retrying in {retry_delay}s...", exc_info=True)
-            import time
-            time.sleep(retry_delay)
-            retry_delay = min(retry_delay * 2, max_delay)
+    logger.info(f"🌸 Connecting to Discord Gateway (prefix: {PREFIX}, channel: {DISCORD_CHANNEL_ID or 'all'})...")
+    try:
+        bot.run(DISCORD_BOT_TOKEN, log_handler=None)
+        logger.info("🌸 Discord bot run loop finished cleanly.")
+    except discord.errors.LoginFailure as lf:
+        logger.error(f"❌ Login failure: Invalid Discord Bot Token: {lf}")
+        sys.exit(1)
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("🌸 Bot stopped by signal.")
+        sys.exit(0)
+    except Exception as e:
+        logger.error(f"⚠️ Discord connection dropped or failed: {e}", exc_info=True)
+        # Exit with status 1 so start.sh restarts a clean Python process with fresh aiohttp session
+        sys.exit(1)
 
 
 if __name__ == "__main__":
