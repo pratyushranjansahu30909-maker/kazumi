@@ -20,10 +20,15 @@ except ImportError:
     pass
 
 import socket
-# Force IPv4 resolution in Docker/cloud environments where IPv6 is not routed to prevent ConnectionResetError
+# Filter IPv4 resolution in Docker/cloud environments where IPv6 is not routed to prevent ConnectionResetError
 _orig_getaddrinfo = socket.getaddrinfo
 def _ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-    return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+    try:
+        results = _orig_getaddrinfo(host, port, family, type, proto, flags)
+        v4 = [r for r in results if r[0] == socket.AF_INET]
+        return v4 if v4 else results
+    except Exception:
+        return _orig_getaddrinfo(host, port, family, type, proto, flags)
 socket.getaddrinfo = _ipv4_getaddrinfo
 
 import discord

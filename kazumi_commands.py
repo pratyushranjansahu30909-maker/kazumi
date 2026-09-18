@@ -518,5 +518,18 @@ def process_command_input(bot, clean_text, text):
             bot.diary_read = True
             bot.check_achievements()
             return f"{intro_msg}{formatted_entries}"
+
+    # Check dynamic skills from SkillManager
+    if hasattr(bot, "skill_manager") and bot.skill_manager:
+        import re
+        for skill in bot.skill_manager.skills:
+            for trigger in skill.get_triggers():
+                if re.search(trigger, clean_text, re.IGNORECASE):
+                    try:
+                        res = skill.handle(clean_text, clean_text, 0.0)
+                        if res is not None:
+                            return res
+                    except Exception as e:
+                        print(f"[Skill Execution Warning] Error in command skill {skill.__class__.__name__}: {e}")
             
     return None

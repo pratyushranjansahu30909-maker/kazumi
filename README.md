@@ -73,3 +73,50 @@ npm install
 npm start
 ```
 Open `http://localhost:3000/` in your browser.
+
+### 3. Launching as a Discord Server Bot 🌸
+You can add Kazumi to any Discord server as an interactive AI companion!
+
+#### Step 1: Create a Discord Application
+1. Visit the [Discord Developer Portal](https://discord.com/developers/applications).
+2. Click **New Application**, name it **Kazumi**, and save.
+3. In the left menu, select **Bot** -> click **Add Bot**.
+4. Scroll down to **Privileged Gateway Intents** and enable:
+   - ✅ **Message Content Intent** *(Required for Kazumi to read chat messages)*
+5. Click **Reset Token** and copy the secret Bot Token.
+
+#### Step 2: Configure Environment
+Open your `.env` file and paste your token:
+```env
+DISCORD_BOT_TOKEN=your_token_here
+DISCORD_CHANNEL_ID=   # Optional: set a specific channel ID if you want an exclusive chat room
+```
+
+#### Step 3: Invite Kazumi to Your Server
+1. In the Developer Portal, navigate to **OAuth2** -> **URL Generator**.
+2. Select scopes:
+   - `bot`
+   - `applications.commands`
+3. Under **Bot Permissions**, select:
+   - Send Messages
+   - Read Message History
+   - Embed Links
+   - Attach Files
+   - Use Slash Commands
+4. Copy the generated invite link and open it in your browser to add Kazumi to your server.
+
+#### Step 4: Run the Bot
+```bash
+python discord_bot.py
+```
+
+#### Interacting on Discord
+- **Mention her:** `@Kazumi hello!` in any channel.
+- **Direct Messages:** DM Kazumi directly for private 1-on-1 conversations.
+- **Slash Commands:**
+  - `/chat <message>` — Send a cozy message
+  - `/status` — View companion affection level, cozy points, and persona
+  - `/diary` — Read what Kazumi wrote in her journal today
+  - `/quests` — View active companion quests
+  - `/reset` — Clear conversation history for a fresh start
+  - `/help` — Display full command list and tips

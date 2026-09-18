@@ -461,7 +461,7 @@ def process_interaction_input(bot, clean_text, text):
                         {"role": "user", "content": prompt}
                     ]
                     response = bot.controller.client.chat.completions.create(
-                        model="gpt-3.5-turbo",
+                        model=getattr(bot.controller, "diary_model_name", "gpt-3.5-turbo"),
                         messages=messages,
                         temperature=0.7,
                         max_tokens=150,

@@ -837,7 +837,7 @@ Every message should have clean grammar, proper capitalization, smooth transitio
                 
         return best_candidate
 
-    def generate_response(self, user_text, valence, memory_context, situation="CASUAL", anger_level=0, jealousy_level=0, profile=None, persona_instruction=None, system_prompt=None, current_archetype=None, history=None):
+    def generate_response(self, user_text, valence, memory_context, situation="CASUAL", anger_level=0, jealousy_level=0, profile=None, persona_instruction=None, system_prompt=None, current_archetype=None, history=None, rag_context=None):
         """Generates a warm, personalized conversational reply using the LLM or fallbacks based on user input and state."""
         # For system inactivity nudges, if offline, return standard code to let Kazumi use fallback reminders
         if user_text.startswith("(System Nudge:"):
@@ -872,6 +872,8 @@ Every message should have clean grammar, proper capitalization, smooth transitio
                     prompt += "\n[Custom Guidelines to Follow:\n" + "\n".join([f"- {g}" for g in custom_guides]) + "]\n"
             if memory_context:
                 prompt += f"Relevant Past Sentences from User: {' | '.join(memory_context)}\n"
+            if rag_context:
+                prompt += f"\n[Relevant Local Documents Context:\n{rag_context}]\nUse this information dynamically to answer the user's query if applicable, keeping your voice warm and natural.\n"
             
             # Inject dynamic emotional state instructions
             if anger_level > 0:
@@ -1018,12 +1020,12 @@ Every message should have clean grammar, proper capitalization, smooth transitio
                 temperature=0.7,
                 frequency_penalty=0.5,
                 presence_penalty=0.3,
-                max_tokens=max_t,
-                n=3,
-                timeout=20.0
+                max_tokens=min(max_t, 120),
+                n=1,
+                timeout=12.0
             )
-            candidates = [choice.message.content.strip() for choice in response.choices]
-            best = self.select_best_candidate(candidates, history, situation)
+            best = response.choices[0].message.content.strip()
+
             
             # Response Selection verification:
             if situation == "ROAST":
@@ -1425,6 +1427,12 @@ Every message should have clean grammar, proper capitalization, smooth transitio
 INACTIVITY_TIMEOUT = 120
 
 class Kazumi:
+    GREETINGS = {
+        "hi", "hii", "hiii", "hello", "hey", "heyy", "heyya", "howdy", "yo", "sup", 
+        "hola", "greetings", "good morning", "good afternoon", "good evening", "goodnight",
+        "hlo", "hllo"
+    }
+
     def __init__(self):
         self.memory = ChromaMemory()
         self.controller = LLMController()
@@ -2085,6 +2093,20 @@ class Kazumi:
             "Do you prefer hot chocolate with extra marshmallows or a warm spiced apple cider? 🥛🍎",
             "If you could live in a cozy house boat on a calm lake, or a small treehouse in a giant forest, which would you pick? ⛵"
         ]
+        
+        # Voice and speech recognition systems are disabled (Pure Chat Bot Mode)
+        self.voice_enabled = False
+        self.qwen_tts_available = False
+        self.speech_engine = None
+        self.speech_recognizer = None
+        self.microphone = None
+        
+        try:
+            from skills import SkillManager
+            self.skill_manager = SkillManager(self)
+        except Exception as e:
+            print(f"[Skill Loader Warning] Could not load dynamic SkillManager: {e}")
+            self.skill_manager = None
         
         self.load_game_states()
         print("Kazumi: Empathetic Feminine Mode — Active 🌸✨")
@@ -3327,9 +3349,9 @@ class Kazumi:
             return "BUSY"
             
         # 5. Problem Solving / Dilemma / Advice Queries
-        problem_words = {"problem", "dilemma", "stuck", "advice", "suggest", "option", "options", "decide", "should i", 
-                         "how should i", "choose", "what to do", "what should i do", "struggle", "struggling", "issue", "difficult", "difficulty"}
-        if words.intersection(problem_words) or "what should i do" in clean_text or "help me decide" in clean_text or "how to deal" in clean_text or "give me advice" in clean_text:
+        problem_words = {"dilemma", "stuck", "advice", "decide", "should i", 
+                         "how should i", "what to do", "what should i do", "struggle", "struggling", "issue", "difficult", "difficulty"}
+        if words.intersection(problem_words) or "what should i do" in clean_text or "help me decide" in clean_text or "how to deal" in clean_text or "give me advice" in clean_text or "facing a dilemma" in clean_text:
             return "PROBLEM_SOLVING"
             
         # 6. Factual Queries or Help
@@ -3448,8 +3470,32 @@ class Kazumi:
 
     def reply_internal(self, text, session_id=None):
         clean_text = text.lower().strip()
+        # Ensure we always parse clean_text properly
         valence = self.emotion.valence(text)
         self.update_user_psychology(text, valence)
+        
+        is_online = (OPENAI_AVAILABLE and self.controller.client is not None and API_KEY != "your_api_key_here" and API_KEY != "" and "--diagnose" not in sys.argv)
+
+        # --- Dynamic Skill Plugins System Routing ---
+        response = None
+        if hasattr(self, "skill_manager") and self.skill_manager:
+            for skill in self.skill_manager.skills:
+                for trigger in skill.get_triggers():
+                    if re.search(trigger, clean_text, re.IGNORECASE):
+                        try:
+                            response = skill.handle(text, clean_text, valence)
+                            if response is not None:
+                                break
+                        except Exception as e:
+                            print(f"[Skill Execution Warning] Error in skill {skill.__class__.__name__}: {e}")
+                if response is not None:
+                    break
+
+        if response is not None:
+            self.memory.add(text, speaker="user", valence=valence)
+            self.memory.add(response, speaker="kazumi", valence=0.0)
+            self.render_dashboard(valence, self.conversation_state)
+            return response
         
         # ----------------------------------------------------
         # 🚪 Goodbye Mode, Greeting & Intent Detection (Prioritized)
@@ -3474,12 +3520,12 @@ class Kazumi:
         # 1. Classify Intents
         is_goodbye = (detected_mode == "farewell") or any(re.search(trigger, clean_text) or re.search(trigger, clean_text_no_punc) for trigger in goodbye_triggers) or any(sig in clean_text for sig in ["colorful", "make my day", "made my day", "thanks for making my day"])
         
-        greetings = {"hi", "hello", "hey", "greetings", "sup", "yo", "good morning", "good afternoon", "good evening", "goodnight", "hlo", "hii", "heyy", "hllo", "howdy"}
+        greetings = self.GREETINGS
         is_greeting = clean_text_no_punc in greetings or (any(clean_text_no_punc.startswith(g + " ") for g in greetings) and len(clean_text_no_punc.split()) <= 2)
         
-        is_exit = any(w in clean_text_no_punc.split() for w in ["stop", "exit", "cancel", "leave", "quit"]) or clean_text == "/exit"
+        is_exit = clean_text_no_punc in {"stop", "exit", "cancel", "leave", "quit"} or clean_text == "/exit"
         
-        is_help = any(w in clean_text_no_punc.split() for w in ["help", "skills", "skill"]) or clean_text.startswith("/help") or clean_text.startswith("/skills")
+        is_help = clean_text_no_punc in {"help", "skills", "skill"} or clean_text.startswith("/help") or clean_text.startswith("/skills")
         
         question_words = {"what", "why", "who", "how", "where", "when", "which", "whose", "whom", "can", "could", "should", "would", "is", "are", "do", "does", "did", "may", "will", "shall"}
         first_word = clean_text_no_punc.split()[0] if clean_text_no_punc.split() else ""
@@ -3594,34 +3640,35 @@ class Kazumi:
             self.sleep_state = None
             self.cook_state = None
             
-            # Check for positive closing
-            positive_signals = ["colorful", "make my day", "made my day", "thanks for", "thank you for", "wonderful talk", "cozy talk", "happy"]
-            is_positive_closure = any(sig in clean_text for sig in positive_signals)
-            
-            # Check for emotional closure
-            is_emotional_closure = is_support or any(w in clean_text for w in emotional_words)
-            
-            if is_positive_closure:
-                farewell = "That means a lot to hear. Take care, and I hope tomorrow is just as good."
-            elif is_emotional_closure:
-                farewell = "Please remember to take care of yourself. You're doing the best you can, and I'm always here for you. Goodbye for now."
-            elif any(w in clean_text for w in ["gn", "good night", "sleep", "dream"]):
-                farewell = self.controller.choose_unrepeated([
-                    "Goodnight. Sleep well.",
-                    "Sweet dreams. Talk to you tomorrow.",
-                    "Goodnight. Get some rest."
-                ])
-            elif any(w in clean_text for w in ["gotta go", "leaving", "got to go"]):
-                farewell = "No worries. Take care and have a good one."
-            else:
-                farewell = self.controller.choose_unrepeated([
-                    "Bye. Take care of yourself.",
-                    "See you later. Hope the rest of your day goes well.",
-                    "Alright, talk to you later."
-                ])
+            if not is_online:
+                # Check for positive closing
+                positive_signals = ["colorful", "make my day", "made my day", "thanks for", "thank you for", "wonderful talk", "cozy talk", "happy"]
+                is_positive_closure = any(sig in clean_text for sig in positive_signals)
                 
-            self.render_dashboard(0.0)
-            return farewell
+                # Check for emotional closure
+                is_emotional_closure = is_support or any(w in clean_text for w in emotional_words)
+                
+                if is_positive_closure:
+                    farewell = "That means a lot to hear. Take care, and I hope tomorrow is just as good."
+                elif is_emotional_closure:
+                    farewell = "Please remember to take care of yourself. You're doing the best you can, and I'm always here for you. Goodbye for now."
+                elif any(w in clean_text for w in ["gn", "good night", "sleep", "dream"]):
+                    farewell = self.controller.choose_unrepeated([
+                        "Goodnight. Sleep well.",
+                        "Sweet dreams. Talk to you tomorrow.",
+                        "Goodnight. Get some rest."
+                    ])
+                elif any(w in clean_text for w in ["gotta go", "leaving", "got to go"]):
+                    farewell = "No worries. Take care and have a good one."
+                else:
+                    farewell = self.controller.choose_unrepeated([
+                        "Bye. Take care of yourself.",
+                        "See you later. Hope the rest of your day goes well.",
+                        "Alright, talk to you later."
+                    ])
+                    
+                self.render_dashboard(0.0)
+                return farewell
 
         # Handle Help Mode
         if is_help:
@@ -3629,37 +3676,39 @@ class Kazumi:
             self.interaction_mode = None
             self.conversation_state = "ACTIVE_HELP"
             
-            situation = self.detect_situation(text, valence)
-            skills_mapping = {
-                "EMOTIONAL": ("Heart-Soothe Breathing 🌸", "/breathe", "Soothes stress and emotional distress through guided deep breaths."),
-                "BUSY": ("Focus study timer 📚", "/timer", "Simulates a Pomodoro study timer with Kazumi's quiet support."),
-                "PROBLEM_SOLVING": ("Dilemma Solver 🌟", "/solve", "Interactive worksheet to list pros/cons and score decision options."),
-                "SLEEPY": ("Lullaby Sleep Scan 🌙", "/sleep", "Guides you through a relaxing body scan to ease into cozy sleep."),
-                "ANGRY": ("Pouty Negotiation 😤", "Give gift or say sorry", "Unlocks when you pamper her with sweet actions/apologies."),
-                "JEALOUS": ("Cute Reassurance 🤫", "Give gift or say sorry", "Requires reassurance of your loyalty to cheer her up."),
-                "ROAST": ("Playful Teasing & Roast 😈", "/roast", "Generates a sweet, teasing roast based on your current habits.")
-            }
-            rec = skills_mapping.get(situation, ("Interactive Cozy Chat 💬", "Any sweet conversation", "Standard high-empathy connection."))
-            
-            print("\033[38;2;255;182;193m┌" + "─" * 60 + "┐\033[0m")
-            print("\033[38;2;255;182;193m│\033[1;35m  🛠️ KAZUMI ACTIVE SITUATION SKILLS                          \033[38;2;255;182;193m│\033[0m")
-            print("\033[38;2;255;182;193m├" + "─" * 60 + "┤\033[0m")
-            print(f"\033[38;2;255;182;193m│\033[0m  Current Detected Situation: {situation:<30} \033[38;2;255;182;193m│\033[0m")
-            print(f"\033[38;2;255;182;193m│\033[0m  Recommended Active Skill:   {rec[0]:<30} \033[38;2;255;182;193m│\033[0m")
-            print(f"\033[38;2;255;182;193m│\033[0m  Trigger command:            {rec[1]:<30} \033[38;2;255;182;193m│\033[0m")
-            print("\033[38;2;255;182;193m├" + "─" * 60 + "┤\033[0m")
-            print(f"\033[38;2;255;182;193m│\033[0m  Description: {rec[2]:<45} \033[38;2;255;182;193m│\033[0m")
-            print("\033[38;2;255;182;193m├" + "─" * 60 + "┤\033[0m")
-            print("\033[38;2;255;182;193m│\033[0;35m  Available Command Skills:                                   \033[38;2;255;182;193m│\033[0m")
-            print("\033[38;2;255;182;193m│\033[0m  • [/breathe] - Guide breathing   • [/timer] - Focus Pomodoro  \033[38;2;255;182;193m│\033[0m")
-            print("\033[38;2;255;182;193m│\033[0m  • [/solve]   - Dilemma solver    • [/sleep] - Sleep body scan \033[38;2;255;182;193m│\033[0m")
-            print("\033[38;2;255;182;193m└" + "─" * 60 + "┘\033[0m")
-            
-            help_reply = f"(Kazumi smiles gently, tapping her notebook...) I've analyzed our current situation and recommended the best skill to solve it, sweetie. Let me know what you'd like to do! 😊"
-            self.memory.add(text, speaker="user", valence=valence)
-            self.memory.add(help_reply, speaker="kazumi", valence=0.0)
-            self.render_dashboard(valence, self.conversation_state)
-            return help_reply
+            is_explicit_help_cmd = clean_text in {"/help", "/skills", "help", "skills"}
+            if is_explicit_help_cmd or not is_online:
+                situation = self.detect_situation(text, valence)
+                skills_mapping = {
+                    "EMOTIONAL": ("Heart-Soothe Breathing 🌸", "/breathe", "Soothes stress and emotional distress through guided deep breaths."),
+                    "BUSY": ("Focus study timer 📚", "/timer", "Simulates a Pomodoro study timer with Kazumi's quiet support."),
+                    "PROBLEM_SOLVING": ("Dilemma Solver 🌟", "/solve", "Interactive worksheet to list pros/cons and score decision options."),
+                    "SLEEPY": ("Lullaby Sleep Scan 🌙", "/sleep", "Guides you through a relaxing body scan to ease into cozy sleep."),
+                    "ANGRY": ("Pouty Negotiation 😤", "Give gift or say sorry", "Unlocks when you pamper her with sweet actions/apologies."),
+                    "JEALOUS": ("Cute Reassurance 🤫", "Give gift or say sorry", "Requires reassurance of your loyalty to cheer her up."),
+                    "ROAST": ("Playful Teasing & Roast 😈", "/roast", "Generates a sweet, teasing roast based on your current habits.")
+                }
+                rec = skills_mapping.get(situation, ("Interactive Cozy Chat 💬", "Any sweet conversation", "Standard high-empathy connection."))
+                
+                print("\033[38;2;255;182;193m┌" + "─" * 60 + "┐\033[0m")
+                print("\033[38;2;255;182;193m│\033[1;35m  🛠️ KAZUMI ACTIVE SITUATION SKILLS                          \033[38;2;255;182;193m│\033[0m")
+                print("\033[38;2;255;182;193m├" + "─" * 60 + "┤\033[0m")
+                print(f"\033[38;2;255;182;193m│\033[0m  Current Detected Situation: {situation:<30} \033[38;2;255;182;193m│\033[0m")
+                print(f"\033[38;2;255;182;193m│\033[0m  Recommended Active Skill:   {rec[0]:<30} \033[38;2;255;182;193m│\033[0m")
+                print(f"\033[38;2;255;182;193m│\033[0m  Trigger command:            {rec[1]:<30} \033[38;2;255;182;193m│\033[0m")
+                print("\033[38;2;255;182;193m├" + "─" * 60 + "┤\033[0m")
+                print(f"\033[38;2;255;182;193m│\033[0m  Description: {rec[2]:<45} \033[38;2;255;182;193m│\033[0m")
+                print("\033[38;2;255;182;193m├" + "─" * 60 + "┤\033[0m")
+                print("\033[38;2;255;182;193m│\033[0;35m  Available Command Skills:                                   \033[38;2;255;182;193m│\033[0m")
+                print("\033[38;2;255;182;193m│\033[0m  • [/breathe] - Guide breathing   • [/timer] - Focus Pomodoro  \033[38;2;255;182;193m│\033[0m")
+                print("\033[38;2;255;182;193m│\033[0m  • [/solve]   - Dilemma solver    • [/sleep] - Sleep body scan \033[38;2;255;182;193m│\033[0m")
+                print("\033[38;2;255;182;193m└" + "─" * 60 + "┘\033[0m")
+                
+                help_reply = f"(Kazumi smiles gently, tapping her notebook...) I've analyzed our current situation and recommended the best skill to solve it, sweetie. Let me know what you'd like to do! 😊"
+                self.memory.add(text, speaker="user", valence=valence)
+                self.memory.add(help_reply, speaker="kazumi", valence=0.0)
+                self.render_dashboard(valence, self.conversation_state)
+                return help_reply
 
         # Handle Greeting Mode
         if is_greeting:
@@ -3667,44 +3716,47 @@ class Kazumi:
             self.interaction_mode = None
             self.conversation_state = "ACTIVE_CHAT"
             
-            uname = self.memory.profile.get("name", "Friend")
-            if uname == "Sweetie":
-                uname = "Friend"
-            
-            arch = self.current_archetype
-            if not arch:
-                if self.memory.profile:
-                    arch = self.memory.profile.get("archetype")
+            if not is_online:
+                uname = self.memory.profile.get("name", "Friend")
+                if uname == "Sweetie":
+                    uname = "Friend"
+                
+                arch = self.current_archetype
                 if not arch:
-                    character = self.memory.profile.get("character", "kazumi")
-                    arch = "TEASING" if character == "mimi" else "DEREDERE"
-            
-            if arch == "TSUNDERE":
-                greeting_reply = "Hmph, hello there, baka! What do you want? It's not like I was waiting for you..."
-            elif arch == "YANDERE":
-                greeting_reply = f"Hello, my precious {uname}. I was thinking of you every single second. Don't ever leave me, okay? 💕"
-            elif arch == "TEASING":
-                greeting_reply = f"Well, hello there, handsome! 😉 Did you come back just to see my cute face? Hehe."
-            elif arch == "DANDERE":
-                greeting_reply = f"U-um... hello, {uname}... I-I'm really glad you said hi to me... 🥺"
-            else:
-                greeting_reply = "Hey, how are you?"
-            
-            self.memory.add(text, speaker="user", valence=valence)
-            self.memory.add(greeting_reply, speaker="kazumi", valence=0.0)
-            self.render_dashboard(valence, self.conversation_state)
-            return greeting_reply
+                    if self.memory.profile:
+                        arch = self.memory.profile.get("archetype")
+                    if not arch:
+                        character = self.memory.profile.get("character", "kazumi")
+                        arch = "TEASING" if character == "mimi" else "DEREDERE"
+                
+                if arch == "TSUNDERE":
+                    greeting_reply = "Hmph, hello there, baka! What do you want? It's not like I was waiting for you..."
+                elif arch == "YANDERE":
+                    greeting_reply = f"Hello, my precious {uname}. I was thinking of you every single second. Don't ever leave me, okay? 💕"
+                elif arch == "TEASING":
+                    greeting_reply = f"Well, hello there, handsome! 😉 Did you come back just to see my cute face? Hehe."
+                elif arch == "DANDERE":
+                    greeting_reply = f"U-um... hello, {uname}... I-I'm really glad you said hi to me... 🥺"
+                else:
+                    greeting_reply = "Hey, how are you?"
+                
+                self.memory.add(text, speaker="user", valence=valence)
+                self.memory.add(greeting_reply, speaker="kazumi", valence=0.0)
+                self.render_dashboard(valence, self.conversation_state)
+                return greeting_reply
 
         # Handle Exit Mode
         if is_exit:
             self.game_mode = None
             self.interaction_mode = None
             self.conversation_state = "ACTIVE_CHAT"
-            exit_reply = "(Kazumi smiles gently.) Okay, let's stop and take a break! 🌸 We can just talk. What's on your mind? 😊"
-            self.memory.add(text, speaker="user", valence=valence)
-            self.memory.add(exit_reply, speaker="kazumi", valence=0.0)
-            self.render_dashboard(valence, self.conversation_state)
-            return exit_reply
+            
+            if clean_text == "/exit" or not is_online:
+                exit_reply = "(Kazumi smiles gently.) Okay, let's stop and take a break! 🌸 We can just talk. What's on your mind? 😊"
+                self.memory.add(text, speaker="user", valence=valence)
+                self.memory.add(exit_reply, speaker="kazumi", valence=0.0)
+                self.render_dashboard(valence, self.conversation_state)
+                return exit_reply
             
         # --- Self-Updating Memory System ---
         profile = self.memory.profile
@@ -3771,7 +3823,7 @@ class Kazumi:
 
         # 2. Cozy Intercept Modes
         if self.interaction_mode is not None:
-            greetings = {"hi", "hello", "hey", "greetings", "sup", "yo", "good morning", "good afternoon", "good evening", "goodnight"}
+            greetings = self.GREETINGS
             norm_text = re.sub(r"[^\w\s]", "", clean_text).strip()
             if clean_text.startswith("/") or norm_text in greetings or any(norm_text.startswith(g + " ") for g in greetings):
                 self.interaction_mode = None
@@ -4588,6 +4640,93 @@ class Kazumi:
                 self.check_achievements()
                 return f"{intro_msg}{formatted_entries}"
 
+        if clean_text.startswith("/volume"):
+            parts = clean_text.split()
+            if len(parts) < 2:
+                return "(Kazumi tilts her head...) You want to adjust the volume? 🎧 " \
+                       "Please tell me what to do! You can say `/volume up`, `/volume down`, " \
+                       "`/volume mute`, `/volume unmute`, or set a specific percentage like `/volume 50`! 😊"
+            
+            arg = parts[1].strip()
+            import subprocess
+            try:
+                if arg == "up":
+                    subprocess.Popen(["powershell", "-Command", "(New-Object -ComObject WScript.Shell).SendKeys([char]175)"])
+                    return "(Kazumi reaches for the dials...) Volume turned up! 🔊✨"
+                elif arg == "down":
+                    subprocess.Popen(["powershell", "-Command", "(New-Object -ComObject WScript.Shell).SendKeys([char]174)"])
+                    return "(Kazumi turns the dial down...) Volume turned down! 🔉"
+                elif arg in ["mute", "unmute"]:
+                    subprocess.Popen(["powershell", "-Command", "(New-Object -ComObject WScript.Shell).SendKeys([char]173)"])
+                    return f"(Kazumi taps the mute button...) Volume {arg}d! 🔇🔊"
+                elif arg.isdigit():
+                    val = int(arg)
+                    if 0 <= val <= 100:
+                        cmd = f"$w = New-Object -ComObject WScript.Shell; for($i=0; $i -lt 50; $i++) {{ $w.SendKeys([char]174) }}; for($i=0; $i -lt {val // 2}; $i++) {{ $w.SendKeys([char]175) }}"
+                        subprocess.Popen(["powershell", "-Command", cmd])
+                        return f"(Kazumi adjusts the slider...) Volume set to {val}%! 🎛️🌸"
+                    else:
+                        return "Oops! Please specify a volume percentage between 0 and 100, sweetie! 🌸"
+                else:
+                    return "Oops! I didn't quite understand that volume setting. Try `/volume up`, `/volume down`, or a percentage like `/volume 50`! 🌸"
+            except Exception as e:
+                return f"Failed to adjust volume: {e}"
+
+        elif clean_text.startswith("/sys"):
+            parts = clean_text.split()
+            if len(parts) < 2:
+                return "(Kazumi looks at you, surprised...) You want to run a system action? 🖥️ " \
+                       "Please specify which action! You can say `/sys lock`, `/sys shutdown`, `/sys restart`, or `/sys abort`! 🌸"
+            
+            arg = parts[1].strip()
+            import subprocess
+            try:
+                if arg == "lock":
+                    subprocess.Popen(["rundll32.exe", "user32.dll,LockWorkStation"])
+                    return "(Kazumi locks the screen and waves goodbye...) Workstation locked! See you soon, sweetie! 🔒💤"
+                elif arg == "shutdown":
+                    subprocess.Popen(["shutdown", "/s", "/t", "60"])
+                    return "(Kazumi looks worried...) Triggering system shutdown in 60 seconds! ⚠️ " \
+                           "If you made a mistake, quickly say `/sys abort` to stop it! ⚠️"
+                elif arg == "restart":
+                    subprocess.Popen(["shutdown", "/r", "/t", "60"])
+                    return "(Kazumi prepares to restart...) Triggering system restart in 60 seconds! ⚠️ " \
+                           "If you made a mistake, quickly say `/sys abort` to stop it! ⚠️"
+                elif arg == "abort":
+                    subprocess.Popen(["shutdown", "/a"])
+                    return "(Kazumi sighs with relief...) Ah, shutdown/restart sequence aborted! I'm glad you're staying! 🌸💖"
+                else:
+                    return "Unknown system action. Try `/sys lock`, `/sys shutdown`, `/sys restart`, or `/sys abort`! 🌸"
+            except Exception as e:
+                return f"System command failed: {e}"
+
+        elif clean_text.startswith("/app"):
+            parts = clean_text.split()
+            if len(parts) < 2:
+                return "(Kazumi gets ready to open an app...) Ooh, what application would you like to open? " \
+                       "You can tell me `/app notepad`, `/app calc`, `/app browser`, or `/app cmd`! 🌸"
+            
+            arg = parts[1].strip()
+            import subprocess
+            try:
+                if arg == "notepad":
+                    subprocess.Popen(["notepad.exe"])
+                    return "(Kazumi opens Notepad for you...) Here is a fresh notepad page for your thoughts! 📝"
+                elif arg == "calc":
+                    subprocess.Popen(["calc.exe"])
+                    return "(Kazumi opens the calculator...) Calculator ready for some quick math! 🔢"
+                elif arg == "browser":
+                    import webbrowser
+                    webbrowser.open("https://google.com")
+                    return "(Kazumi opens your default browser...) Browser opened! Ready to explore? 🌐"
+                elif arg == "cmd":
+                    subprocess.Popen(["cmd.exe"], creationflags=subprocess.CREATE_NEW_CONSOLE)
+                    return "(Kazumi spawns a terminal window...) Command Prompt opened, ready for commands! 💻"
+                else:
+                    return "I don't know how to open that application yet. Try `/app notepad`, `/app calc`, `/app browser`, or `/app cmd`! 🌸"
+            except Exception as e:
+                return f"Failed to open application: {e}"
+
         # Detect situation & print styled status
         situation = self.detect_situation(text, valence)
         self.render_dashboard(valence, situation)
@@ -4596,7 +4735,7 @@ class Kazumi:
         # 🎮 Game Mode Input Routing
         # ----------------------------------------------------
         if self.game_mode is not None:
-            greetings = {"hi", "hello", "hey", "greetings", "sup", "yo", "good morning", "good afternoon", "good evening", "goodnight"}
+            greetings = self.GREETINGS
             norm_text = re.sub(r"[^\w\s]", "", clean_text).strip()
             if clean_text.startswith("/") or norm_text in greetings or any(norm_text.startswith(g + " ") for g in greetings):
                 self.game_mode = None
@@ -4938,7 +5077,9 @@ class Kazumi:
                 
                 # Check if user responded with a very dry/dismissive message
                 dry_responses = {"ok", "okay", "yes", "no", "cool", "yeah", "nothing", "hm", "hmm", "dunno", "fine", "same", "ah", "yep", "sure", "k", "whatever", "so what", "so?", "who cares"}
-                is_dry = clean_text in dry_responses or (len(clean_text.split()) <= 2 and not any(w in clean_text for w in ["thank", "thanks", "cute", "sweet", "nice", "love", "you too"]))
+                greetings = self.GREETINGS
+                is_greeting = any(w in clean_text.split() for w in greetings)
+                is_dry = (clean_text in dry_responses or (len(clean_text.split()) <= 2 and not any(w in clean_text for w in ["thank", "thanks", "cute", "sweet", "nice", "love", "you too"]))) and not is_greeting
                 
                 if was_nice and is_dry:
                     is_ignoring_kindness = True
@@ -4972,7 +5113,7 @@ class Kazumi:
         # Check if the user message is dry/empty
         dry_words = {"ok", "okay", "yes", "no", "cool", "yeah", "nothing", "hm", "hmm", "bored", "dunno", "fine", "same", "ah", "yep", "sure", "k"}
         question_words = {"what", "why", "who", "how", "huh", "where", "when", "what?", "why?", "how?", "who?"}
-        greetings = {"hi", "hello", "hey", "greetings", "sup", "yo", "good morning", "good afternoon", "good evening", "goodnight"}
+        greetings = self.GREETINGS
         norm_text = re.sub(r"[^\w\s]", "", clean_text).strip()
         is_greeting = norm_text in greetings or any(norm_text.startswith(g + " ") for g in greetings)
         is_dry_input = (clean_text in dry_words or len(clean_text) <= 5) and clean_text not in question_words and not is_greeting and detected_mode is None
@@ -5032,6 +5173,19 @@ class Kazumi:
         # Omit exact recent matches to avoid redundancy
         memory_context = [s for s in similar_memories if s.lower().strip() != text.lower().strip()]
 
+        # Query RAG skill for matching local documents context
+        rag_context = None
+        if hasattr(self, "skill_manager") and self.skill_manager:
+            for skill in self.skill_manager.skills:
+                if skill.__class__.__name__ == "DocumentRAGSkill":
+                    try:
+                        chunks = skill.search_documents(text)
+                        if chunks:
+                            rag_context = "\n".join([f"- From {c['filename']}: {c['text']}" for c in chunks])
+                    except Exception as e:
+                        print(f"[RAG Query Warning] Error during local documents lookup: {e}")
+                    break
+
         # Generate response passing situation, anger, jealousy levels, user profile, and persona instruction!
         persona_inst = self.ARCHETYPES[self.current_archetype]["instruction"]
         char_prompt = self.CHARACTERS[self.active_character]["system_prompt"]
@@ -5041,42 +5195,30 @@ class Kazumi:
             persona_instruction=persona_inst,
             system_prompt=char_prompt,
             current_archetype=self.current_archetype,
-            history=self.memory.history[-10:]
+            history=self.memory.history[-10:],
+            rag_context=rag_context
         )
         
-        # Roll a 15% chance to append a spontaneous cozy question during a Casual Conversation
-        if situation == "CASUAL" and random.random() < 0.15:
-            available_questions = [q for q in self.cozy_questions if q not in self.asked_questions]
-            if not available_questions:
-                self.asked_questions.clear()
-                available_questions = self.cozy_questions
-            chosen_q = random.choice(available_questions)
-            self.asked_questions.add(chosen_q)
-            response += f"\n\n{chosen_q}"
-            
         # Apply active persona prefix/suffix post-processing (except for system nudges)
         if not text.startswith("(System Nudge:"):
             response = self.apply_persona_style(response, self.current_archetype)
             
-        # Append skill recommendation if situation warrants it and not in game/interaction mode
+        # Append skill recommendation if user explicitly mentions related topics and not in game/interaction mode
         if self.interaction_mode is None and self.game_mode is None:
-            # Check if this recommendation has been shown in the last 6 turns of memory history
             recent_text = ""
             if self.memory and self.memory.history:
                 for turn in self.memory.history[-6:]:
                     if turn.get("speaker") == "kazumi":
                         recent_text += " " + turn.get("text", "")
 
-            if situation == "EMOTIONAL" and "[Heart-Soothe Breathing Skill]" not in recent_text:
-                response += "\n\n*(I noticed you are feeling a bit down or stressed... I've activated my [Heart-Soothe Breathing Skill] 🌸 Type /breathe if you'd like me to guide you through a calming exercise.)*"
-            elif situation == "BUSY" and "[Focus Timer Skill]" not in recent_text:
+            if situation == "EMOTIONAL" and any(w in clean_text for w in ["breathe", "stress", "anxious", "panic"]) and "[Heart-Soothe Breathing Skill]" not in recent_text:
+                response += "\n\n*(I noticed you are feeling stressed... I've activated my [Heart-Soothe Breathing Skill] 🌸 Type /breathe if you'd like me to guide you through a calming exercise.)*"
+            elif situation == "BUSY" and any(w in clean_text for w in ["timer", "pomodoro", "study block", "focus timer"]) and "[Focus Timer Skill]" not in recent_text:
                 response += "\n\n*(I noticed you are working hard! I've activated my [Focus Timer Skill] 📚 Type /timer to start a study block with me cheering you on.)*"
-            elif situation == "PROBLEM_SOLVING" and "[Dilemma Solver Skill]" not in recent_text:
+            elif situation == "PROBLEM_SOLVING" and any(w in clean_text for w in ["dilemma", "hard choice", "decide between", "stuck with a decision", "cannot decide", "can't decide"]) and "[Dilemma Solver Skill]" not in recent_text:
                 response += "\n\n*(I see you are facing a tough decision. I've activated my [Dilemma Solver Skill] 🌟 Type /solve and let's figure it out together.)*"
-            elif situation == "SLEEPY" and "[Lullaby Sleep Scan Skill]" not in recent_text:
+            elif situation == "SLEEPY" and any(w in clean_text for w in ["sleep scan", "lullaby", "guided sleep", "help me sleep"]) and "[Lullaby Sleep Scan Skill]" not in recent_text:
                 response += "\n\n*(I noticed you are getting sleepy... I've activated my [Lullaby Sleep Scan Skill] 🌙 Type /sleep if you'd like me to guide you into sleep.)*"
-            elif situation == "ROAST" and "[Playful Teasing Skill]" not in recent_text:
-                response += "\n\n*(I noticed you are asking for it or being lazy! 😈 I've activated my [Playful Teasing Skill]. Type /roast if you want me to roast you again.)*"
 
         # --- Human Common Sense checks ---
         common_sense_append = ""
@@ -5109,6 +5251,26 @@ class Kazumi:
         return final_response
 
     def reply_inactivity_internal(self, reminder_number, session_id=None):
+        # Check if the last user message was a goodbye/farewell or exit. If so, do not nudge.
+        last_user_msg = ""
+        for item in reversed(self.memory.history):
+            if item.get("speaker") == "user":
+                last_user_msg = item.get("text", "")
+                break
+        
+        if last_user_msg and "--diagnose" not in sys.argv:
+            clean_last = last_user_msg.lower().strip()
+            clean_last_no_punc = re.sub(r"[^\w\s]", "", clean_last).strip()
+            goodbye_triggers = [
+                r"\bbye\b", r"\bgoodbye\b", r"\bcya\b", r"\bsee you\b", r"\bsee ya\b", 
+                r"\bgn\b", r"\bgood night\b", r"\bttyl\b", r"\bgotta go\b", r"\btalk later\b", 
+                r"\bi'm leaving\b", r"\bcatch you later\b", r"\bhave a good day\b", r"\btake care\b"
+            ]
+            is_goodbye = any(re.search(trigger, clean_last) or re.search(trigger, clean_last_no_punc) for trigger in goodbye_triggers) or any(sig in clean_last for sig in ["colorful", "make my day", "made my day", "thanks for making my day"])
+            is_exit = clean_last_no_punc in {"stop", "exit", "cancel", "leave", "quit"} or clean_last == "/exit"
+            if is_goodbye or is_exit:
+                return ""
+
         # On the first reminder, she appears with an interesting topic, a game, or a diary entry sharing!
         if reminder_number == 1 and self.game_mode is None and self.interaction_mode is None:
             choices = ["game", "topic"]
@@ -5226,7 +5388,6 @@ class Kazumi:
             try:
                 # If we have already sent 2 reminders, we wait indefinitely (timeout = None)
                 current_timeout = None if reminder_count >= 2 else INACTIVITY_TIMEOUT
-                
                 user = input_with_timeout("\nYou: ", current_timeout)
                 
                 if user is None:
@@ -5240,7 +5401,8 @@ class Kazumi:
                 if not user:
                     continue
                 if user.lower() in {"exit", "quit", "bye"}:
-                    print("\nKazumi: Take gentle care of yourself. I'll be right here when you need me. Session closed. 🌸")
+                    farewell_msg = "Take gentle care of yourself. I'll be right here when you need me. Session closed. 🌸"
+                    print(f"\nKazumi: {farewell_msg}")
                     break
                 
                 # Reset reminder count on any user activity/message
@@ -11634,6 +11796,7 @@ class KazumiDiagnostics:
         # Start breathing
         bot.interaction_mode = "breathe"
         bot.breathe_state = {"step": 1}
+        bot.save_game_states()
         
         # Step 1 input
         reply1 = bot.reply("ok")
@@ -11660,6 +11823,7 @@ class KazumiDiagnostics:
         # Start solver
         bot.interaction_mode = "solve"
         bot.solve_state = {"step": 1, "dilemma": "", "pros": [], "cons": []}
+        bot.save_game_states()
         
         # Step 1 input (empty dilemma validation check)
         reply_empty = bot.reply("   ")
@@ -11750,6 +11914,7 @@ class KazumiDiagnostics:
         bot.secret_word = "coffee"
         bot.scramble_word = "coffee"
         bot.scramble_clue = "eeffoc"
+        bot.save_game_states()
         
         # Test incorrect guess
         reply_fail = bot.reply("tea")
@@ -11765,6 +11930,7 @@ class KazumiDiagnostics:
         bot.game_mode = "rps"
         bot.rps_rounds = 3
         bot.rps_current_round = 1
+        bot.save_game_states()
         
         # Test invalid option
         reply_invalid = bot.reply("spock")
@@ -11781,9 +11947,11 @@ class KazumiDiagnostics:
         profile = bot.memory.profile
         profile["cozy_points"] = 500
         profile["room_decorations"] = []
+        bot.memory.save_profile()
         
         # Purchase fairy lights (cost 30)
         bot.interaction_mode = "shop"
+        bot.save_game_states()
         reply_buy = bot.reply("6") # Fairly Lights
         self.log_result("Shop Purchase", "fairy lights" in reply_buy.lower() or "purchased" in reply_buy.lower() or len(profile.get("room_decorations", [])) > 0, f"Remaining CP: {profile['cozy_points']}")
 
@@ -11792,6 +11960,7 @@ class KazumiDiagnostics:
         bot = Kazumi()
         profile = bot.memory.profile
         profile["zodiac"] = "Scorpio"
+        bot.memory.save_profile()
         
         reply_z = bot.reply("/zodiac")
         self.log_result("Astrology Forecast Output", "scorpio" in reply_z.lower() or "stars" in reply_z.lower() or "cosmic" in reply_z.lower(), "Zodiac forecast returned")
@@ -11801,6 +11970,7 @@ class KazumiDiagnostics:
         bot = Kazumi()
         profile = bot.memory.profile
         profile["diary"] = ["Test entry 1", "Test entry 2"]
+        bot.memory.save_profile()
         
         reply_d = bot.reply("/diary")
         self.log_result("Diary read", "diary" in reply_d.lower() or "entry" in reply_d.lower() or "secret" in reply_d.lower() or "write" in reply_d.lower(), "Private diary returned")
@@ -11882,6 +12052,7 @@ class KazumiDiagnostics:
         # 4. Cancel via Goodbye "bye"
         bot.game_mode = "scramble"
         bot.conversation_state = "ACTIVE_GAME"
+        bot.save_game_states()
         reply_bye = bot.reply("bye")
         self.log_result("Cancel via Goodbye Game Cleared", bot.game_mode is None, f"game_mode is: {bot.game_mode}")
         self.log_result("Cancel via Goodbye State", bot.conversation_state == "ACTIVE_CHAT", f"State is: {bot.conversation_state}")

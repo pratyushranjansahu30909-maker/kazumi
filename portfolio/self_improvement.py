@@ -246,8 +246,11 @@ def evaluate_quality():
     }
 
 def run_openai_optimizer(perf_results, qual_results):
-    # Retrieve OpenAI API Key from environment or .env files
+    # Retrieve OpenAI API Key, Base URL, and Model from environment or .env files
     api_key = os.environ.get("API_KEY", "")
+    base_url = os.environ.get("BASE_URL", "").strip() or None
+    model_name = os.environ.get("MODEL_NAME", "gpt-4o-mini").strip()
+    
     if not api_key:
         for env_path in [os.path.join(ROOT_DIR, ".env"), os.path.join(PORTFOLIO_DIR, ".env")]:
             if os.path.exists(env_path):
@@ -256,9 +259,14 @@ def run_openai_optimizer(perf_results, qual_results):
                         for line in f:
                             if line.strip() and "=" in line:
                                 k, v = line.strip().split("=", 1)
-                                if k.strip() == "API_KEY":
-                                    api_key = v.strip().strip('"').strip("'")
-                                    break
+                                k_clean = k.strip()
+                                v_clean = v.strip().strip('"').strip("'")
+                                if k_clean == "API_KEY" and not api_key:
+                                    api_key = v_clean
+                                elif k_clean == "BASE_URL" and not base_url:
+                                    base_url = v_clean or None
+                                elif k_clean == "MODEL_NAME" and model_name == "gpt-4o-mini":
+                                    model_name = v_clean
                 except Exception:
                     pass
             if api_key:
@@ -271,7 +279,7 @@ def run_openai_optimizer(perf_results, qual_results):
     try:
         # pyright: ignore [reportMissingImports]
         from openai import OpenAI
-        client = OpenAI(api_key=api_key)
+        client = OpenAI(api_key=api_key, base_url=base_url)
         
         prompt = f"""
 You are an expert AI prompt engineer and system optimizer.
@@ -304,7 +312,7 @@ Format your response exactly as follows:
 Return ONLY raw JSON. Do not include markdown codeblocks or extra text.
 """
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=model_name,
             messages=[{"role": "system", "content": "You are a JSON-only configuration generator."},
                       {"role": "user", "content": prompt}],
             temperature=0.4,

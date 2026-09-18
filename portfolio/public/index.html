@@ -42,9 +42,10 @@
         <button class="menu-item" data-target="space-chat">
           <span>Chat Space</span>
         </button>
-        <button class="menu-item" data-target="space-voice">
-          <span>Voice Space</span>
+        <button class="menu-item" data-target="space-model">
+          <span>3D Space</span>
         </button>
+
 
       </nav>
 
@@ -276,288 +277,71 @@
         </div>
       </section>
 
-      <!-- Space 5: Voice Space -->
-      <section id="space-voice" class="space-panel">
+      <!-- Space 5: 3D Model Space -->
+      <section id="space-model" class="space-panel">
         <div class="space-header">
-          <h1>Voice Space</h1>
-          <p>Customize and manage your companion's voice using GPT-SoVITS</p>
+          <h1>3D Space</h1>
+          <p>Interactive full-body 3D virtual environment of Kazumi</p>
         </div>
 
-        <div class="voice-space-grid">
-          <!-- Left Column: Voice Settings & Mode -->
-          <div class="voice-settings-card">
-            <h2>Voice Settings & Mode</h2>
-            
-            <div class="voice-mode-group mt-3">
-              <label>Select Active Voice Mode</label>
-              <div class="voice-mode-options">
-                <button class="voice-mode-btn active" data-mode="text" id="modeBtnText">
-                  <i class="fa-solid fa-message"></i>
-                  <span>Text Only</span>
-                </button>
-                <button class="voice-mode-btn" data-mode="auto" id="modeBtnAuto">
-                  <i class="fa-solid fa-volume-high"></i>
-                  <span>Auto Replies</span>
-                </button>
-                <button class="voice-mode-btn" data-mode="full" id="modeBtnFull">
-                  <i class="fa-solid fa-microphone"></i>
-                  <span>Full Voice Chat</span>
-                </button>
-              </div>
+        <div class="model-space-layout">
+          <div class="model-card-expanded">
+            <div class="avatar-wrapper-large" id="vtuber3DWrapperLarge">
+              <!-- Three.js WebGL canvas will load here -->
             </div>
-
-            <div class="voice-engine-status mt-4">
-              <div class="status-header">
-                <span>GPT-SoVITS Engine Status</span>
-                <span class="status-indicator-badge offline" id="voiceEngineStatusBadge">Checking...</span>
-              </div>
-              <p class="status-help-text" id="voiceStatusHelp">The local model server is currently offline. Text-to-speech will use browser voice synthesis fallback.</p>
-            </div>
-
-            <!-- Pretrained Downloader Console -->
-            <div class="setup-downloader-card mt-4" id="downloaderCard">
-              <h3>Model Weights Setup</h3>
-              <p class="setup-desc">Running GPT-SoVITS requires ~2.0 GB of pretrained model files.</p>
+            <div class="model-controls">
+              <h3>Interaction Calibration</h3>
+              <p class="description">Move your mouse to tilt the camera perspective and watch Kazumi follow your cursor with dynamic gaze tracking and physics-driven secondary sways.</p>
               
-              <div class="setup-progress-wrapper" style="display: none;" id="downloadProgressContainer">
-                <div class="setup-progress-meta">
-                  <span id="downloadStatusText">Downloading weights...</span>
-                  <strong id="downloadProgressPercent">0%</strong>
-                </div>
-                <div class="progress-bar-container">
-                  <div class="progress-bar" id="downloadProgressBar" style="width: 0%;"></div>
-                </div>
-                <div class="download-size-meta mt-1" style="font-size: 0.72rem; color: var(--text-muted); text-align: right;">
-                  Downloaded: <span id="downloadedSizeText">0 GB / 2.2 GB</span>
+              <div class="control-group">
+                <span class="control-label">Skeletal Pose</span>
+                <div class="btn-group-horizontal">
+                  <button class="btn btn-zen active" id="poseIdle">Idle</button>
+                  <button class="btn btn-zen" id="poseWave">Wave</button>
+                  <button class="btn btn-zen" id="poseWalk">Walk</button>
                 </div>
               </div>
 
-              <div class="setup-actions mt-3" id="setupActions">
-                <button class="btn btn-zen" id="triggerDownloadBtn" style="width:100%; justify-content:center;">
-                  <i class="fa-solid fa-download"></i> Automatically Download Weights
+              <div class="control-group">
+                <span class="control-label">Facial Expression (ARKit)</span>
+                <div class="btn-group-horizontal">
+                  <button class="btn btn-zen active" id="expSmile">Smile</button>
+                  <button class="btn btn-zen" id="expBlush">Blush</button>
+                  <button class="btn btn-zen" id="expAngry">Angry</button>
+                  <button class="btn btn-zen" id="expSad">Sad</button>
+                  <button class="btn btn-zen" id="expShy">Shy</button>
+                  <button class="btn btn-zen" id="expWink">Wink</button>
+                </div>
+              </div>
+
+              <div class="control-group">
+                <span class="control-label">Hair & Clothing Physics</span>
+                <div class="range-wrapper" style="margin-top: 0.5rem;">
+                  <label for="windSlider" style="font-size: 0.8rem; opacity: 0.8;">Wind Intensity</label>
+                  <input type="range" id="windSlider" min="1" max="6" value="3" step="0.5">
+                </div>
+              </div>
+
+              <div class="control-group" style="margin-top: 1.5rem; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 1rem;">
+                <button class="btn btn-zen" id="exportGLB" style="width: 100%; background: rgba(192, 132, 252, 0.15); border-color: rgba(192, 132, 252, 0.3); color: #e9d5ff;">
+                  <i class="fa-solid fa-file-export"></i> Export .GLTF Model
                 </button>
-              </div>
-
-              <div class="manual-instructions mt-3" id="manualInstructions">
-                <details>
-                  <summary>View Manual Instructions</summary>
-                  <p class="manual-help-text mt-2">If automatic download fails, you can manually setup GPT-SoVITS:</p>
-                  <ol class="manual-list">
-                    <li>Download models from <a href="https://huggingface.co/lj1995/GPT-SoVITS/tree/main" target="_blank" style="color: #c084fc; text-decoration: underline;">lj1995/GPT-SoVITS</a></li>
-                    <li>Place GPT/SoVITS weights in `GPT_SoVITS/pretrained_models`</li>
-                    <li>Start the local server at port `9880` using:<br>
-                    <code>python api_v2.py -a 127.0.0.1 -p 9880</code></li>
-                  </ol>
-                </details>
-              </div>
-            </div>
-
-            <!-- Server Telemetry & Profile Card -->
-            <div class="voice-telemetry-card mt-4" id="voiceTelemetryCard">
-              <h3>System Telemetry & Profiles</h3>
-              <div class="telemetry-grid">
-                <div class="telemetry-item">
-                  <span class="telemetry-label">Engine Status</span>
-                  <span class="status-indicator-badge offline" id="detailedServerStatus">OFFLINE</span>
-                </div>
-                <div class="telemetry-item" id="errorReasonContainer" style="display: none; background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.15); border-radius: 4px; padding: 0.4rem 0.6rem;">
-                  <span class="telemetry-label" style="color: #fca5a5;">Failure Reason</span>
-                  <strong id="detailedErrorReason" style="color: #fca5a5; font-size: 0.74rem; font-weight: 700;">None</strong>
-                </div>
-                <div class="telemetry-item">
-                  <span class="telemetry-label">Active GPU</span>
-                  <strong id="telemetryGpuName">N/A</strong>
-                </div>
-                <div class="telemetry-item">
-                  <span class="telemetry-label">GPU Utilization</span>
-                  <strong id="telemetryGpuUsage">--- %</strong>
-                </div>
-                <div class="telemetry-item">
-                  <span class="telemetry-label">CPU Usage</span>
-                  <strong id="telemetryCpuUsage">--- %</strong>
-                </div>
-                <div class="telemetry-item">
-                  <span class="telemetry-label">RAM Usage</span>
-                  <strong id="telemetryRamUsage">--- %</strong>
-                </div>
-                <div class="telemetry-item flex-column">
-                  <div class="vram-meta">
-                    <span class="telemetry-label">VRAM Usage</span>
-                    <strong id="telemetryVramText">0.0 GB / 0.0 GB</strong>
-                  </div>
-                  <div class="progress-bar-container mini mt-1" style="height: 4px; background: rgba(255,255,255,0.05); border-radius: 2px;">
-                    <div class="progress-bar" id="telemetryVramBar" style="width: 0%; height: 100%; background: #38bdf8; border-radius: 2px;"></div>
-                  </div>
-                </div>
-                <div class="telemetry-item">
-                  <span class="telemetry-label">Voice Profile</span>
-                  <strong id="telemetryVoiceProfile">N/A</strong>
-                </div>
-                <div class="telemetry-item">
-                  <span class="telemetry-label">Reference Audio</span>
-                  <div class="ref-audio-status-wrapper" style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
-                    <strong id="telemetryRefAudio">reference_voice.wav</strong>
-                    <span class="status-indicator-badge online mini" id="telemetryRefAudioStatus">Loaded</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Recovery Log Console -->
-            <div class="recovery-console-card mt-3" id="recoveryConsoleCard" style="display: none;">
-              <h3>Engine Recovery Log</h3>
-              <div class="console-log-area" id="recoveryLogArea" style="max-height: 80px; overflow-y: auto; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.05); padding: 0.5rem; border-radius: 6px; font-family: monospace; font-size: 0.7rem; color: #a5f3fc; line-height: 1.4;">
-                <div class="log-entry system" style="opacity: 0.7;">[System] Lifecycle monitor initialized.</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Right Column: Active Voice & Sandbox -->
-          <div class="voice-sandbox-card">
-            <h2>Active Voice Reference</h2>
-            
-            <div class="voice-ref-preview mt-3">
-              <div class="audio-preview-header">
-                <div class="voice-ref-name">
-                  <i class="fa-solid fa-wave-square"></i>
-                  <span>Cute Anime Companion (reference_voice.webm)</span>
-                </div>
-                <button class="btn btn-zen btn-small" id="playRefBtn">
-                  <i class="fa-solid fa-play"></i> Play Reference
-                </button>
-              </div>
-              
-              <div class="ref-transcript-group mt-3">
-                <label for="refTranscript">Reference Speech Transcript (Manually inspect and correct):</label>
-                <textarea id="refTranscript" rows="2" class="form-textarea">Are you talking to me? I don't know what you mean by. Oh no, I don't have the faintest idea what you're talking about.</textarea>
-              </div>
-            </div>
-
-            <h2 class="mt-4">Synthesis Sandbox</h2>
-            <div class="sandbox-group mt-3">
-              <label for="sandboxText">Test Sentence</label>
-              <textarea id="sandboxText" rows="3" class="form-textarea" placeholder="Type a sentence for Kazumi to say...">Hello! I am your companion Kazumi. How is your day going? Let's spend some cozy time together.</textarea>
-              
-              <div class="sandbox-controls mt-3">
-                <div class="sandbox-speed">
-                  <label for="voiceSpeedRange">Speed: <span id="voiceSpeedVal">1.0</span>x</label>
-                  <input type="range" id="voiceSpeedRange" min="0.5" max="2.0" step="0.1" value="1.0">
-                </div>
-                
-                <button class="btn btn-zen" id="testSynthesizeBtn" style="justify-content:center;">
-                  <i class="fa-solid fa-wand-magic-sparkles"></i> Synthesize & Play
-                </button>
-              </div>
-
-              <!-- Full Duplex Microphone Console -->
-              <div class="voice-duplex-console mt-4" id="voiceDuplexConsole" style="display: none;">
-                <h3>Microphone Stream Console</h3>
-                <p class="console-desc">Speak into your microphone. Release to send voice to Kazumi.</p>
-                <div class="duplex-controls mt-2">
-                  <button class="btn btn-zen" id="micHoldBtn" style="width: 100%; justify-content: center; background: rgba(189, 114, 214, 0.15); border-color: rgba(189, 114, 214, 0.4);">
-                    <i class="fa-solid fa-microphone"></i> Hold to Speak
-                  </button>
-                </div>
-                <div class="mic-visualizer mt-2" id="micVisualizer" style="display: none; height: 10px; background: rgba(255, 255, 255, 0.05); border-radius: 4px; overflow: hidden;">
-                  <div class="mic-bar" id="micVisualizerBar" style="width: 0%; height: 100%; background: #c084fc; transition: width 0.1s ease;"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Latency Diagnostics & Voice Quality Verification Dashboard -->
-          <div class="voice-diagnostics-card">
-            <h2><i class="fa-solid fa-chart-line"></i> Voice Diagnostics & Quality Verification</h2>
-            
-            <div class="diagnostics-layout">
-              <!-- Verification Scores -->
-              <div class="diagnostics-metrics-box">
-                <h3>Voice Quality Verification</h3>
-                <div class="metric-gauges">
-                  <div class="gauge-card">
-                    <span class="gauge-label">Reference Match Score</span>
-                    <strong class="gauge-value" id="refMatchScoreText">98%</strong>
-                    <div class="gauge-bar-wrapper">
-                      <div class="gauge-bar-fill" id="refMatchScoreBar" style="width: 98%;"></div>
-                    </div>
-                  </div>
-                  <div class="gauge-card">
-                    <span class="gauge-label">Voice Similarity Score</span>
-                    <strong class="gauge-value" id="voiceSimilarityScoreText">96%</strong>
-                    <div class="gauge-bar-wrapper">
-                      <div class="gauge-bar-fill" id="voiceSimilarityScoreBar" style="width: 96%;"></div>
-                    </div>
-                  </div>
-                  <div class="gauge-card">
-                    <span class="gauge-label">Speaker Consistency Score</span>
-                    <strong class="gauge-value" id="speakerConsistencyScoreText">99%</strong>
-                    <div class="gauge-bar-wrapper">
-                      <div class="gauge-bar-fill" id="speakerConsistencyScoreBar" style="width: 99%;"></div>
-                    </div>
-                  </div>
-                </div>
-                
-                <!-- Voice Lock Status Alert -->
-                <div class="alert alert-info mt-3" style="background: rgba(192, 132, 252, 0.05); border: 1px solid rgba(192, 132, 252, 0.2); padding: 10px; border-radius: 6px; font-size: 0.85rem; color: #e9d5ff;">
-                  <i class="fa-solid fa-lock"></i> <strong>Voice Identity Locked:</strong> Synthesis processes are strictly configured to prevent fallback and maintain Kazumi's unique cute voice identity.
-                </div>
-                
-                <!-- Voice Mismatch Warning Banner -->
-                <div class="alert alert-warning mt-2" id="voiceMismatchWarning" style="display: none; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.35); padding: 10px; border-radius: 6px; font-size: 0.85rem; color: #fca5a5;">
-                  <i class="fa-solid fa-triangle-exclamation"></i> <strong>Voice mismatch detected.</strong> Review transcript or reference audio to restore consistent companion speech characteristics.
-                </div>
-              </div>
-
-              <!-- Latency Diagnostics -->
-              <div class="diagnostics-latency-box">
-                <h3>Latency Metrics (End-to-End Analysis)</h3>
-                <div class="latency-grid">
-                  <div class="latency-item">
-                    <span class="latency-label">STT Transcribe:</span>
-                    <strong class="latency-val" id="latencySTT">--- ms</strong>
-                  </div>
-                  <div class="latency-item">
-                    <span class="latency-label">LLM First Token:</span>
-                    <strong class="latency-val" id="latencyLLMFirst">--- ms</strong>
-                  </div>
-                  <div class="latency-item">
-                    <span class="latency-label">LLM Full Reply:</span>
-                    <strong class="latency-val" id="latencyLLMFull">--- ms</strong>
-                  </div>
-                  <div class="latency-item">
-                    <span class="latency-label">SoVITS First Chunk:</span>
-                    <strong class="latency-val" id="latencyTTSFirst">--- ms</strong>
-                  </div>
-                  <div class="latency-item">
-                    <span class="latency-label">SoVITS Full Synthesis:</span>
-                    <strong class="latency-val" id="latencyTTSFull">--- ms</strong>
-                  </div>
-                  <div class="latency-item">
-                    <span class="latency-label">Playback Start Delay:</span>
-                    <strong class="latency-val" id="latencyPlaybackDelay">--- ms</strong>
-                  </div>
-                  <div class="latency-item latency-total">
-                    <span class="latency-label">Total Response Time:</span>
-                    <strong class="latency-val" id="latencyE2E">--- ms</strong>
-                  </div>
-                </div>
-
-                <!-- Bottleneck Detection Warning Banner -->
-                <div class="alert alert-danger mt-3" id="bottleneckWarning" style="display: none; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.35); padding: 10px; border-radius: 6px; font-size: 0.85rem; color: #fde047;">
-                  <i class="fa-solid fa-circle-exclamation"></i> <strong>Latency Bottleneck Detected:</strong> <span id="bottleneckDetails"></span>
-                </div>
               </div>
             </div>
           </div>
         </div>
       </section>
+
       
 
 
     </main>
   </div>
 
-  <script src="kazumi.js"></script>
+  <script src="three.min.js"></script>
+<script src="GLTFLoader.js"></script>
+<script src="GLTFExporter.js"></script>
+  <script src="kazumi.js?v=18"></script>
 </body>
 
 </html>

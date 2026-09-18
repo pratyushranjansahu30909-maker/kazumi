@@ -42,10 +42,6 @@
         <button class="menu-item" data-target="space-chat">
           <span>Chat Space</span>
         </button>
-        <button class="menu-item" data-target="space-voice">
-          <span>Voice Space</span>
-        </button>
-
       </nav>
 
       <!-- Theme Switcher -->
@@ -251,16 +247,16 @@
             <div class="chat-space-header">
               <div>
                 <h2>Dialogue Console</h2>
-                <span class="chat-status" id="chatStatusText">Active Session Log</span>
+                <div style="display: flex; align-items: center; gap: 0.6rem; margin-top: 0.2rem; flex-wrap: wrap;">
+                  <span class="chat-status" id="chatStatusText">Active Session Log</span>
+                </div>
               </div>
-              <div style="display: flex; gap: 0.5rem;">
+              <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
                 <button class="btn btn-zen" id="historyToggleBtn">
                   View Full History
                 </button>
               </div>
             </div>
-
-
 
             <div class="chat-logs-container" id="chatLogsContainer">
               <div class="loading-state">Retrieving conversation log...</div>
@@ -268,7 +264,7 @@
 
             <form id="chatForm" class="chat-input-form">
               <div class="chat-input-wrapper">
-                <input type="text" id="chatInput" placeholder="Type a message..." autocomplete="off">
+                <input type="text" id="chatInput" placeholder="Type a message to Kazumi..." autocomplete="off">
                 <button type="submit" id="sendBtn">Send</button>
               </div>
             </form>
@@ -276,275 +272,587 @@
         </div>
       </section>
 
-      <!-- Space 5: Voice Space -->
-      <section id="space-voice" class="space-panel">
+      <!-- Space: Live Voice Call Room (Disabled) -->
+      <section id="space-call" class="space-panel" style="display: none !important;">
         <div class="space-header">
-          <h1>Voice Space</h1>
-          <p>Customize and manage your companion's voice using GPT-SoVITS</p>
+          <h1>Live Voice Call</h1>
+          <p>Real-time conversational voice space with Kazumi and biometric speaker recognition</p>
         </div>
 
-        <div class="voice-space-grid">
-          <!-- Left Column: Voice Settings & Mode -->
-          <div class="voice-settings-card">
-            <h2>Voice Settings & Mode</h2>
-            
-            <div class="voice-mode-group mt-3">
-              <label>Select Active Voice Mode</label>
-              <div class="voice-mode-options">
-                <button class="voice-mode-btn active" data-mode="text" id="modeBtnText">
-                  <i class="fa-solid fa-message"></i>
-                  <span>Text Only</span>
-                </button>
-                <button class="voice-mode-btn" data-mode="auto" id="modeBtnAuto">
-                  <i class="fa-solid fa-volume-high"></i>
-                  <span>Auto Replies</span>
-                </button>
-                <button class="voice-mode-btn" data-mode="full" id="modeBtnFull">
-                  <i class="fa-solid fa-microphone"></i>
-                  <span>Full Voice Chat</span>
-                </button>
+        <div class="call-room-container">
+          <div class="call-stage-card">
+            <!-- Call Header Status & Speaker Verification -->
+            <div class="call-header-meta">
+              <div class="call-status-pill" id="callStatusTextVal">
+                <i class="fa-solid fa-circle" style="color: #10b981; font-size: 0.75rem;"></i> Connected & Ready
+              </div>
+              <div class="call-speaker-pill" id="callSpeakerIdentity">
+                <i class="fa-solid fa-crown" style="color: #fbbf24;"></i> Speaker: Master (Verified)
               </div>
             </div>
 
-            <div class="voice-engine-status mt-4">
-              <div class="status-header">
-                <span>GPT-SoVITS Engine Status</span>
-                <span class="status-indicator-badge offline" id="voiceEngineStatusBadge">Checking...</span>
-              </div>
-              <p class="status-help-text" id="voiceStatusHelp">The local model server is currently offline. Text-to-speech will use browser voice synthesis fallback.</p>
-            </div>
-
-            <!-- Pretrained Downloader Console -->
-            <div class="setup-downloader-card mt-4" id="downloaderCard">
-              <h3>Model Weights Setup</h3>
-              <p class="setup-desc">Running GPT-SoVITS requires ~2.0 GB of pretrained model files.</p>
-              
-              <div class="setup-progress-wrapper" style="display: none;" id="downloadProgressContainer">
-                <div class="setup-progress-meta">
-                  <span id="downloadStatusText">Downloading weights...</span>
-                  <strong id="downloadProgressPercent">0%</strong>
-                </div>
-                <div class="progress-bar-container">
-                  <div class="progress-bar" id="downloadProgressBar" style="width: 0%;"></div>
-                </div>
-                <div class="download-size-meta mt-1" style="font-size: 0.72rem; color: var(--text-muted); text-align: right;">
-                  Downloaded: <span id="downloadedSizeText">0 GB / 2.2 GB</span>
-                </div>
+            <!-- Avatar Visualizer Stage -->
+            <div class="call-avatar-stage">
+              <div class="call-avatar-wrapper" id="callAvatarWrapper">
+                <div class="avatar-aura-ring ring-1"></div>
+                <div class="avatar-aura-ring ring-2"></div>
+                <img src="isa_avatar.png" alt="Kazumi Companion" class="call-avatar-img" id="callAvatarImg">
+                <div class="avatar-status-dot" id="callAvatarDot"></div>
               </div>
 
-              <div class="setup-actions mt-3" id="setupActions">
-                <button class="btn btn-zen" id="triggerDownloadBtn" style="width:100%; justify-content:center;">
-                  <i class="fa-solid fa-download"></i> Automatically Download Weights
-                </button>
-              </div>
-
-              <div class="manual-instructions mt-3" id="manualInstructions">
-                <details>
-                  <summary>View Manual Instructions</summary>
-                  <p class="manual-help-text mt-2">If automatic download fails, you can manually setup GPT-SoVITS:</p>
-                  <ol class="manual-list">
-                    <li>Download models from <a href="https://huggingface.co/lj1995/GPT-SoVITS/tree/main" target="_blank" style="color: #c084fc; text-decoration: underline;">lj1995/GPT-SoVITS</a></li>
-                    <li>Place GPT/SoVITS weights in `GPT_SoVITS/pretrained_models`</li>
-                    <li>Start the local server at port `9880` using:<br>
-                    <code>python api_v2.py -a 127.0.0.1 -p 9880</code></li>
-                  </ol>
-                </details>
+              <!-- Live Soundwave Equalizer -->
+              <div class="call-waveform-container" id="callWaveformContainer" style="display: none;">
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
               </div>
             </div>
 
-            <!-- Server Telemetry & Profile Card -->
-            <div class="voice-telemetry-card mt-4" id="voiceTelemetryCard">
-              <h3>System Telemetry & Profiles</h3>
-              <div class="telemetry-grid">
-                <div class="telemetry-item">
-                  <span class="telemetry-label">Engine Status</span>
-                  <span class="status-indicator-badge offline" id="detailedServerStatus">OFFLINE</span>
-                </div>
-                <div class="telemetry-item" id="errorReasonContainer" style="display: none; background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.15); border-radius: 4px; padding: 0.4rem 0.6rem;">
-                  <span class="telemetry-label" style="color: #fca5a5;">Failure Reason</span>
-                  <strong id="detailedErrorReason" style="color: #fca5a5; font-size: 0.74rem; font-weight: 700;">None</strong>
-                </div>
-                <div class="telemetry-item">
-                  <span class="telemetry-label">Active GPU</span>
-                  <strong id="telemetryGpuName">N/A</strong>
-                </div>
-                <div class="telemetry-item">
-                  <span class="telemetry-label">GPU Utilization</span>
-                  <strong id="telemetryGpuUsage">--- %</strong>
-                </div>
-                <div class="telemetry-item">
-                  <span class="telemetry-label">CPU Usage</span>
-                  <strong id="telemetryCpuUsage">--- %</strong>
-                </div>
-                <div class="telemetry-item">
-                  <span class="telemetry-label">RAM Usage</span>
-                  <strong id="telemetryRamUsage">--- %</strong>
-                </div>
-                <div class="telemetry-item flex-column">
-                  <div class="vram-meta">
-                    <span class="telemetry-label">VRAM Usage</span>
-                    <strong id="telemetryVramText">0.0 GB / 0.0 GB</strong>
-                  </div>
-                  <div class="progress-bar-container mini mt-1" style="height: 4px; background: rgba(255,255,255,0.05); border-radius: 2px;">
-                    <div class="progress-bar" id="telemetryVramBar" style="width: 0%; height: 100%; background: #38bdf8; border-radius: 2px;"></div>
-                  </div>
-                </div>
-                <div class="telemetry-item">
-                  <span class="telemetry-label">Voice Profile</span>
-                  <strong id="telemetryVoiceProfile">N/A</strong>
-                </div>
-                <div class="telemetry-item">
-                  <span class="telemetry-label">Reference Audio</span>
-                  <div class="ref-audio-status-wrapper" style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
-                    <strong id="telemetryRefAudio">reference_voice.wav</strong>
-                    <span class="status-indicator-badge online mini" id="telemetryRefAudioStatus">Loaded</span>
-                  </div>
-                </div>
-              </div>
+            <!-- Live Subtitles & Dialogue Output -->
+            <div class="call-subtitles-card" id="callSubtitles">
+              <span class="subtitles-placeholder">Hold the button or speak to talk with Kazumi in real-time...</span>
             </div>
 
-            <!-- Recovery Log Console -->
-            <div class="recovery-console-card mt-3" id="recoveryConsoleCard" style="display: none;">
-              <h3>Engine Recovery Log</h3>
-              <div class="console-log-area" id="recoveryLogArea" style="max-height: 80px; overflow-y: auto; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.05); padding: 0.5rem; border-radius: 6px; font-family: monospace; font-size: 0.7rem; color: #a5f3fc; line-height: 1.4;">
-                <div class="log-entry system" style="opacity: 0.7;">[System] Lifecycle monitor initialized.</div>
-              </div>
+            <!-- Interactive Call Controls -->
+            <div class="call-controls-wrapper">
+              <button class="call-btn-speak" id="callSpeakBtn">
+                <i class="fa-solid fa-microphone"></i>
+                <span>Hold to Speak</span>
+              </button>
+              <button class="call-btn-toggle" id="callHandsFreeBtn" title="Toggle Hands-Free Continuous Mode">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+                <span id="callHandsFreeText">Auto-Listen: OFF</span>
+              </button>
+              <button class="call-btn-repeat" id="callRepeatBtn" title="Repeat last message">
+                <i class="fa-solid fa-rotate-right"></i>
+              </button>
+            </div>
+
+            <!-- Quick Conversation Topic Chips -->
+            <div class="call-suggestions-bar">
+              <span class="suggestions-label">Try saying:</span>
+              <button type="button" class="suggestion-chip" onclick="window.sendVoiceCallPrompt('Hello Kazumi! How are you today?')">"Hello Kazumi!"</button>
+              <button type="button" class="suggestion-chip" onclick="window.sendVoiceCallPrompt('What did you do today, Kazumi?')">"What did you do today?"</button>
+              <button type="button" class="suggestion-chip" onclick="window.sendVoiceCallPrompt('Tell me something relaxing and cozy.')">"Tell me something relaxing"</button>
+              <button type="button" class="suggestion-chip" onclick="window.sendVoiceCallPrompt('Sing me a little bedtime lullaby.')">"Sing a little lullaby"</button>
             </div>
           </div>
+        </div>
+      </section>
+      <!-- Space 5: Voice & Speech Recognition Studio (Disabled) -->
+      <section id="space-voice" class="space-panel" style="display: none !important;">
+        <style>
+          .voice-studio-container {
+            display: grid;
+            grid-template-columns: 1.2fr 1.8fr;
+            gap: 1.5rem;
+            margin-top: 1rem;
+          }
+          @media (max-width: 1024px) {
+            .voice-studio-container {
+              grid-template-columns: 1fr;
+            }
+          }
+          .glass-console-card {
+            background: rgba(18, 18, 29, 0.65);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            padding: 1.5rem;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.35);
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+          }
+          .glass-console-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, rgba(129, 140, 248, 0.5), rgba(192, 132, 252, 0.5), transparent);
+          }
+          .glass-console-card:hover {
+            border-color: rgba(129, 140, 248, 0.25);
+            box-shadow: 0 12px 40px 0 rgba(129, 140, 248, 0.1);
+          }
+          .console-header-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.35rem 0.75rem;
+            border-radius: 30px;
+            background: rgba(129, 140, 248, 0.12);
+            border: 1px solid rgba(129, 140, 248, 0.25);
+            color: #a5b4fc;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.85rem;
+          }
+          .voice-capsule-options {
+            display: flex;
+            gap: 0.55rem;
+            background: rgba(0, 0, 0, 0.25);
+            padding: 0.35rem;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+          }
+          .voice-capsule-btn, .voice-mode-btn {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.45rem;
+            padding: 0.65rem 0.85rem;
+            border-radius: 8px;
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            font-family: var(--font-sans);
+            font-size: 0.8rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+          }
+          .voice-capsule-btn:hover, .voice-mode-btn:hover {
+            color: var(--text-primary);
+            background: rgba(255, 255, 255, 0.04);
+          }
+          .voice-capsule-btn.active, .voice-mode-btn.active {
+            background: linear-gradient(135deg, rgba(129, 140, 248, 0.3), rgba(192, 132, 252, 0.3));
+            border: 1px solid rgba(192, 132, 252, 0.4);
+            color: #f3e8ff;
+            box-shadow: 0 4px 12px rgba(192, 132, 252, 0.15);
+          }
+          .console-status-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 10px;
+            padding: 0.75rem 1rem;
+            margin-top: 1rem;
+          }
+          .glow-badge {
+            font-weight: 600;
+            padding: 0.25rem 0.65rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+          }
+          .glow-badge.online {
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #34d399;
+          }
+          .glow-badge.offline {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+          }
+          .vocal-dna-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.75rem;
+            margin-top: 0.75rem;
+          }
+          @media (max-width: 640px) {
+            .vocal-dna-grid {
+              grid-template-columns: repeat(2, 1fr);
+            }
+          }
+          .vocal-dna-card {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 0.65rem 0.85rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+          }
+          .vocal-dna-card span {
+            font-size: 0.65rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+          }
+          .vocal-dna-card strong {
+            font-size: 0.8rem;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+          .scientific-latency-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 0.65rem;
+            margin-top: 0.85rem;
+          }
+          @media (max-width: 640px) {
+            .scientific-latency-grid {
+              grid-template-columns: repeat(2, 1fr);
+            }
+          }
+          .scientific-latency-card {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 8px;
+            padding: 0.65rem 0.75rem;
+            text-align: center;
+          }
+          .scientific-latency-card span {
+            display: block;
+            font-size: 0.65rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            margin-bottom: 0.25rem;
+          }
+          .scientific-latency-card strong {
+            font-size: 0.9rem;
+            color: #38bdf8;
+            font-family: monospace;
+          }
+          .scientific-latency-card.total-cost strong {
+            color: #c084fc;
+          }
+          /* Voice Recognition Pulse Controls */
+          .rec-btn-pulse {
+            position: relative;
+            background: linear-gradient(135deg, rgba(168, 85, 247, 0.25), rgba(99, 102, 241, 0.25));
+            border: 1px solid rgba(168, 85, 247, 0.4);
+            color: #f3e8ff;
+            font-weight: 600;
+            padding: 0.75rem 1.25rem;
+            border-radius: 12px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.6rem;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            user-select: none;
+          }
+          .rec-btn-pulse:hover {
+            background: linear-gradient(135deg, rgba(168, 85, 247, 0.4), rgba(99, 102, 241, 0.4));
+            border-color: rgba(192, 132, 252, 0.6);
+            box-shadow: 0 0 16px rgba(168, 85, 247, 0.3);
+            transform: translateY(-1px);
+          }
+          .rec-btn-pulse.listening {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.3), rgba(245, 158, 11, 0.3)) !important;
+            border-color: #ef4444 !important;
+            color: #fff !important;
+            box-shadow: 0 0 24px rgba(239, 68, 68, 0.5) !important;
+            animation: recPulseGlow 1.2s infinite;
+          }
+          @keyframes recPulseGlow {
+            0% { transform: scale(1); box-shadow: 0 0 12px rgba(239, 68, 68, 0.4); }
+            50% { transform: scale(1.03); box-shadow: 0 0 28px rgba(239, 68, 68, 0.8); }
+            100% { transform: scale(1); box-shadow: 0 0 12px rgba(239, 68, 68, 0.4); }
+          }
+          .rec-live-transcript-box {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            padding: 0.85rem 1rem;
+            min-height: 54px;
+            display: flex;
+            align-items: center;
+            font-size: 0.85rem;
+            color: var(--text-primary);
+            line-height: 1.4;
+          }
+          .rec-live-transcript-box.empty {
+            color: var(--text-secondary);
+            font-style: italic;
+          }
+          .rec-meter-bar-wrapper {
+            height: 6px;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 0.4rem;
+          }
+          .rec-meter-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #10b981, #38bdf8, #c084fc);
+            border-radius: 3px;
+            transition: width 0.15s ease;
+          }
+        </style>
 
-          <!-- Right Column: Active Voice & Sandbox -->
-          <div class="voice-sandbox-card">
-            <h2>Active Voice Reference</h2>
+        <div class="space-header">
+          <h1>Voice & Speech Recognition Studio</h1>
+          <p>Supervise neural speech recognition, biometric voiceprint matching, and Qwen3-TTS vocal synthesis</p>
+        </div>
+
+        <div class="voice-studio-container">
+          <!-- Column Left: Voice Recognition System & Controller -->
+          <div class="flex-column" style="gap: 1.5rem;">
             
-            <div class="voice-ref-preview mt-3">
-              <div class="audio-preview-header">
-                <div class="voice-ref-name">
-                  <i class="fa-solid fa-wave-square"></i>
-                  <span>Cute Anime Companion (reference_voice.webm)</span>
-                </div>
-                <button class="btn btn-zen btn-small" id="playRefBtn">
-                  <i class="fa-solid fa-play"></i> Play Reference
-                </button>
-              </div>
-              
-              <div class="ref-transcript-group mt-3">
-                <label for="refTranscript">Reference Speech Transcript (Manually inspect and correct):</label>
-                <textarea id="refTranscript" rows="2" class="form-textarea">Are you talking to me? I don't know what you mean by. Oh no, I don't have the faintest idea what you're talking about.</textarea>
-              </div>
-            </div>
-
-            <h2 class="mt-4">Synthesis Sandbox</h2>
-            <div class="sandbox-group mt-3">
-              <label for="sandboxText">Test Sentence</label>
-              <textarea id="sandboxText" rows="3" class="form-textarea" placeholder="Type a sentence for Kazumi to say...">Hello! I am your companion Kazumi. How is your day going? Let's spend some cozy time together.</textarea>
-              
-              <div class="sandbox-controls mt-3">
-                <div class="sandbox-speed">
-                  <label for="voiceSpeedRange">Speed: <span id="voiceSpeedVal">1.0</span>x</label>
-                  <input type="range" id="voiceSpeedRange" min="0.5" max="2.0" step="0.1" value="1.0">
-                </div>
-                
-                <button class="btn btn-zen" id="testSynthesizeBtn" style="justify-content:center;">
-                  <i class="fa-solid fa-wand-magic-sparkles"></i> Synthesize & Play
-                </button>
+            <!-- CARD 1: Voice Recognition & Biometrics Engine -->
+            <div class="glass-console-card" style="border-color: rgba(168, 85, 247, 0.3);">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span class="console-header-badge" style="background: rgba(168, 85, 247, 0.15); border-color: rgba(168, 85, 247, 0.3); color: #c084fc;">
+                  <i class="fa-solid fa-microphone-lines"></i> Voice Recognition Engine
+                </span>
+                <span id="recEngineBadge" class="glow-badge online" style="font-size: 0.7rem; padding: 0.2rem 0.5rem;">Ready</span>
               </div>
 
-              <!-- Full Duplex Microphone Console -->
-              <div class="voice-duplex-console mt-4" id="voiceDuplexConsole" style="display: none;">
-                <h3>Microphone Stream Console</h3>
-                <p class="console-desc">Speak into your microphone. Release to send voice to Kazumi.</p>
-                <div class="duplex-controls mt-2">
-                  <button class="btn btn-zen" id="micHoldBtn" style="width: 100%; justify-content: center; background: rgba(189, 114, 214, 0.15); border-color: rgba(189, 114, 214, 0.4);">
-                    <i class="fa-solid fa-microphone"></i> Hold to Speak
+              <p style="font-size: 0.78rem; color: var(--text-secondary); line-height: 1.4; margin-top: 0.25rem;">
+                Real-time acoustic speech-to-text recognition with Master acoustic vector authentication.
+              </p>
+
+              <!-- Live Microphone Visualizer & Controls -->
+              <div style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.75rem;">
+                <div class="rec-live-transcript-box" id="recTranscriptBox">
+                  <span id="recTranscriptText" class="empty">Hold "Speak to Kazumi" or click "Auto-Listen" to recognize speech...</span>
+                </div>
+
+                <!-- Dynamic Equalizer Waves -->
+                <div class="voice-analyser-visualizer" id="recVisualizerBars" style="height: 36px;">
+                  <div class="waveform-bar"></div>
+                  <div class="waveform-bar"></div>
+                  <div class="waveform-bar"></div>
+                  <div class="waveform-bar"></div>
+                  <div class="waveform-bar"></div>
+                  <div class="waveform-bar"></div>
+                  <div class="waveform-bar"></div>
+                  <div class="waveform-bar"></div>
+                  <div class="waveform-bar"></div>
+                  <div class="waveform-bar"></div>
+                  <div class="waveform-bar"></div>
+                  <div class="waveform-bar"></div>
+                  <div class="waveform-bar"></div>
+                  <div class="waveform-bar"></div>
+                  <div class="waveform-bar"></div>
+                  <div class="waveform-bar"></div>
+                  <div class="waveform-bar"></div>
+                  <div class="waveform-bar"></div>
+                  <div class="waveform-bar"></div>
+                  <div class="waveform-bar"></div>
+                </div>
+
+                <!-- Action Button Matrix -->
+                <div style="display: grid; grid-template-columns: 1.4fr 1fr; gap: 0.6rem;">
+                  <button class="rec-btn-pulse" id="micHoldBtn" title="Hold to record your voice & recognize speech">
+                    <i class="fa-solid fa-microphone"></i>
+                    <span id="micHoldBtnText">Hold to Speak</span>
+                  </button>
+                  <button class="btn btn-zen" id="btnTestVoiceRecognition" title="Run full recognition test suite" style="justify-content: center; font-size: 0.78rem;">
+                    <i class="fa-solid fa-vial-circle-check"></i>
+                    <span>Run STT Test</span>
                   </button>
                 </div>
-                <div class="mic-visualizer mt-2" id="micVisualizer" style="display: none; height: 10px; background: rgba(255, 255, 255, 0.05); border-radius: 4px; overflow: hidden;">
-                  <div class="mic-bar" id="micVisualizerBar" style="width: 0%; height: 100%; background: #c084fc; transition: width 0.1s ease;"></div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem;">
+                  <button class="btn btn-zen" id="btnEnrollMasterVoice" title="Enroll Master Voiceprint Vector" style="justify-content: center; font-size: 0.75rem; background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.25); color: #fbbf24;">
+                    <i class="fa-solid fa-id-badge"></i>
+                    <span>Enroll Master</span>
+                  </button>
+                  <button class="btn btn-zen" id="btnIdentifyMasterVoice" title="Biometrically authenticate speaker" style="justify-content: center; font-size: 0.75rem; background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.25); color: #34d399;">
+                    <i class="fa-solid fa-crown"></i>
+                    <span>Identify Voice</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Speaker Match Telemetry Bar -->
+              <div style="margin-top: 1.1rem; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; padding: 0.75rem 0.85rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <span style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Biometric Speaker Identity</span>
+                  <strong id="recSpeakerConfidence" style="font-size: 0.78rem; color: #fbbf24; font-family: monospace;">Master (99.4% Match)</strong>
+                </div>
+                <div class="rec-meter-bar-wrapper">
+                  <div class="rec-meter-bar-fill" id="recConfidenceBar" style="width: 99.4%;"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- CARD 2: System Audio Mode & TTS Engine -->
+            <div class="glass-console-card">
+              <span class="console-header-badge">
+                <i class="fa-solid fa-sliders"></i> System Audio Mode
+              </span>
+              <div class="voice-capsule-options mt-2">
+                <button class="voice-capsule-btn active" data-mode="text" id="modeBtnText">
+                  <i class="fa-solid fa-message"></i>
+                  <span>Text Mode</span>
+                </button>
+                <button class="voice-capsule-btn" data-mode="auto" id="modeBtnAuto">
+                  <i class="fa-solid fa-volume-high"></i>
+                  <span>TTS Auto</span>
+                </button>
+                <button class="voice-capsule-btn" data-mode="full" id="modeBtnFull">
+                  <i class="fa-solid fa-microphone"></i>
+                  <span>Full Voice</span>
+                </button>
+              </div>
+
+              <!-- Engine Status Row -->
+              <div class="console-status-row">
+                <div class="flex-column">
+                  <span style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;">Qwen3-TTS 1.7B Engine</span>
+                  <p class="status-help-text" id="voiceStatusHelp" style="font-size: 0.7rem; color: var(--text-secondary); margin: 0; margin-top: 2px;">Local model status verified.</p>
+                </div>
+                <span class="glow-badge online" id="voiceEngineStatusBadge">Online</span>
+              </div>
+            </div>
+
+            <!-- CARD 3: Vocal Identity Tuner -->
+            <div class="glass-console-card">
+              <span class="console-header-badge">
+                <i class="fa-solid fa-waveform"></i> Vocal Profile Identity
+              </span>
+
+              <div class="console-vocal-settings" style="display: flex; flex-direction: column; gap: 0.85rem;">
+                <!-- Profile dropdown -->
+                <div class="flex-column" style="gap: 0.45rem;">
+                  <label class="telemetry-label" style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;">Active Profile</label>
+                  <select id="voiceProfileSelect" class="form-select" style="background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.08); color: var(--text-primary); border-radius: 6px; padding: 0.45rem 0.75rem; font-size: 0.8rem; font-family: var(--font-sans); cursor: pointer; outline: none; transition: all 0.2s; width: 100%;">
+                    <option value="default">Kazumi (Cute Teen Girl)</option>
+                    <option value="mature_calm">Kazumi (Soft Teen Calm)</option>
+                    <option value="gawr_gura">Gawr Gura (Custom)</option>
+                  </select>
+                  <strong id="telemetryVoiceProfile" style="display: none;">Loaded</strong>
+                </div>
+
+                <!-- Speed range -->
+                <div class="range-slider-wrapper">
+                  <label for="voiceSpeedRange" style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-secondary);">
+                    <span>Synthesizer Rate</span>
+                    <strong id="voiceSpeedVal" style="color: #c084fc;">1.0</strong>
+                  </label>
+                  <input type="range" id="voiceSpeedRange" min="0.5" max="2.0" step="0.1" value="1.0" style="width: 100%; accent-color: #c084fc; margin-top: 0.35rem;">
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- Latency Diagnostics & Voice Quality Verification Dashboard -->
-          <div class="voice-diagnostics-card">
-            <h2><i class="fa-solid fa-chart-line"></i> Voice Diagnostics & Quality Verification</h2>
+          <!-- Column Right: Synthesis Sandbox, Telemetry & Diagnostics -->
+          <div class="flex-column" style="gap: 1.5rem;">
             
-            <div class="diagnostics-layout">
-              <!-- Verification Scores -->
-              <div class="diagnostics-metrics-box">
-                <h3>Voice Quality Verification</h3>
-                <div class="metric-gauges">
-                  <div class="gauge-card">
-                    <span class="gauge-label">Reference Match Score</span>
-                    <strong class="gauge-value" id="refMatchScoreText">98%</strong>
-                    <div class="gauge-bar-wrapper">
-                      <div class="gauge-bar-fill" id="refMatchScoreBar" style="width: 98%;"></div>
-                    </div>
-                  </div>
-                  <div class="gauge-card">
-                    <span class="gauge-label">Voice Similarity Score</span>
-                    <strong class="gauge-value" id="voiceSimilarityScoreText">96%</strong>
-                    <div class="gauge-bar-wrapper">
-                      <div class="gauge-bar-fill" id="voiceSimilarityScoreBar" style="width: 96%;"></div>
-                    </div>
-                  </div>
-                  <div class="gauge-card">
-                    <span class="gauge-label">Speaker Consistency Score</span>
-                    <strong class="gauge-value" id="speakerConsistencyScoreText">99%</strong>
-                    <div class="gauge-bar-wrapper">
-                      <div class="gauge-bar-fill" id="speakerConsistencyScoreBar" style="width: 99%;"></div>
-                    </div>
-                  </div>
+            <!-- CARD 4: Synthesis & Playback Sandbox -->
+            <div class="glass-console-card">
+              <span class="console-header-badge">
+                <i class="fa-solid fa-wand-magic-sparkles"></i> Synthesis Sandbox
+              </span>
+
+              <div class="flex-column" style="gap: 0.75rem; margin-top: 0.25rem;">
+                <label for="sandboxText" style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;">Spoken Dialogue Prompt</label>
+                <textarea id="sandboxText" rows="3" class="form-textarea" style="background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; color: var(--text-primary); font-family: var(--font-sans); padding: 0.65rem 0.85rem; font-size: 0.85rem; line-height: 1.4; resize: vertical;" placeholder="Type a sentence for Kazumi to say...">Hello! I am your companion Kazumi. How is your day going? I'm always happy to hear your voice, Master!</textarea>
+
+                <button class="btn btn-zen" id="testSynthesizeBtn" style="justify-content: center; background: linear-gradient(135deg, rgba(168, 85, 247, 0.3), rgba(99, 102, 241, 0.3)); border-color: rgba(192, 132, 252, 0.4); color: #f3e8ff; padding: 0.65rem;">
+                  <i class="fa-solid fa-play"></i> Synthesize & Play
+                </button>
+              </div>
+            </div>
+
+            <!-- CARD 5: Vocal DNA & Reference Telemetry -->
+            <div class="glass-console-card" id="voiceTelemetryCard">
+              <span class="console-header-badge">
+                <i class="fa-solid fa-microscope"></i> Acoustic DNA Matrix
+              </span>
+
+              <div class="vocal-dna-grid">
+                <div class="vocal-dna-card">
+                  <span>Reference Audio</span>
+                  <strong id="telemetryRefAudio">reference_voice.wav</strong>
+                  <span class="status-indicator-badge online mini" id="telemetryRefAudioStatus" style="width: fit-content; margin-top: 4px;">Loaded</span>
                 </div>
-                
-                <!-- Voice Lock Status Alert -->
-                <div class="alert alert-info mt-3" style="background: rgba(192, 132, 252, 0.05); border: 1px solid rgba(192, 132, 252, 0.2); padding: 10px; border-radius: 6px; font-size: 0.85rem; color: #e9d5ff;">
-                  <i class="fa-solid fa-lock"></i> <strong>Voice Identity Locked:</strong> Synthesis processes are strictly configured to prevent fallback and maintain Kazumi's unique cute voice identity.
+                <div class="vocal-dna-card">
+                  <span>File Name</span>
+                  <strong id="cardRefVoiceFile">reference_voice.wav</strong>
                 </div>
-                
-                <!-- Voice Mismatch Warning Banner -->
-                <div class="alert alert-warning mt-2" id="voiceMismatchWarning" style="display: none; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.35); padding: 10px; border-radius: 6px; font-size: 0.85rem; color: #fca5a5;">
-                  <i class="fa-solid fa-triangle-exclamation"></i> <strong>Voice mismatch detected.</strong> Review transcript or reference audio to restore consistent companion speech characteristics.
+                <div class="vocal-dna-card">
+                  <span>Acoustic Check</span>
+                  <strong id="cardRefVoiceStatus" style="color: #10b981;">Optimal</strong>
+                </div>
+                <div class="vocal-dna-card">
+                  <span>Vocal Duration</span>
+                  <strong id="cardRefVoiceDuration">3.2s</strong>
+                </div>
+                <div class="vocal-dna-card">
+                  <span>Embedding Check</span>
+                  <strong id="cardRefVoiceEmbedding">Validated</strong>
+                </div>
+                <div class="vocal-dna-card">
+                  <span>Neural Codec</span>
+                  <strong id="cardRefVoiceSoviTS">12Hz Audio</strong>
                 </div>
               </div>
 
-              <!-- Latency Diagnostics -->
-              <div class="diagnostics-latency-box">
-                <h3>Latency Metrics (End-to-End Analysis)</h3>
-                <div class="latency-grid">
-                  <div class="latency-item">
-                    <span class="latency-label">STT Transcribe:</span>
-                    <strong class="latency-val" id="latencySTT">--- ms</strong>
-                  </div>
-                  <div class="latency-item">
-                    <span class="latency-label">LLM First Token:</span>
-                    <strong class="latency-val" id="latencyLLMFirst">--- ms</strong>
-                  </div>
-                  <div class="latency-item">
-                    <span class="latency-label">LLM Full Reply:</span>
-                    <strong class="latency-val" id="latencyLLMFull">--- ms</strong>
-                  </div>
-                  <div class="latency-item">
-                    <span class="latency-label">SoVITS First Chunk:</span>
-                    <strong class="latency-val" id="latencyTTSFirst">--- ms</strong>
-                  </div>
-                  <div class="latency-item">
-                    <span class="latency-label">SoVITS Full Synthesis:</span>
-                    <strong class="latency-val" id="latencyTTSFull">--- ms</strong>
-                  </div>
-                  <div class="latency-item">
-                    <span class="latency-label">Playback Start Delay:</span>
-                    <strong class="latency-val" id="latencyPlaybackDelay">--- ms</strong>
-                  </div>
-                  <div class="latency-item latency-total">
-                    <span class="latency-label">Total Response Time:</span>
-                    <strong class="latency-val" id="latencyE2E">--- ms</strong>
-                  </div>
-                </div>
+              <!-- Character Prompt / Voice Description -->
+              <div class="flex-column mt-3" style="background: rgba(0, 0, 0, 0.2); border: 1px solid rgba(255, 255, 255, 0.04); border-radius: 8px; padding: 0.75rem 0.9rem;">
+                <span style="font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase; margin-bottom: 0.25rem;">Voice Design Acoustic Prompt</span>
+                <p id="cardRefVoiceTranscript" style="font-size: 0.75rem; color: var(--text-primary); line-height: 1.4; margin: 0; font-family: monospace;">A light, adorable, and super cute female anime voice. Her voice is clear, bright, soft, naturally high-pitched, gentle, bubbly, and affectionate.</p>
+              </div>
 
-                <!-- Bottleneck Detection Warning Banner -->
-                <div class="alert alert-danger mt-3" id="bottleneckWarning" style="display: none; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.35); padding: 10px; border-radius: 6px; font-size: 0.85rem; color: #fde047;">
-                  <i class="fa-solid fa-circle-exclamation"></i> <strong>Latency Bottleneck Detected:</strong> <span id="bottleneckDetails"></span>
+              <div class="alert alert-info mt-3" style="background: rgba(129, 140, 248, 0.05); border: 1px solid rgba(129, 140, 248, 0.15); padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; color: #a5b4fc; margin-bottom: 0;">
+                <i class="fa-solid fa-lock" style="color: #a5b4fc;"></i> <strong>Dynamic Encryption:</strong> Speech synthesis parameters and voiceprint biometrics are encrypted and locked.
+              </div>
+            </div>
+
+            <!-- CARD 6: Latency Diagnostics & Response Metrics -->
+            <div class="glass-console-card">
+              <span class="console-header-badge">
+                <i class="fa-solid fa-stopwatch"></i> Response Time Diagnostics
+              </span>
+
+              <div class="scientific-latency-grid">
+                <div class="scientific-latency-card">
+                  <span>STT Decode</span>
+                  <strong id="latencySTT">42 ms</strong>
+                </div>
+                <div class="scientific-latency-card">
+                  <span>LLM First</span>
+                  <strong id="latencyLLMFirst">68 ms</strong>
+                </div>
+                <div class="scientific-latency-card">
+                  <span>LLM Total</span>
+                  <strong id="latencyLLMFull">180 ms</strong>
+                </div>
+                <div class="scientific-latency-card">
+                  <span>TTS Synthesis</span>
+                  <strong id="latencyTTSFull">210 ms</strong>
+                </div>
+                <div class="scientific-latency-card">
+                  <span>Audio Buffer</span>
+                  <strong id="latencyTTSFirst">15 ms</strong>
+                </div>
+                <div class="scientific-latency-card">
+                  <span>Playback Delay</span>
+                  <strong id="latencyPlaybackDelay">12 ms</strong>
+                </div>
+                <div class="scientific-latency-card total-cost" style="grid-column: span 2;">
+                  <span>End to End Turnaround</span>
+                  <strong id="latencyE2E">320 ms</strong>
+                </div>
+              </div>
+
+              <!-- Quality Verification Metrics -->
+              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.65rem; margin-top: 0.85rem;">
+                <div style="background: rgba(0,0,0,0.2); padding: 0.5rem 0.75rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04); text-align: center;">
+                  <span style="font-size: 0.65rem; color: var(--text-secondary); text-transform: uppercase; display: block;">Ref Match</span>
+                  <strong id="refMatchScoreText" style="color: #34d399; font-size: 0.85rem;">98%</strong>
+                </div>
+                <div style="background: rgba(0,0,0,0.2); padding: 0.5rem 0.75rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04); text-align: center;">
+                  <span style="font-size: 0.65rem; color: var(--text-secondary); text-transform: uppercase; display: block;">Similarity</span>
+                  <strong id="voiceSimilarityScoreText" style="color: #38bdf8; font-size: 0.85rem;">96%</strong>
+                </div>
+                <div style="background: rgba(0,0,0,0.2); padding: 0.5rem 0.75rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04); text-align: center;">
+                  <span style="font-size: 0.65rem; color: var(--text-secondary); text-transform: uppercase; display: block;">Consistency</span>
+                  <strong id="speakerConsistencyScoreText" style="color: #c084fc; font-size: 0.85rem;">99%</strong>
                 </div>
               </div>
             </div>
