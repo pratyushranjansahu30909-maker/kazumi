@@ -41,6 +41,82 @@ app.get('/index.html', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Diagnostic endpoint to check Discord bot background process health
+app.get('/api/bot-status', (req, res) => {
+  const botLogPath = path.join(__dirname, '..', 'logs', 'discord_bot.log');
+  const kazumiLogPath = path.join(__dirname, '..', 'logs', 'kazumi.log');
+  let botLog = 'No discord_bot.log yet';
+  let kazumiLog = 'No kazumi.log yet';
+
+  if (fs.existsSync(botLogPath)) {
+    try {
+      botLog = fs.readFileSync(botLogPath, 'utf8').slice(-3000);
+    } catch (e) {
+      botLog = 'Error reading bot log: ' + e.message;
+    }
+  }
+
+  if (fs.existsSync(kazumiLogPath)) {
+    try {
+      kazumiLog = fs.readFileSync(kazumiLogPath, 'utf8').slice(-3000);
+    } catch (e) {
+      kazumiLog = 'Error reading kazumi log: ' + e.message;
+    }
+  }
+
+  const token = process.env.DISCORD_BOT_TOKEN || '';
+  res.json({
+    status: 'ok',
+    discord_token_configured: Boolean(token),
+    discord_token_length: token.length,
+    discord_token_preview: token.length > 8 ? token.slice(0, 8) + '...' : 'none',
+    bot_logs: botLog,
+    kazumi_logs: kazumiLog
+  });
+});
+
+app.get('/api/test-discord', (req, res) => {
+  const https = require('https');
+  const token = process.env.DISCORD_BOT_TOKEN || '';
+  
+  const options = {
+    hostname: 'discord.com',
+    port: 443,
+    path: '/api/v10/gateway/bot',
+    method: 'GET',
+    headers: {
+      'Authorization': 'Bot ' + token,
+      'User-Agent': 'DiscordBot (https://github.com, 1.0)'
+    }
+  };
+
+  const reqTest = https.request(options, (resp) => {
+    let data = '';
+    resp.on('data', chunk => data += chunk);
+    resp.on('end', () => {
+      res.json({
+        http_status: resp.statusCode,
+        headers: resp.headers,
+        body: data
+      });
+    });
+  });
+
+  reqTest.on('error', (err) => {
+    res.json({
+      error_code: err.code,
+      error_message: err.message
+    });
+  });
+
+  reqTest.setTimeout(8000, () => {
+    reqTest.destroy();
+    res.json({ error_message: 'HTTPS request to discord.com timed out after 8s' });
+  });
+
+  reqTest.end();
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ----------------------------------------------------
@@ -422,6 +498,88 @@ const getFallbackPosts = () => [
   }
 ];
 
+const os = require('os');
+const { exec } = require('child_process');
+
+function cpuAverage() {
+  let totalIdle = 0, totalTick = 0;
+  const cpus = os.cpus();
+  if (!cpus) return { idle: 0, total: 0 };
+  for (let i = 0, len = cpus.length; i < len; i++) {
+    const cpu = cpus[i];
+    for (let type in cpu.times) {
+      totalTick += cpu.times[type];
+    }
+    totalIdle += cpu.times.idle;
+  }
+  return { idle: totalIdle / cpus.length, total: totalTick / cpus.length };
+}
+
+function getCpuUsage() {
+  return new Promise((resolve) => {
+    const startMeasure = cpuAverage();
+    setTimeout(() => {
+      const endMeasure = cpuAverage();
+      const idleDifference = endMeasure.idle - startMeasure.idle;
+      const totalDifference = endMeasure.total - startMeasure.total;
+      if (totalDifference === 0) return resolve(0);
+      const percentageCpu = 100 - Math.round(100 * idleDifference / totalDifference);
+      resolve(percentageCpu);
+    }, 100);
+  });
+}
+
+function getGpuTelemetry() {
+  return new Promise((resolve) => {
+    const defaultData = { gpu: 0.0, gpuName: 'N/A', vramUsed: 0.0, vramTotal: 0.0 };
+    exec('nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits', (err, stdout, stderr) => {
+      if (err || !stdout) {
+        return resolve(defaultData);
+      }
+      const lines = stdout.trim().split('\n');
+      if (lines.length > 0 && lines[0]) {
+        const parts = lines[0].split(',');
+        if (parts.length >= 4) {
+          return resolve({
+            gpuName: parts[0].trim(),
+            gpu: parseFloat(parts[1].trim()) || 0.0,
+            vramUsed: (parseFloat(parts[2].trim()) || 0.0) / 1024.0,
+            vramTotal: (parseFloat(parts[3].trim()) || 0.0) / 1024.0
+          });
+        }
+      }
+      resolve(defaultData);
+    });
+  });
+}
+
+app.get('/api/kazumi/telemetry', async (req, res) => {
+  try {
+    const cpu = await getCpuUsage();
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const ram = totalMem ? (((totalMem - freeMem) / totalMem) * 100) : 0.0;
+    const gpuData = await getGpuTelemetry();
+    res.json({
+      cpu: cpu,
+      ram: ram,
+      gpu: gpuData.gpu,
+      gpuName: gpuData.gpuName,
+      vramUsed: gpuData.vramUsed,
+      vramTotal: gpuData.vramTotal
+    });
+  } catch (e) {
+    res.json({
+      cpu: 0.0,
+      ram: 0.0,
+      gpu: 0.0,
+      gpuName: 'N/A',
+      vramUsed: 0.0,
+      vramTotal: 0.0
+    });
+  }
+});
+
 const { spawn } = require('child_process');
 
 // 1. Get Profile
@@ -555,7 +713,7 @@ const getPythonSpawnParams = (scriptPath, extraArgs = []) => {
   if (process.platform === 'win32') {
     return { cmd: 'py', args: ['-3.11', scriptPath, ...extraArgs] };
   }
-  return { cmd: 'python', args: [scriptPath, ...extraArgs] };
+  return { cmd: 'python3', args: [scriptPath, ...extraArgs] };
 };
 
 // Helper function to call Python helper
@@ -631,234 +789,58 @@ app.get('/api/space-info', (req, res) => {
   });
 });
 
-// 7. Voice setup status and GPT-SoVITS ping
+// 7. Voice Engine Status (Disabled - Pure Chat Bot Mode)
 app.get('/api/kazumi/voice/status', (req, res) => {
-  const statusFile = path.join(__dirname, 'gpt_setup_status.json');
-  let statusData = { status: 'not_started', progress: 0, message: 'Downloader ready.', downloadedSize: "0 GB / 2.2 GB" };
-  
-  if (fs.existsSync(statusFile)) {
-    try {
-      statusData = JSON.parse(fs.readFileSync(statusFile, 'utf8'));
-    } catch (e) {}
-  }
-  
-  // Read and merge python server manager status if exists
-  const managerStatusFile = path.join(__dirname, 'gpt_manager_status.json');
-  if (fs.existsSync(managerStatusFile)) {
-    try {
-      const managerData = JSON.parse(fs.readFileSync(managerStatusFile, 'utf8'));
-      statusData = { ...statusData, ...managerData };
-    } catch (e) {}
-  }
-  
-  // Ensure premium similarity parameters
-  statusData.refMatchScore = 98;
-  statusData.voiceSimilarityScore = 96;
-  statusData.speakerConsistencyScore = 99;
-  statusData.voiceProfileLocked = true;
-  statusData.voiceProfileName = "Kazumi (Female Locked)";
-  
-  res.json(statusData);
+  res.json({
+    status: 'offline',
+    serverOnline: false,
+    model: 'Disabled',
+    architecture: 'Text-Only Chat Bot Mode',
+    device: 'cpu',
+    enabled: false,
+    loaded: false,
+    voiceProfileLocked: true,
+    voiceProfileId: 'default',
+    voiceProfileName: 'Chat Bot Mode (Voices Disabled)'
+  });
 });
 
-// 8. Trigger automatic models downloader
+// 8. Model weights status
 app.post('/api/kazumi/voice/download-weights', (req, res) => {
-  const statusFile = path.join(__dirname, 'gpt_setup_status.json');
-  let isRunning = false;
-  
-  if (fs.existsSync(statusFile)) {
-    try {
-      const s = JSON.parse(fs.readFileSync(statusFile, 'utf8'));
-      if (s.status === 'running') {
-        isRunning = true;
-      }
-    } catch (e) {}
-  }
-  
-  if (!isRunning) {
-    const installScript = path.join(__dirname, '..', 'install_gpt_sovits.py');
-    const params = getPythonSpawnParams(installScript, []);
-    const installProc = spawn(params.cmd, params.args, { detached: true, stdio: 'ignore' });
-    installProc.unref();
-    
-    res.json({ success: true, message: 'Download and setup thread started.' });
-  } else {
-    res.json({ success: true, message: 'Setup is already running.' });
-  }
+  res.json({ success: false, message: 'Voice downloads disabled in Chat Bot mode.' });
 });
 
-// 9. Streaming voice playback proxy (chunked audio delivery)
+// 8b. Select active voice profile
+app.post('/api/kazumi/voice/profile', (req, res) => {
+  res.json({ success: true, message: 'Voice system is currently disabled (Pure Chat Bot Mode)' });
+});
+
+// 9. Streaming voice playback proxy (chunked audio delivery - disabled)
 app.get('/api/kazumi/voice/stream', (req, res) => {
-  const http = require('http');
-  const { text, text_lang, prompt_text, prompt_lang, speed_factor } = req.query;
-  const refPath = path.resolve(path.join(__dirname, '..', 'voices', 'reference_voice.wav'));
-  const promptTextDefault = "Are you trying to scare me or just being dramatic? Seriously, are you okay? That looks like a fire. Are you in the car? Is there a shelter near by? You're so useless.";
-  
-  const payload = JSON.stringify({
-    text: text || '',
-    text_lang: text_lang || 'en',
-    ref_audio_path: refPath,
-    prompt_text: prompt_text || promptTextDefault,
-    prompt_lang: prompt_lang || 'en',
-    speed_factor: parseFloat(speed_factor || 1.0),
-    voice_lock: true
-  });
-  
-  const postOptions = {
-    hostname: '127.0.0.1',
-    port: 9880,
-    path: '/tts',
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(payload)
-    },
-    timeout: 30000
-  };
-  
-  res.writeHead(200, {
-    'Content-Type': 'audio/wav',
-    'Transfer-Encoding': 'chunked'
-  });
-  
-  const request = http.request(postOptions, (response) => {
-    response.on('data', (chunk) => {
-      res.write(chunk);
-    });
-    response.on('end', () => {
-      res.end();
-    });
-  });
-  
-  request.on('error', (err) => {
-    console.error('Streaming connection error:', err.message);
-    if (!res.headersSent) {
-      res.status(503).send(`Streaming synthesis failed: ${err.message}`);
-    } else {
-      res.end();
-    }
-  });
-  
-  request.on('timeout', () => {
-    request.destroy();
-    if (!res.headersSent) {
-      res.status(503).send('Streaming request timed out.');
-    } else {
-      res.end();
-    }
-  });
-  
-  request.write(payload);
-  request.end();
+  res.status(400).json({ success: false, error: 'Voice features are currently disabled.' });
 });
 
-// 10. Proxy synthesis requests with locked parameters, retries, and latency tracking
+// 10. Voice synthesis endpoint (disabled)
 app.post('/api/kazumi/voice/synthesize', async (req, res) => {
-  const http = require('http');
-  const { text, text_lang, prompt_text, prompt_lang, speed_factor } = req.body;
-  const refPath = path.resolve(path.join(__dirname, '..', 'voices', 'reference_voice.wav'));
-  const promptTextDefault = "Are you trying to scare me or just being dramatic? Seriously, are you okay? That looks like a fire. Are you in the car? Is there a shelter near by? You're so useless.";
-  
-  const voiceTuning = {
-    brightness: 1.15,
-    warmth: 1.05,
-    expressiveness: 1.20,
-    energy: 1.10,
-    pitch_offset: 2,
-    clarity: 1.15
-  };
-  
-  const temperature = 1.20 - (voiceTuning.expressiveness - 1.0) * 0.5;
-  const payload = JSON.stringify({
-    text: text || '',
-    text_lang: text_lang || 'en',
-    ref_audio_path: refPath,
-    prompt_text: prompt_text || promptTextDefault,
-    prompt_lang: prompt_lang || 'en',
-    speed_factor: parseFloat(speed_factor || 1.0),
-    voice_lock: true,
-    temperature: temperature,
-    top_p: 0.85,
-    top_k: 50
-  });
-  
-  const postOptions = {
-    hostname: '127.0.0.1',
-    port: 9880,
-    path: '/tts',
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(payload)
-    },
-    timeout: 10000
-  };
-  
-  const start = Date.now();
-  const maxRetries = 3;
-  let audioBuffer = null;
-  let errorMsg = '';
-  
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      audioBuffer = await new Promise((resolve, reject) => {
-        const request = http.request(postOptions, (response) => {
-          let dataBlocks = [];
-          response.on('data', (chunk) => dataBlocks.push(chunk));
-          response.on('end', () => {
-            if (response.statusCode === 200) {
-              resolve(Buffer.concat(dataBlocks));
-            } else {
-              reject(new Error(`Status ${response.statusCode}`));
-            }
-          });
-        });
-        
-        request.on('error', (err) => reject(err));
-        request.on('timeout', () => {
-          request.destroy();
-          reject(new Error('Timeout'));
-        });
-        
-        request.write(payload);
-        request.end();
-      });
-      
-      if (audioBuffer) break;
-    } catch (err) {
-      errorMsg = err.message;
-      console.warn(`[Voice Server JS] Attempt ${attempt} failed: ${errorMsg}`);
-      if (attempt < maxRetries) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
-    }
-  }
-  
-  if (audioBuffer) {
-    const latency = Date.now() - start;
-    const audioB64 = audioBuffer.toString('base64');
-    console.log(`[Voice System Synthesis JS] Success | Latency: ${latency}ms`);
-    res.json({ success: true, audio: audioB64, latency_ms: latency });
-  } else {
-    console.error(`[Voice System Error JS] Synthesis failed after ${maxRetries} attempts. Last error: ${errorMsg}`);
-    res.json({ success: false, error: `Synthesis failed: ${errorMsg}` });
-  }
+  res.json({ success: false, error: 'Voice features are currently disabled. Operating in pure chat bot mode.' });
 });
 
 app.listen(PORT, () => {
   console.log(`====================================================`);
   console.log(`🚀 Secure Portfolio Server running on http://localhost:${PORT}`);
   console.log(`🔐 Cryptography key status: Loaded (aes-256-cbc active)`);
+  console.log(`💬 Chat Bot Mode: Active (Voice & Speech Recognition Disabled)`);
   console.log(`====================================================`);
-  
-  // Launch Python GPT-SoVITS Daemon in the background
-  try {
-    const daemonScript = path.join(__dirname, 'gpt_daemon.py');
-    const daemonParams = getPythonSpawnParams(daemonScript, []);
-    const daemonProc = spawn(daemonParams.cmd, daemonParams.args, { detached: true, stdio: 'ignore' });
-    daemonProc.unref();
-    console.log(`🚀 GPT-SoVITS Daemon started in background via Python (${daemonParams.cmd})`);
-  } catch (err) {
-    console.error('Failed to spawn GPT-SoVITS Daemon:', err.message);
-  }
+
+  // Cloud keep-alive to prevent Hugging Face Space from idling/sleeping
+  const spaceHost = process.env.SPACE_HOST || 'kaizen2157-kazumi-companion.hf.space';
+  const keepAliveUrl = 'https://' + spaceHost + '/api/bot-status';
+  console.log('[Cloud Init] Initializing 20-minute keep-alive ping loop targeting: ' + keepAliveUrl);
+  setInterval(() => {
+    https.get(keepAliveUrl, (res) => {
+      console.log('[Keep-Alive] Pinged ' + keepAliveUrl + ' -> Status: ' + res.statusCode);
+    }).on('error', (err) => {
+      console.warn('[Keep-Alive] Ping error: ' + err.message);
+    });
+  }, 20 * 60 * 1000);
 });

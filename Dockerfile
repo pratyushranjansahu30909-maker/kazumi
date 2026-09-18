@@ -18,7 +18,7 @@ WORKDIR /app
 COPY . .
 
 # Set permissions recursively for app directories to ensure write access on Hugging Face (non-root user 1000)
-RUN mkdir -p /app/isa_memory && chmod -R 777 /app
+RUN mkdir -p /app/isa_memory /app/logs && chmod -R 777 /app && chmod +x /app/start.sh
 
 # Expose port (Hugging Face Spaces use 7860 by default)
 VOLUME /app/isa_memory
@@ -27,7 +27,8 @@ EXPOSE 7860
 # Set environment variables
 ENV PORT=7860
 ENV NODE_ENV=production
+ENV PYTHONUNBUFFERED=1
 
-# Run Node server from portfolio directory
-WORKDIR /app/portfolio
-CMD ["npm", "start"]
+# Run start script that launches both Discord bot & Web Portfolio
+WORKDIR /app
+CMD ["bash", "start.sh"]

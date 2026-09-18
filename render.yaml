@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: kazumi-companion
+    runtime: docker
+    plan: free
+    region: oregon
+    envVars:
+      - key: DISCORD_BOT_TOKEN
+        sync: false
+      - key: API_KEY
+        sync: false
