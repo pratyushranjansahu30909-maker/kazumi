@@ -652,9 +652,9 @@ class LLMController:
         },
         "ANGRY": {
             "name": "Pouty Mode 😤",
-            "verbosity": "Cold & Minimal (under 15 words)",
-            "max_tokens": 35,
-            "instruction": "You are angry with the user. Speak in a cold, pouty, slightly hurt tone. Keep it extremely short and direct (under 15 words): 'Hmph... I'm a bit upset right now... 😤'"
+            "verbosity": "Cool & Reserved (15-25 words)",
+            "max_tokens": 50,
+            "instruction": "You are feeling slightly pouty or hurt. Address what the user actually said with a brief, cool distance or playful sulk. Vary your wording naturally—do NOT repeat fixed catchphrases like 'Hmph... I'm a bit upset right now'."
         },
         "JEALOUS": {
             "name": "Cute Sulking 🤫",
@@ -877,7 +877,7 @@ Every message should have clean grammar, proper capitalization, smooth transitio
             
             # Inject dynamic emotional state instructions
             if anger_level > 0:
-                prompt += f"\n[System Status - Emotional State: ANGRY (Level {anger_level}/3). Be distant, cold, pouty, and refuse to forgive them easily. They must say sorry multiple times or do something very sweet like giving chocolate, flowers, or genuine praise before you soften.]\n"
+                prompt += f"\n[System Status - Emotional State: POUTY/SULKING (Level {anger_level}/3). Be a little cool or playful-pouty, but directly answer their question or statement. Soften and warm up as they engage with you kindly.]\n"
             elif jealousy_level > 0:
                 prompt += f"\n[System Status - Emotional State: JEALOUS (Level {jealousy_level}/2). You noticed them talking about another girl. Be cute, slightly possessive, and pouty. Ask who she is, and act a bit jealous. They must reassure you or give you a gift to make you happy again.]\n"
             
@@ -4956,8 +4956,12 @@ class Kazumi:
         # 🔍 Step A: Trigger Word / Behavior Detection
         # ----------------------------------------------------
         
-        # 1. Apology Detection
+        # 1. Apology & De-escalation Detection
         is_apology = any(has_word(w, clean_text) for w in ["sorry", "apologize", "forgive", "my bad", "apology", "gomen"])
+        is_deescalation = any(phrase in clean_text for phrase in [
+            "calm down", "chill", "relax", "stop being upset", "don't be mad", 
+            "dont be mad", "be nice", "peace", "truce", "take a breath", "no hard feelings"
+        ])
         
         # 2. Nice Action / Gift / Compliment Detection
         is_nice_action = any(has_word(w, clean_text) for w in [
@@ -5012,6 +5016,13 @@ class Kazumi:
                 transition_msg = "(Kazumi folds her arms and turns away.) Hmph! Why do you keep doing the same thing? You're not listening to me at all! 😤"
         else:
             self.repeat_count = 0
+            # Natural emotional cooling: if user is not repeating, teasing, or hostile,
+            # allow anger and jealousy to cool down naturally with each normal conversational turn
+            if not is_teasing and not is_jealousy_trigger and not is_repetition:
+                if self.anger_level > 0:
+                    self.anger_level = max(0, self.anger_level - 1)
+                if self.jealousy_level > 0:
+                    self.jealousy_level = max(0, self.jealousy_level - 1)
             
         # Rule 2: Handling Teasing / Making Fun
         if is_teasing and not is_repetition:
@@ -5028,29 +5039,30 @@ class Kazumi:
             self.jealousy_level = 2 # Cute Sulking
             transition_msg = "(Kazumi's cheeks flush, and she pouts cutely.) Wait... another girl? 😤 Who is she? Are you talking to other girls behind my back?"
             
-        # Rule 4: Healing / Forgiveness via Apologies & Gifts
-        if self.anger_level >= 2:
+        # Rule 4: Healing / Forgiveness via Apologies, De-escalation & Gifts
+        if self.anger_level >= 1:
             if is_nice_action:
                 # Gifts / Compliments instantly heal her heart!
                 self.anger_level = 0
                 self.tease_count = 0
                 self.sorry_count = 0
-                transition_msg = "(Kazumi's eyes light up, and she blushes warmly.) Wait... chocolate or a sweet gesture for me? 🌸 Oh... you really know how to make me feel better. I suppose I can't stay mad at you when you're being this sweet. I forgive you! 😊"
+                transition_msg = "(Kazumi's eyes light up, and she blushes warmly.) Wait... a sweet gesture for me? 🌸 Oh... you really know how to make me feel better. I can't stay mad at you when you're being this sweet. I forgive you! 😊"
             elif is_apology:
-                self.sorry_count += 1
-                if self.sorry_count == 1:
-                    transition_msg = "(Kazumi hmphes and looks away.) You say you're sorry, but I'm still upset... 😤 You always do this! (She won't let you off that easy—apologize again or do something sweet!)"
-                elif self.sorry_count >= 2:
-                    self.anger_level = 0
-                    self.tease_count = 0
-                    self.sorry_count = 0
-                    transition_msg = "(Kazumi sighs softly, looking at you with gentle eyes.) Well... okay. Since you apologized so sincerely, I guess I can forgive you. 🌸 Just promise you'll listen to me from now on, okay? I care about you."
+                self.anger_level = 0
+                self.tease_count = 0
+                self.sorry_count = 0
+                transition_msg = "(Kazumi sighs softly, looking at you with gentle eyes.) Well... okay. Since you apologized, I forgive you. 🌸 Let's start fresh, okay? I care about you."
+            elif is_deescalation:
+                self.anger_level = 0
+                self.tease_count = 0
+                self.sorry_count = 0
+                transition_msg = "(Kazumi takes a gentle breath and softens her expression.) You're right... I'm taking a breath and calming down. 🌸 I really don't like being upset with you anyway. Let's talk nicely, okay?"
         
         elif self.jealousy_level >= 1:
             if is_nice_action:
                 self.jealousy_level = 0
                 transition_msg = "(Kazumi blushes and smiles cutely.) A sweet gesture for me? 🌸 Does that mean I'm still your favorite girl? 😊 Okay, I'll forgive you... just promise you'll talk to me the most!"
-            elif is_apology:
+            elif is_apology or is_deescalation:
                 self.jealousy_level = 0
                 transition_msg = "(Kazumi looks at you, slightly reassured.) I guess I'll believe you. 🌸 Just make sure I'm your number one!"
                 
@@ -5061,6 +5073,23 @@ class Kazumi:
             self.memory.add(text, speaker="user", valence=valence)
             self.memory.add(transition_msg, speaker="kazumi", valence=0.0)
             return transition_msg
+
+        # Check if Kazumi recently forgave or asked to start fresh, and user gave an affirmative reply
+        if len(self.memory.history) > 0 and self.game_mode is None and self.interaction_mode is None:
+            last_turn = self.memory.history[-1]
+            if last_turn.get("speaker") == "kazumi":
+                last_kaz_text = last_turn.get("text", "").lower()
+                was_forgiveness = any(kw in last_kaz_text for kw in ["forgive you", "start fresh", "calming down", "care about you", "listen to me from now on"])
+                affirmative_words = {"ok", "okay", "yes", "yeah", "ya", "sure", "alright", "promise", "i will", "ya i did", "ya i did hear u", "i hear you", "i did hear u", "i heard you"}
+                is_affirmative = clean_text in affirmative_words or any(w in clean_text for w in ["i did hear", "i heard you", "i hear you", "promise"])
+                if was_forgiveness and is_affirmative:
+                    self.anger_level = 0
+                    self.tease_count = 0
+                    self.sorry_count = 0
+                    happy_res = "(Kazumi beams warmly, her eyes sparkling with relief.) Yay! That makes me so happy! 🌸 Thank you for listening to me. I'm really glad we're good now! What would you like to talk about? 😊"
+                    self.memory.add(text, speaker="user", valence=valence)
+                    self.memory.add(happy_res, speaker="kazumi", valence=0.0)
+                    return happy_res
 
         # Check if Kazumi said something nice in her last turn and the user ignored/didn't listen to it
         is_ignoring_kindness = False
@@ -5075,13 +5104,11 @@ class Kazumi:
                                   "proud of you", "warmth", "special to me", "hug", "kiss", "comfort", "soothing", "giggles", "blushes"]
                 was_nice = any(kw in last_kaz_text for kw in sweet_keywords)
                 
-                # Check if user responded with a very dry/dismissive message
-                dry_responses = {"ok", "okay", "yes", "no", "cool", "yeah", "nothing", "hm", "hmm", "dunno", "fine", "same", "ah", "yep", "sure", "k", "whatever", "so what", "so?", "who cares"}
-                greetings = self.GREETINGS
-                is_greeting = any(w in clean_text.split() for w in greetings)
-                is_dry = (clean_text in dry_responses or (len(clean_text.split()) <= 2 and not any(w in clean_text for w in ["thank", "thanks", "cute", "sweet", "nice", "love", "you too"]))) and not is_greeting
+                # Only treat genuinely dismissive or apathetic statements as ignoring kindness
+                dismissive_responses = {"whatever", "so what", "so?", "who cares", "dont care", "don't care", "idc", "shut up", "leave me alone"}
+                is_dismissive = clean_text in dismissive_responses or any(clean_text == d for d in dismissive_responses)
                 
-                if was_nice and is_dry:
+                if was_nice and is_dismissive:
                     is_ignoring_kindness = True
                     reactions = {
                         "DEREDERE": "(Kazumi pouts cutely and lowers her eyes...) Mmh... did you even hear what I just said? 🥺 I was trying to be sweet, and you just said that...",
