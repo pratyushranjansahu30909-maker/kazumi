@@ -2,16 +2,19 @@ name: Kazumi Cloud Keep-Alive
 
 on:
   schedule:
-    # Run every 4 hours automatically to keep Hugging Face Space awake 24/7
-    - cron: '0 */4 * * *'
+    # Run every 10 minutes to keep cloud service awake
+    - cron: '*/10 * * * *'
   workflow_dispatch: # Allow manual trigger from GitHub Actions tab
 
 jobs:
   ping-space:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Hugging Face Space
+      - name: Ping Cloud Service
         run: |
-          echo "🌸 Pinging Kazumi Cloud Space to prevent sleep..."
-          curl -sS -o /dev/null -w "HTTP Status: %{http_code}\n" https://kaizen2157-kazumi-companion.hf.space/api/bot-status
-          echo "🌸 Keep-alive ping complete! Kazumi Space is awake and active."
+          echo "🌸 Pinging Kazumi Cloud to prevent sleep..."
+          if [ -n "${{ secrets.RENDER_APP_URL }}" ]; then
+            curl -sS -o /dev/null -w "Render Secret HTTP Status: %{http_code}\n" "${{ secrets.RENDER_APP_URL }}/api/bot-status" || true
+          fi
+          curl -sS -o /dev/null -w "Render Default HTTP Status: %{http_code}\n" "https://kazumi-companion.onrender.com/api/bot-status" || true
+          echo "🌸 Keep-alive ping complete! Kazumi is awake and active."

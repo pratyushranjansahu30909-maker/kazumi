@@ -20,12 +20,12 @@ COPY . .
 # Set permissions recursively for app directories to ensure write access on Hugging Face (non-root user 1000)
 RUN mkdir -p /app/isa_memory /app/logs && chmod -R 777 /app && chmod +x /app/start.sh
 
-# Expose port (Hugging Face Spaces use 7860 by default)
+# Expose port (Render defaults to 10000)
 VOLUME /app/isa_memory
-EXPOSE 7860
+EXPOSE 10000
 
 # Set environment variables
-ENV PORT=7860
+ENV PORT=10000
 ENV NODE_ENV=production
 ENV PYTHONUNBUFFERED=1
 

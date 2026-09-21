@@ -7,7 +7,7 @@ const https = require('https');
 require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 
 // Resolve the isa_memory directory dynamically to support persistent volume mounts on Hugging Face Spaces
 const getIsaMemoryDir = () => {
