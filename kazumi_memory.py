@@ -267,6 +267,18 @@ class ChromaMemory:
         logger.info("Appending to history: %s", text[:30])
         self.save_history()
 
+    def get_session_history(self, session_id=None, limit=10):
+        if session_id is None:
+            session_id = getattr(self, "current_session_id", None)
+        if not session_id:
+            return self.history[-limit:] if self.history else []
+        filtered = [item for item in self.history if item.get("session_id") == session_id]
+        return filtered[-limit:] if filtered else []
+
+    def get_last_turn(self, session_id=None):
+        hist = self.get_session_history(session_id=session_id, limit=1)
+        return hist[-1] if hist else None
+
     def recall(self, text, top_k=3, speaker_filter=None):
         query_words = set(re.findall(r"\b\w+\b", text.lower()))
         if not query_words:
