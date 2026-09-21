@@ -10,6 +10,7 @@ import re
 import asyncio
 import threading
 import logging
+import time
 from typing import List, Optional
 
 # Load environment variables
@@ -82,6 +83,10 @@ intents = discord.Intents.default()
 intents.message_content = True  # Required to read message content for chat
 
 bot = commands.Bot(command_prefix=commands.when_mentioned_or(PREFIX), intents=intents, help_command=None)
+
+# Active conversational sessions: (channel_id, user_id) -> last_active_timestamp
+active_conversations = {}
+CONVERSATION_TIMEOUT_SECONDS = 120  # Continuous conversation without requiring repetitive @Kazumi tags
 
 
 # ---------------------------------------------------------------------------
@@ -208,8 +213,10 @@ async def on_message(message: discord.Message):
 
     is_mentioned = is_user_mentioned or is_role_mentioned
 
+    channel_name = getattr(message.channel, 'name', '').lower()
     is_dedicated_channel = (
-        DISCORD_CHANNEL_ID and str(message.channel.id) == str(DISCORD_CHANNEL_ID)
+        (DISCORD_CHANNEL_ID and str(message.channel.id) == str(DISCORD_CHANNEL_ID))
+        or ("kazumi" in channel_name)
     )
     is_reply_to_kazumi = False
     if message.reference and message.reference.resolved:
@@ -219,8 +226,34 @@ async def on_message(message: discord.Message):
 
     name_called = bool(re.search(r'\bkazumi\b', message.content, re.IGNORECASE))
 
-    # Only respond if mentioned, name called, replying to Kazumi, in dedicated channel, or in direct message (DM)
-    if not (is_dm or is_mentioned or name_called or is_dedicated_channel or is_reply_to_kazumi):
+    # Check if user has an active ongoing conversation in this channel
+    session_key = (message.channel.id, message.author.id)
+    now = time.time()
+    is_active_convo = False
+    if session_key in active_conversations:
+        if now - active_conversations[session_key] <= CONVERSATION_TIMEOUT_SECONDS:
+            is_active_convo = True
+        else:
+            active_conversations.pop(session_key, None)
+
+    # If user explicitly mentions someone else (and not Kazumi), they are addressing another person
+    is_talking_to_other = bool(message.mentions) and not is_user_mentioned
+
+    # Ignore command calls intended for other bots (starting with ! or ? or $ or . or - or /) unless matching prefix
+    raw_content = message.content.strip()
+    is_other_bot_cmd = False
+    if raw_content and raw_content[0] in "!?.$-/":
+        if not (raw_content.lower().startswith(PREFIX.strip().lower()) or raw_content.lower().startswith("!k")):
+            is_other_bot_cmd = True
+
+    should_respond = (
+        (is_dm or is_mentioned or name_called or is_dedicated_channel or is_reply_to_kazumi or is_active_convo)
+        and not is_talking_to_other
+        and not is_other_bot_cmd
+    )
+
+    # Only respond if criteria met
+    if not should_respond:
         await bot.process_commands(message)
         return
 
@@ -236,6 +269,7 @@ async def on_message(message: discord.Message):
         if not clean_text:
             # User just pinged without text
             await message.reply("Hello there! 🌸 How are you doing today? You can talk to me anytime, or use `/help` to see what we can do together!")
+            active_conversations[session_key] = time.time()
             return
 
         session_id = get_user_session_id(message.author)
@@ -246,6 +280,15 @@ async def on_message(message: discord.Message):
             reply_text = await ask_kazumi(clean_text, session_id)
 
         logger.info(f"💬 Replying to {message.author}: '{reply_text[:60]}...'")
+
+        # Update active conversation timestamp
+        active_conversations[session_key] = time.time()
+
+        # If user explicitly said goodbye or exit, close the active continuous window
+        farewell_words = {"bye", "goodbye", "cya", "see ya", "gn", "goodnight", "good night", "gotta go", "stop", "exit"}
+        norm_clean = re.sub(r"[^\w\s]", "", clean_text).lower().strip()
+        if norm_clean in farewell_words or any(norm_clean.startswith(fw + " ") for fw in farewell_words):
+            active_conversations.pop(session_key, None)
 
         # Split message into chunks if it exceeds 2,000 characters
         chunks = split_message(reply_text)
