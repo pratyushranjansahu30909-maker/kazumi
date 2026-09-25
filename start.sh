@@ -23,7 +23,7 @@ echo "🌸 Starting Kazumi Discord Bot supervisor in background..."
 ) &
 
 # Start Kazumi Web Portfolio in foreground
-PORT="${PORT:-10000}"
+PORT="${PORT:-7860}"
 echo "🌐 Starting Kazumi Web Interface on port $PORT..."
 cd /app/portfolio
 exec npm start

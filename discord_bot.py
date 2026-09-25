@@ -21,17 +21,20 @@ except ImportError:
     pass
 
 import socket
-# Filter IPv4 resolution in Docker/cloud environments where IPv6 is not routed to prevent ConnectionResetError
+# Robust IPv4 resolution filter for cloud/Docker environments without IPv6 routing
 _orig_getaddrinfo = socket.getaddrinfo
 def _ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
     try:
-        results = _orig_getaddrinfo(host, port, family, type, proto, flags)
-        v4 = [r for r in results if r[0] == socket.AF_INET]
-        return v4 if v4 else results
+        # Enforce AF_INET to prevent IPv6 DNS lookups that fail or hang in IPv4-only networks
+        return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
     except Exception:
-        return _orig_getaddrinfo(host, port, family, type, proto, flags)
+        try:
+            return _orig_getaddrinfo(host, port, family, type, proto, flags)
+        except Exception:
+            return []
 socket.getaddrinfo = _ipv4_getaddrinfo
 
+import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -82,7 +85,16 @@ PREFIX = args.prefix or os.environ.get("DISCORD_PREFIX", "!k ")
 intents = discord.Intents.default()
 intents.message_content = True  # Required to read message content for chat
 
-bot = commands.Bot(command_prefix=commands.when_mentioned_or(PREFIX), intents=intents, help_command=None)
+class KazumiBot(commands.Bot):
+    async def setup_hook(self):
+        try:
+            # Force IPv4 TCPConnector inside the running event loop
+            self.http.connector = aiohttp.TCPConnector(family=socket.AF_INET)
+            logger.info("🌸 Configured IPv4 TCPConnector for Discord client.")
+        except Exception as e:
+            logger.warning(f"Could not configure custom IPv4 TCPConnector: {e}")
+
+bot = KazumiBot(command_prefix=commands.when_mentioned_or(PREFIX), intents=intents, help_command=None)
 
 # Active conversational sessions: (channel_id, user_id) -> last_active_timestamp
 active_conversations = {}
@@ -192,9 +204,10 @@ async def on_message(message: discord.Message):
     if message.author.bot or (bot.user and message.author.id == bot.user.id):
         return
 
-    logger.info(f"📩 New message from {message.author} in #{getattr(message.channel, 'name', 'DM')}: '{message.content}'")
+    raw_content = (message.content or "").strip()
+    logger.info(f"📩 New message from {message.author} in #{getattr(message.channel, 'name', 'DM')}: '{raw_content}'")
 
-    # Check if message is in DM or in server
+    # Check if message is in DM
     is_dm = isinstance(message.channel, discord.DMChannel)
     is_user_mentioned = bot.user in message.mentions if bot.user else False
 
@@ -208,7 +221,7 @@ async def on_message(message: discord.Message):
                 for role in message.role_mentions
             )
         if not is_role_mentioned:
-            raw_ids = {int(x) for x in re.findall(r'<@&(\d+)>', message.content)}
+            raw_ids = {int(x) for x in re.findall(r'<@&(\d+)>', raw_content)}
             is_role_mentioned = bool(raw_ids & bot_roles)
 
     is_mentioned = is_user_mentioned or is_role_mentioned
@@ -218,13 +231,22 @@ async def on_message(message: discord.Message):
         (DISCORD_CHANNEL_ID and str(message.channel.id) == str(DISCORD_CHANNEL_ID))
         or ("kazumi" in channel_name)
     )
+
     is_reply_to_kazumi = False
     if message.reference and message.reference.resolved:
         resolved = message.reference.resolved
         if hasattr(resolved, 'author') and bot.user and resolved.author.id == bot.user.id:
             is_reply_to_kazumi = True
 
-    name_called = bool(re.search(r'\bkazumi\b', message.content, re.IGNORECASE))
+    name_called = bool(re.search(r'\bkazumi\b', raw_content, re.IGNORECASE))
+
+    # Prefix detection (e.g. !k <msg>, !kazumi <msg>, or configured prefix)
+    is_prefix_called = False
+    prefix_clean = PREFIX.strip().lower()
+    if raw_content:
+        content_lower = raw_content.lower()
+        if content_lower.startswith("!k") or content_lower.startswith("!kazumi") or (prefix_clean and content_lower.startswith(prefix_clean)):
+            is_prefix_called = True
 
     # Check if user has an active ongoing conversation in this channel
     session_key = (message.channel.id, message.author.id)
@@ -239,15 +261,13 @@ async def on_message(message: discord.Message):
     # If user explicitly mentions someone else (and not Kazumi), they are addressing another person
     is_talking_to_other = bool(message.mentions) and not is_user_mentioned
 
-    # Ignore command calls intended for other bots (starting with ! or ? or $ or . or - or /) unless matching prefix
-    raw_content = message.content.strip()
+    # Ignore command calls intended for other bots (starting with ! or ? or $ or . or - or /) unless prefix matches Kazumi
     is_other_bot_cmd = False
-    if raw_content and raw_content[0] in "!?.$-/":
-        if not (raw_content.lower().startswith(PREFIX.strip().lower()) or raw_content.lower().startswith("!k")):
-            is_other_bot_cmd = True
+    if raw_content and raw_content[0] in "!?.$-/" and not is_prefix_called:
+        is_other_bot_cmd = True
 
     should_respond = (
-        (is_dm or is_mentioned or name_called or is_dedicated_channel or is_reply_to_kazumi or is_active_convo)
+        (is_dm or is_mentioned or name_called or is_dedicated_channel or is_reply_to_kazumi or is_active_convo or is_prefix_called)
         and not is_talking_to_other
         and not is_other_bot_cmd
     )
@@ -258,11 +278,14 @@ async def on_message(message: discord.Message):
         return
 
     try:
-        # Clean the message text (remove user mentions, role mentions, and name prefix)
-        clean_text = message.content
+        # Clean the message text (remove user mentions, role mentions, prefixes, and name prefix)
+        clean_text = raw_content
         if bot.user:
             clean_text = re.sub(rf"<@!?{bot.user.id}>", "", clean_text)
         clean_text = re.sub(r"<@&?\d+>", "", clean_text)  # Remove all user & role mention tags
+        clean_text = re.sub(r"^\s*!(?:k|kazumi)\b[:,]?", "", clean_text, flags=re.IGNORECASE)
+        if prefix_clean:
+            clean_text = re.sub(r"^\s*" + re.escape(prefix_clean) + r"\b[:,]?", "", clean_text, flags=re.IGNORECASE)
         clean_text = re.sub(r"^\s*@?kazumi\b[:,]?", "", clean_text, flags=re.IGNORECASE)
         clean_text = re.sub(r"^[,\s:-]+", "", clean_text).strip()
 
@@ -275,9 +298,15 @@ async def on_message(message: discord.Message):
         session_id = get_user_session_id(message.author)
         logger.info(f"🧠 Processing message from {message.author}: '{clean_text}' (session: {session_id})")
 
-        # Display typing indicator while Kazumi processes the thought
+        # Display typing indicator while Kazumi processes the thought with a safety timeout
         async with message.channel.typing():
-            reply_text = await ask_kazumi(clean_text, session_id)
+            try:
+                reply_text = await asyncio.wait_for(ask_kazumi(clean_text, session_id), timeout=30.0)
+            except asyncio.TimeoutError:
+                reply_text = "I'm right here with you! 🌸 I took a little moment connecting to my thoughts, but I'm listening closely. Please say that again!"
+            except Exception as core_err:
+                logger.error(f"Error querying Kazumi core: {core_err}", exc_info=True)
+                reply_text = "I'm right here with you! 🌸 (I had a quick moment gathering my thoughts, but I'm ready to chat now!)"
 
         logger.info(f"💬 Replying to {message.author}: '{reply_text[:60]}...'")
 
@@ -298,9 +327,12 @@ async def on_message(message: discord.Message):
             else:
                 await message.channel.send(chunk)
 
-        # Message was fully handled by conversation engine, no need to process as legacy prefix command
     except Exception as e:
         logger.error(f"❌ Error in on_message: {e}", exc_info=True)
+        try:
+            await message.reply("I'm right here with you! 🌸 Something went a little fuzzy for a moment, but I'm listening now!")
+        except Exception:
+            pass
 
 
 @bot.event
