@@ -86,10 +86,19 @@ intents = discord.Intents.default()
 intents.message_content = True  # Required to read message content for chat
 
 class KazumiBot(commands.Bot):
+    async def login(self, token: str) -> None:
+        try:
+            self.http.connector = aiohttp.TCPConnector(family=socket.AF_INET, limit=0)
+            logger.info("🌸 Configured IPv4 TCPConnector for static login.")
+        except Exception as e:
+            logger.warning(f"Could not configure custom IPv4 TCPConnector: {e}")
+        return await super().login(token)
+
     async def setup_hook(self):
         try:
             # Force IPv4 TCPConnector inside the running event loop
-            self.http.connector = aiohttp.TCPConnector(family=socket.AF_INET)
+            if self.http.connector is None or getattr(self.http.connector, '_family', None) != socket.AF_INET:
+                self.http.connector = aiohttp.TCPConnector(family=socket.AF_INET, limit=0)
             logger.info("🌸 Configured IPv4 TCPConnector for Discord client.")
         except Exception as e:
             logger.warning(f"Could not configure custom IPv4 TCPConnector: {e}")
