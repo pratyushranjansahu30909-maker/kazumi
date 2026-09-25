@@ -208,6 +208,16 @@ async def on_ready():
 
 
 @bot.event
+async def on_disconnect():
+    logger.warning("⚠️ Discord Gateway disconnected. Automatic reconnection will occur when network is restored.")
+
+
+@bot.event
+async def on_resumed():
+    logger.info("✨ Discord Gateway session successfully resumed! Kazumi is back listening.")
+
+
+@bot.event
 async def on_message(message: discord.Message):
     # Ignore self and other bots
     if message.author.bot or (bot.user and message.author.id == bot.user.id):
@@ -542,6 +552,22 @@ def print_discord_setup_guide():
     print("=" * 68 + "\n")
 
 
+INSTANCE_LOCK_PORT = 49281
+_instance_socket = None
+
+def acquire_single_instance_lock() -> bool:
+    """Ensures only a single bot process runs locally to prevent gateway session conflicts."""
+    global _instance_socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+        s.bind(("127.0.0.1", INSTANCE_LOCK_PORT))
+        _instance_socket = s
+        return True
+    except socket.error:
+        return False
+
+
 def main():
     logger.info(f"🌸 Main entrypoint reached! DISCORD_BOT_TOKEN length: {len(DISCORD_BOT_TOKEN)}")
     if not DISCORD_BOT_TOKEN or DISCORD_BOT_TOKEN == "your_discord_bot_token_here":
@@ -549,20 +575,44 @@ def main():
         print_discord_setup_guide()
         sys.exit(1)
 
-    logger.info(f"🌸 Connecting to Discord Gateway (prefix: {PREFIX}, channel: {DISCORD_CHANNEL_ID or 'all'})...")
-    try:
-        bot.run(DISCORD_BOT_TOKEN, log_handler=None)
-        logger.info("🌸 Discord bot run loop finished cleanly.")
-    except discord.errors.LoginFailure as lf:
-        logger.error(f"❌ Login failure: Invalid Discord Bot Token: {lf}")
-        sys.exit(1)
-    except (KeyboardInterrupt, SystemExit):
-        logger.info("🌸 Bot stopped by signal.")
+    if not acquire_single_instance_lock():
+        logger.warning("🌸 Another instance of Kazumi Discord Bot is already running on this machine. Exiting cleanly to avoid duplicate gateway conflicts.")
         sys.exit(0)
-    except Exception as e:
-        logger.error(f"⚠️ Discord connection dropped or failed: {e}", exc_info=True)
-        # Exit with status 1 so start.sh restarts a clean Python process with fresh aiohttp session
-        sys.exit(1)
+
+    retry_delay = 5
+    max_delay = 60
+
+    while True:
+        logger.info(f"🌸 Connecting to Discord Gateway (prefix: {PREFIX}, channel: {DISCORD_CHANNEL_ID or 'all'})...")
+        try:
+            bot.run(DISCORD_BOT_TOKEN, log_handler=None)
+            logger.info("🌸 Discord bot run loop finished. Respawning in 5 seconds...")
+            time.sleep(5)
+            if _instance_socket:
+                try:
+                    _instance_socket.close()
+                except Exception:
+                    pass
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+        except discord.errors.LoginFailure as lf:
+            logger.error(f"❌ Fatal login failure: Invalid Discord Bot Token: {lf}")
+            sys.exit(1)
+        except (KeyboardInterrupt, SystemExit):
+            logger.info("🌸 Bot stopped by user signal.")
+            sys.exit(0)
+        except Exception as e:
+            logger.error(f"⚠️ Discord connection dropped or failed: {e}. Auto-reconnecting in {retry_delay}s...", exc_info=True)
+            time.sleep(retry_delay)
+            retry_delay = min(max_delay, int(retry_delay * 1.5))
+            if _instance_socket:
+                try:
+                    _instance_socket.close()
+                except Exception:
+                    pass
+            try:
+                os.execv(sys.executable, [sys.executable] + sys.argv)
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
