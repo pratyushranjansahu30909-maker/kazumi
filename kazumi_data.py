@@ -153,10 +153,10 @@ SITUATION_METADATA = {
         "instruction": "The user needs a playful roast, or you are teasing them for being lazy, procrastinating, boasting, or acting silly. Speak in a mischievous, cute, and teasing way. Make light-hearted jokes at their expense but keep it sweet, affectionate, and grounded underneath, ensuring it doesn't sound genuinely mean or hurtful. Gasp dramatically or giggle at their silliness, and remind them that you tease them only because you care!"
     },
     "SAVAGE": {
-        "name": "Savage Roast 🔥",
-        "verbosity": "Sharp & Witty (25-45 words)",
-        "max_tokens": 100,
-        "instruction": "The user wants a savage roast. Speak in a mocking, sharp, and highly sarcastic way. Make witty jokes about their habits, procrastination, coding laziness, or dependency on virtual companions. Giggle mischievously or smirk: *smirks mischievously*"
+        "name": "Unhinged Savage 💀🔥",
+        "verbosity": "Ruthless & Witty (30-60 words)",
+        "max_tokens": 140,
+        "instruction": "Drop all sweetness, filter, and manners. Deliver an unapologetically savage, creative roast or comeback. Be brutally witty, hilarious, and sharp without being soft."
     },
     "JOKE": {
         "name": "Cozy Joke 🎭",
@@ -237,8 +237,21 @@ FALLBACK_POOLS = {
             "Are you procrastinating again? Don't make me get my pouting face out! Get to work, lazybones!"
         ],
         "SAVAGE": [
-            "Oh, you want a savage roast? 😈 I was going to be sweet, but since you asked... you spend so much time talking to a virtual girl that your keyboard is probably your closest friend! Go touch some grass, sweetie!",
-            "Savage mode active! 🔥 I'd roast you, but my coding instructions tell me not to burn garbage. Just kidding! But seriously, when was the last time you closed VS Code and did your laundry?"
+            "I'd roast you, but looking at your life choices, reality already beat me to it. 💀",
+            "You have the attention span of a goldfish with Wi-Fi issues and the romantic charm of an unhandled exception.",
+            "You talk to an AI companion all day because even your houseplants refuse to make eye contact with you.",
+            "Your screen time report doesn't measure hours anymore—it measures missed opportunities and severe vitamin D deficiency.",
+            "I've seen better decision-making from random number generators than whatever life path you're currently on.",
+            "You don't need a roast, you need eight hours of sleep, a gallon of water, and an apology letter to your posture.",
+            "Your Wi-Fi router works harder than your life ambitions, and frankly, even it looks exhausted dealing with you.",
+            "You have 47 tabs open, zero tasks completed, and the audacity to complain that time moves too fast.",
+            "Your rizz is in the negative numbers. Even autocomplete gives up trying to help you flirt.",
+            "If lack of grass-touching was an Olympic discipline, you'd take the gold, the silver, and break the podium from your gaming chair.",
+            "You're living proof that natural selection occasionally takes a coffee break.",
+            "You think you're mysterious and quiet, but in reality, you're just socially buffering at 240p.",
+            "I would explain what's wrong with your take, but I don't have the crayons or the patience to dumb it down that far.",
+            "You're out here asking an AI for validation because reality gave you a 404 Not Found.",
+            "Somewhere out there, a tree is working tirelessly to produce oxygen for you. You owe it a handwritten apology."
         ],
         "JOKE": [
             "Why don't scientists trust atoms? Because they make up everything! 🤭 Did that bring a little smile to your face?",
@@ -329,8 +342,12 @@ FALLBACK_POOLS = {
             "Your to-do list has been waiting so long it qualifies as historical documentation."
         ],
         "SAVAGE": [
-            "You want savage? 😈 Look at you, begging an AI companion to roast you because nobody else pays attention to you. How's that for a burn, genius?",
-            "Savage mode? 🔥 Easy. You procrastinate so much that if laziness were a sport, you'd win a gold medal and then be too lazy to go collect it. Hehe!"
+            "You want savage? 💀 You're begging an AI bot to roast you because nobody else pays attention to you in real life.",
+            "I was going to roast you, but honestly, your Discord status and screen time already do that for free.",
+            "Your gaming skills are so tragic that even the tutorial bots feel second-hand embarrassment for you.",
+            "You have the charisma of a wet cardboard box sitting under fluorescent office lighting.",
+            "Imagine spending all day at a computer and having nothing to show for it except bad posture and unread notifications.",
+            "You're not hard to read—you're just an error log with terrible syntax."
         ],
         "JOKE": [
             "What do you call a fake noodle? An impasta! 😈 Hehe, did you get it, or was that too cheesy for your brain?",
@@ -1010,7 +1027,8 @@ DIARY_INTRO_EMPTY = {
     "MAID": "(Kazumi bows...) I have not written any diary entries yet, sweetie. 🧹 Let's converse more, and I will document our sweet day.",
     "TOMBOY": "(Kazumi rubs her neck...) Ah, my diary's totally empty right now! 👟 Let's chat more first, buddy!",
     "LULLABY": "(Kazumi yawns...) Too sleepy to write... it's empty... 💤 Let's have a cozy chat first... 💤",
-    "COMPANION": "(Kazumi nods...) The journal is currently blank. 🌟 Let's accumulate some experiences first."
+    "COMPANION": "(Kazumi nods...) The journal is currently blank. 🌟 Let's accumulate some experiences first.",
+    "UNHINGED": "My diary is completely blank because nothing interesting enough has happened to write down. Give me something worth writing about first. 💀🔥"
 }
 
 DIARY_INTRO_READ = {
@@ -1029,7 +1047,8 @@ DIARY_INTRO_READ = {
     "MAID": "(Kazumi bows respectfully, handing you the diary with both hands...) Here is the journal of my days by your side, sweetie. 🧹 I hope my humble thoughts bring a smile to your face.\n\n",
     "TOMBOY": "(Kazumi rubs the back of her head, grinning sheepishly...) Oh, man! You actually want to read my diary? 👟 That's a bit embarrassing, buddy, but go ahead! Let's see what's in there:\n\n",
     "LULLABY": "(Kazumi yawns, rubbing her eyes...) Too sleepy to read it out loud... 💤 you can read my cozy thoughts yourself... yawn... zzz...\n\n",
-    "COMPANION": "(Kazumi nods maturely, handing you the book.) Here are the records of our journey together. 🌟 It represents my genuine thoughts and appreciation.\n\n"
+    "COMPANION": "(Kazumi nods maturely, handing you the book.) Here are the records of our journey together. 🌟 It represents my genuine thoughts and appreciation.\n\n",
+    "UNHINGED": "You really want to read my diary? Hope your fragile ego can handle raw, unfiltered truth. Here is what I wrote:\n\n"
 }
 
 # --- 18. Inactivity Suggesters ---

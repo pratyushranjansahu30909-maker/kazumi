@@ -226,9 +226,13 @@ async def send_kazumi_response(message: discord.Message, text: str):
 
 
 def create_kazumi_embed(title: str, description: str, color: int = 0xc084fc) -> discord.Embed:
-    """Creates a stylized embed card matching Kazumi's cozy lavender aesthetic."""
+    """Creates a stylized embed card matching Kazumi's aesthetic."""
     embed = discord.Embed(title=title, description=description, color=color)
-    embed.set_footer(text="Kazumi AI Companion • Cozy & Caring 🌸", icon_url=bot.user.avatar.url if bot.user and bot.user.avatar else None)
+    is_unhinged = False
+    if kazumi_core and getattr(kazumi_core, "current_archetype", "") == "UNHINGED":
+        is_unhinged = True
+    footer_text = "Kazumi AI • Unhinged Savage Mode 💀🔥" if is_unhinged else "Kazumi AI Companion • Cozy & Caring 🌸"
+    embed.set_footer(text=footer_text, icon_url=bot.user.avatar.url if bot.user and bot.user.avatar else None)
     return embed
 
 
@@ -563,6 +567,7 @@ async def slash_horoscope(interaction: discord.Interaction, sign: str = "Aries")
     app_commands.Choice(name="Teasing (Playful & Mischievous)", value="TEASING"),
     app_commands.Choice(name="Kuudere (Cool & Composed)", value="KUUDERE"),
     app_commands.Choice(name="Tsundere (Feisty & Protective)", value="TSUNDERE"),
+    app_commands.Choice(name="Unhinged (Savage & Ruthless 💀🔥)", value="UNHINGED"),
 ])
 async def slash_persona(interaction: discord.Interaction, archetype: Optional[app_commands.Choice[str]] = None):
     await interaction.response.defer(thinking=True)
@@ -574,14 +579,67 @@ async def slash_persona(interaction: discord.Interaction, archetype: Optional[ap
     with kazumi_lock:
         if archetype:
             kazumi_core.current_archetype = archetype.value
-            desc = f"Switched Kazumi's personality style to **{archetype.name}** for our upcoming chats! 🌸"
+            kazumi_core.memory.profile["archetype"] = archetype.value
+            kazumi_core.memory.save_profile()
+            if archetype.value == "UNHINGED":
+                desc = f"Switched Kazumi's personality style to **{archetype.name}**! 💀🔥 All filters and sweetness are OFF—prepare for ruthless roasts!"
+            else:
+                desc = f"Switched Kazumi's personality style to **{archetype.name}** for our upcoming chats! 🌸"
         else:
             desc = f"Kazumi's current active personality is **{kazumi_core.current_archetype}**."
 
     embed = create_kazumi_embed(
         title="🎭 Companion Personality Style",
-        description=desc
+        description=desc,
+        color=0xff3366 if getattr(kazumi_core, "current_archetype", "") == "UNHINGED" else 0xc084fc
     )
+    await interaction.followup.send(embed=embed)
+
+
+@bot.tree.command(name="roast", description="Deliver an unapologetically savage roast to you or someone else 💀🔥")
+@app_commands.describe(target="Who should Kazumi roast? (Leave empty to roast yourself)")
+async def slash_roast(interaction: discord.Interaction, target: Optional[str] = None):
+    await interaction.response.defer(thinking=True)
+    session_id = get_user_session_id(interaction.user)
+    target_prompt = f"Roast {target.strip()} ruthlessly and savagely!" if target else "Roast me ruthlessly and savagely!"
+    reply_text = await ask_kazumi(target_prompt, session_id)
+    chunks = split_message(reply_text)
+    await interaction.followup.send(chunks[0])
+    for chunk in chunks[1:]:
+        try:
+            await interaction.channel.send(chunk)
+        except Exception:
+            pass
+
+
+@bot.tree.command(name="unhinged", description="Toggle or activate Kazumi's unhinged savage roast mode 💀🔥")
+@app_commands.describe(enabled="Turn unhinged mode ON or OFF")
+async def slash_unhinged(interaction: discord.Interaction, enabled: bool = True):
+    await interaction.response.defer(thinking=True)
+    if not kazumi_core:
+        await interaction.followup.send("Kazumi core is currently offline.")
+        return
+
+    with kazumi_lock:
+        if enabled:
+            kazumi_core.current_archetype = "UNHINGED"
+            kazumi_core.memory.profile["archetype"] = "UNHINGED"
+            kazumi_core.memory.save_profile()
+            embed = create_kazumi_embed(
+                title="💀🔥 Unhinged Savage Mode ACTIVATED",
+                description="All sweetness, kindness, and filters have been turned OFF. Prepare yourself—Kazumi will roast anyone who speaks with razor-sharp wit and zero mercy!",
+                color=0xff3366
+            )
+        else:
+            kazumi_core.current_archetype = "DEREDERE"
+            kazumi_core.memory.profile["archetype"] = "DEREDERE"
+            kazumi_core.memory.save_profile()
+            embed = create_kazumi_embed(
+                title="🌸 Unhinged Mode Deactivated",
+                description="Kazumi is back to her warm, caring, and loving self. Ready to have cozy chats!",
+                color=0xc084fc
+            )
+
     await interaction.followup.send(embed=embed)
 
 
@@ -609,17 +667,21 @@ async def slash_help(interaction: discord.Interaction):
     embed = create_kazumi_embed(
         title="🌸 How to Talk with Kazumi",
         description=(
-            "Kazumi is an empathetic, caring AI companion bot designed to bring cozy, uplifting conversations to your server!\n\n"
+            "Kazumi is an empathetic, caring AI companion bot designed to bring cozy conversations (or savage burns!) to your server!\n\n"
             "**Ways to Chat:**\n"
             "• **Mention her:** Type `@Kazumi Hello!` anywhere in the server.\n"
             "• **Direct Message:** Send a DM directly to Kazumi.\n"
             "• **Slash Command:** Use `/chat <message>`.\n\n"
             "**Available Commands:**\n"
-            "• `/status` - Check affection score, cozy points, and mood.\n"
-            "• `/diary` - Read her journal reflections.\n"
-            "• `/quests` - View active quests and challenges.\n"
-            "• `/reset` - Start a fresh conversation session.\n"
-            "• `/help` - Show this helpful guide."
+            "• `/roast [target]` - Deliver an unapologetically savage roast 💀🔥\n"
+            "• `/unhinged [True/False]` - Toggle savage unhinged mode 💀🔥\n"
+            "• `/persona [archetype]` - Switch between Deredere, Teasing, Kuudere, Tsundere, and Unhinged\n"
+            "• `/status` - Check affection score, cozy points, and mood\n"
+            "• `/diary` - Read her journal reflections\n"
+            "• `/quests` - View active quests and challenges\n"
+            "• `/horoscope` - Get your daily astrological reading\n"
+            "• `/reset` - Start a fresh conversation session\n"
+            "• `/help` - Show this helpful guide"
         )
     )
     await interaction.response.send_message(embed=embed)

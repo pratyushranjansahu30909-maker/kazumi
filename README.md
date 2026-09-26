@@ -115,8 +115,12 @@ python discord_bot.py
 - **Direct Messages:** DM Kazumi directly for private 1-on-1 conversations.
 - **Slash Commands:**
   - `/chat <message>` — Send a cozy message
+  - `/roast [target]` — Deliver an unapologetically savage roast or comeback 💀🔥
+  - `/unhinged [True/False]` — Toggle savage unhinged mode 💀🔥
+  - `/persona [archetype]` — Switch personality (Deredere, Teasing, Kuudere, Tsundere, Unhinged)
   - `/status` — View companion affection level, cozy points, and persona
   - `/diary` — Read what Kazumi wrote in her journal today
   - `/quests` — View active companion quests
+  - `/horoscope [sign]` — Receive your daily cosmic horoscope reading
   - `/reset` — Clear conversation history for a fresh start
   - `/help` — Display full command list and tips

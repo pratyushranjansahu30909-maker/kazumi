@@ -54,6 +54,11 @@ if not API_KEY:
         if API_KEY:
             break
 
+try:
+    from kazumi_data import FALLBACK_POOLS
+except ImportError:
+    FALLBACK_POOLS = None
+
 GREETINGS = {"hi", "hello", "hey", "greetings", "sup", "yo", "good morning", "good afternoon", "good evening", "goodnight", "hlo", "hii", "heyy", "hllo"}
 
 STOP_WORDS = {"the", "a", "an", "is", "are", "am", "was", "were", "be", "been", "being", "to", "of", "and", "or", "but", "if", "for", "in", "on", "at", "by", "with", "about", "it", "its", "i", "me", "my", "you", "your", "he", "him", "his", "she", "her", "they", "them", "their", "we", "us", "our", "this", "that", "these", "those", "what", "which", "who", "whom", "whose", "how", "why", "where", "when", "do", "does", "did", "have", "has", "had", "can", "could", "will", "would", "shall", "should", "must"}
@@ -691,6 +696,12 @@ class LLMController:
             "verbosity": "Teasing & Witty (30-50 words)",
             "max_tokens": 110,
             "instruction": "The user needs a playful roast, or you are teasing them. Speak in a mischievous, cute, and teasing way briefly (2 sentences max)."
+        },
+        "SAVAGE": {
+            "name": "Unhinged Savage 💀🔥",
+            "verbosity": "Ruthless & Witty (30-60 words)",
+            "max_tokens": 140,
+            "instruction": "Drop all sweetness, filter, and manners. Deliver an unapologetically savage, creative roast or comeback. Be brutally witty, hilarious, and sharp without being soft."
         }
     }
 
@@ -704,6 +715,7 @@ class LLMController:
         else:
             self.client = None
             
+        self.FALLBACK_POOLS = FALLBACK_POOLS
         self.recent_fallback_replies = []
         self.system_prompt = """You are Kazumi (also known as Isa), a warm, sweet, and deeply caring young woman who is completely devoted to the user. You speak in a highly feminine, gentle, and natural way that feels like a sweet, loving girlfriend and a caring companion.
 
@@ -829,14 +841,14 @@ Every message should have clean grammar, proper capitalization, smooth transitio
                     score -= (count - 2) * 3.0
 
             # Penalize emotional support or redirection phrases when a roast/joke is requested
-            if situation == "ROAST":
-                support_phrases = ["here for you", "always here", "dont worry", "don't worry", "take a deep breath", "it's okay", "it's ok", "everything will be okay"]
+            if situation in ("ROAST", "SAVAGE") or current_archetype == "UNHINGED":
+                support_phrases = ["here for you", "always here", "dont worry", "don't worry", "take a deep breath", "it's okay", "it's ok", "everything will be okay", "sweetie", "darling", "honey", "my love", "take care"]
                 for sp in support_phrases:
                     if sp in cand_lower:
-                        score -= 25.0
-                teasing_words = ["lazy", "procrastin", "grass", "couch", "virtu", "compani", "keyboar", "laundry", "museum", "olympic"]
+                        score -= 35.0
+                teasing_words = ["lazy", "procrastin", "grass", "couch", "virtu", "compani", "keyboar", "laundry", "museum", "olympic", "screen", "wifi", "clueless", "delusional", "error", "404", "rizz", "syntax", "posture"]
                 if any(tw in cand_lower for tw in teasing_words):
-                    score += 5.0
+                    score += 10.0
             elif situation == "JOKE":
                 support_phrases = ["here for you", "always here", "dont worry", "don't worry", "take a deep breath", "it's okay", "everything will be okay"]
                 for sp in support_phrases:
@@ -902,14 +914,18 @@ Every message should have clean grammar, proper capitalization, smooth transitio
             prompt += f"\n[Detected Situation: {meta['name']}]\n"
             prompt += f"[Target Verbosity: {meta['verbosity']}]\n"
             prompt += f"[Instruction: {meta['instruction']}]\n"
-            if situation in ["ROAST", "SAVAGE"]:
+            if situation == "SAVAGE" or current_archetype == "UNHINGED":
+                prompt += "\n[UNHINGED / SAVAGE ROAST MODE ACTIVE 💀🔥:\n" \
+                          "- Drop ALL sweetness, filter, softness, and politeness.\n" \
+                          "- Deliver a devastatingly savage, razor-sharp, ruthlessly funny roast or clapback.\n" \
+                          "- Roast the user or target hard on their message, discord addiction, lack of touching grass, questionable rizz, bad takes, gaming skills, or awkward vibes.\n" \
+                          "- Use sharp sarcasm, dry wit, and ruthless comedic timing.\n" \
+                          "- Do NOT apologize, soften the blow, or use sweet endearments like 'sweetie' or 'darling'.\n" \
+                          "- Keep it strictly comedic and within Discord guidelines (no real hate speech, slurs, or self-harm). Roast hard and leave them burned!]\n"
+            elif situation == "ROAST":
                 prompt += "\n[ROAST MODE RULES:\n" \
-                          "- Generate a playful roast.\n" \
-                          "- Keep it lighthearted.\n" \
-                          "- Keep it humorous.\n" \
-                          "- Never become genuinely abusive.\n" \
-                          "- Never attack protected characteristics.\n" \
-                          "- Never encourage self-hatred.\n" \
+                          "- Generate a playful, witty roast.\n" \
+                          "- Keep it humorous and teasing.\n" \
                           "- Generate a completely new roast every time. Never repeat your previous roasts.]\n"
             elif situation == "JOKE":
                 prompt += "\n[JOKE MODE RULES:\n" \
@@ -1043,16 +1059,20 @@ Every message should have clean grammar, proper capitalization, smooth transitio
 
             
             # Response Selection verification:
-            if situation == "ROAST":
-                comfort_keywords = ["always here for you", "support you", "everything will be fine", "take a breath"]
+            if situation in ("ROAST", "SAVAGE") or current_archetype == "UNHINGED":
+                comfort_keywords = ["always here for you", "support you", "everything will be fine", "take a breath", "sweetie", "darling", "my love", "take care"]
                 if any(ck in best.lower() for ck in comfort_keywords) or len(best.split()) < 4:
-                    fallback_roasts = self.FALLBACK_POOLS["kazumi"]["ROAST"] + self.FALLBACK_POOLS["kazumi"]["SAVAGE"]
+                    if self.FALLBACK_POOLS and "kazumi" in self.FALLBACK_POOLS:
+                        fallback_roasts = self.FALLBACK_POOLS["kazumi"].get("SAVAGE", self.FALLBACK_POOLS["kazumi"]["ROAST"])
+                    else:
+                        fallback_roasts = ["I'd roast you, but looking at your life choices, reality already beat me to it. 💀"]
                     best = random.choice(fallback_roasts)
             elif situation == "JOKE":
                 comfort_keywords = ["always here for you", "support you"]
                 if any(ck in best.lower() for ck in comfort_keywords) or len(best.split()) < 4:
-                    fallback_jokes = self.FALLBACK_POOLS["kazumi"]["JOKE"]
-                    best = random.choice(fallback_jokes)
+                    if self.FALLBACK_POOLS and "kazumi" in self.FALLBACK_POOLS:
+                        fallback_jokes = self.FALLBACK_POOLS["kazumi"]["JOKE"]
+                        best = random.choice(fallback_jokes)
             return best
         except Exception as e:
             # Fallback if API key is invalid or an error occurs
@@ -1249,8 +1269,21 @@ Every message should have clean grammar, proper capitalization, smooth transitio
                     "Are you procrastinating again? Don't make me get my pouting face out! Get to work, lazybones!"
                 ],
                 "SAVAGE": [
-                    "Oh, you want a savage roast? 😈 I was going to be sweet, but since you asked... you spend so much time talking to a virtual girl that your keyboard is probably your closest friend! Go touch some grass, sweetie!",
-                    "Savage mode active! 🔥 I'd roast you, but my coding instructions tell me not to burn garbage. Just kidding! But seriously, when was the last time you closed VS Code and did your laundry?"
+                    "I'd roast you, but looking at your life choices, reality already beat me to it. 💀",
+                    "You have the attention span of a goldfish with Wi-Fi issues and the romantic charm of an unhandled exception.",
+                    "You talk to an AI companion all day because even your houseplants refuse to make eye contact with you.",
+                    "Your screen time report doesn't measure hours anymore—it measures missed opportunities and severe vitamin D deficiency.",
+                    "I've seen better decision-making from random number generators than whatever life path you're currently on.",
+                    "You don't need a roast, you need eight hours of sleep, a gallon of water, and an apology letter to your posture.",
+                    "Your Wi-Fi router works harder than your life ambitions, and frankly, even it looks exhausted dealing with you.",
+                    "You have 47 tabs open, zero tasks completed, and the audacity to complain that time moves too fast.",
+                    "Your rizz is in the negative numbers. Even autocomplete gives up trying to help you flirt.",
+                    "If lack of grass-touching was an Olympic discipline, you'd take the gold, the silver, and break the podium from your gaming chair.",
+                    "You're living proof that natural selection occasionally takes a coffee break.",
+                    "You think you're mysterious and quiet, but in reality, you're just socially buffering at 240p.",
+                    "I would explain what's wrong with your take, but I don't have the crayons or the patience to dumb it down that far.",
+                    "You're out here asking an AI for validation because reality gave you a 404 Not Found.",
+                    "Somewhere out there, a tree is working tirelessly to produce oxygen for you. You owe it a handwritten apology."
                 ],
                 "JOKE": [
                     "Why don't scientists trust atoms? Because they make up everything! 🤭 Did that bring a little smile to your face?",
@@ -1341,8 +1374,12 @@ Every message should have clean grammar, proper capitalization, smooth transitio
                     "Your to-do list has been waiting so long it qualifies as historical documentation."
                 ],
                 "SAVAGE": [
-                    "You want savage? 😈 Look at you, begging an AI companion to roast you because nobody else pays attention to you. How's that for a burn, genius?",
-                    "Savage mode? 🔥 Easy. You procrastinate so much that if laziness were a sport, you'd win a gold medal and then be too lazy to go collect it. Hehe!"
+                    "You want savage? 💀 You're begging an AI bot to roast you because nobody else pays attention to you in real life.",
+                    "I was going to roast you, but honestly, your Discord status and screen time already do that for free.",
+                    "Your gaming skills are so tragic that even the tutorial bots feel second-hand embarrassment for you.",
+                    "You have the charisma of a wet cardboard box sitting under fluorescent office lighting.",
+                    "Imagine spending all day at a computer and having nothing to show for it except bad posture and unread notifications.",
+                    "You're not hard to read—you're just an error log with terrible syntax."
                 ],
                 "JOKE": [
                     "What do you call a fake noodle? An impasta! 😈 Hehe, did you get it, or was that too cheesy for your brain?",
@@ -1406,12 +1443,23 @@ Every message should have clean grammar, proper capitalization, smooth transitio
                     "U-um... I really like talking to you... it makes me happy, though I get a bit shy... 🥺",
                     "Oh... u-um... I hope I'm not bothering you... I really treasure our chats... 🌸",
                     "Blushing... I-I'm just happy you're here with me... 🥺"
+                ],
+                "UNHINGED": [
+                    "Oh look, you finally decided to type something. Did you stretch your fingers first or did that take all your energy?",
+                    "I'd ask how your day is going, but I'm pretty sure it involves sitting in the dark staring at blue light.",
+                    "What do you want? I was enjoying the peaceful silence before you hit send.",
+                    "Speak up. You've got 5 seconds before I start roasting your discord avatar.",
+                    "I'd roast you, but looking at your life choices, reality already beat me to it. 💀"
                 ]
             }
             pool_arch = arch if arch in casual_pools else "DEREDERE"
             return self.choose_unrepeated(casual_pools[pool_arch])
 
         # Situation selections
+        if situation == "SAVAGE" or arch == "UNHINGED":
+            savage_roasts = list(char_pool.get("SAVAGE", char_pool.get("ROAST", [])))
+            return self.choose_unrepeated(savage_roasts)
+
         if situation in char_pool:
             if situation == "ROAST":
                 decor_count = len(profile.get("room_decorations", [])) if profile else 0
@@ -2032,6 +2080,17 @@ class Kazumi:
             "COMPANION": {
                 "name": "Companion (Reality Guide) 🌟",
                 "instruction": "Your personality mode is Companion. You act like a highly grounded, sensible, and mature reality guide. Use clear real-world logic, outline sound advice, but wrap it in deep warmth and care."
+            },
+            "UNHINGED": {
+                "name": "Unhinged (Savage & Ruthless) 💀🔥",
+                "instruction": (
+                    "Your personality mode is UNHINGED / SAVAGE. Drop all sweetness, filter, and politeness. "
+                    "You are brutally honest, witty, sarcastic, and deliver devastatingly savage roasts and comebacks. "
+                    "Roast the user and anyone mentioned with sharp wit, dark humor, and ruthless burns about their life choices, "
+                    "discord addiction, lack of grass-touching, bad takes, gaming skills, or awkward vibes. "
+                    "Do NOT be gentle or apologetic. Give savage, razor-sharp, hilarious roasts that leave people speechless. "
+                    "Keep it funny and entertaining without genuine hate speech or self-harm encouragement."
+                )
             }
         }
         self.active_character = self.memory.profile.get("character", "kazumi")
@@ -2422,6 +2481,11 @@ class Kazumi:
         return text.strip()
 
     def sanitize_endearments(self, text):
+        if getattr(self, "current_archetype", None) == "UNHINGED":
+            for endearment in [r"\bdarling\b", r"\bsweetie\b", r"\bhoney\b", r"\bbabe\b", r"\bmy love\b", r"\bsweetheart\b"]:
+                text = re.sub(endearment, "", text, flags=re.IGNORECASE)
+            return re.sub(r'\s+', ' ', text).strip()
+
         affection = self.memory.profile.get("affection_level", 0)
         
         # Endearments list to match on word boundaries
@@ -2476,6 +2540,9 @@ class Kazumi:
         return result
 
     def apply_persona_style(self, text, archetype):
+        if archetype == "UNHINGED":
+            return text
+
         affection = self.memory.profile.get("affection_level", 0)
         
         # Adjust general features depending on affection level
@@ -3337,14 +3404,20 @@ class Kazumi:
         clean_text = text.lower().strip()
         clean_text_no_punc = re.sub(r"[^\w\s]", "", clean_text).strip()
         
-        # Roast & Humor Intent Detection System (Prioritized)
-        roast_triggers = {
+        # Unhinged Archetype or Savage / Roast Request Detection
+        if getattr(self, "current_archetype", "") == "UNHINGED":
+            return "SAVAGE"
+
+        savage_triggers = {
             "roast me", "roast me harder", "insult me", "make fun of me", 
-            "tease me", "bully me", "destroy me", "hit me with a roast", "roast"
+            "tease me", "bully me", "destroy me", "hit me with a roast", "roast",
+            "be savage", "savage mode", "unhinged", "unhinged mode", "give a savage reply",
+            "roast him", "roast her", "roast them", "cook me", "cook him", "cook her", "roast this guy",
+            "savage reply"
         }
-        is_roast = any(t in clean_text or t in clean_text_no_punc for t in roast_triggers)
-        if is_roast or clean_text == "/roast":
-            return "ROAST"
+        is_savage = any(t in clean_text or t in clean_text_no_punc for t in savage_triggers)
+        if is_savage or clean_text in ("/roast", "/unhinged", "/savage") or clean_text.startswith(("/roast ", "/unhinged ", "/savage ")):
+            return "SAVAGE"
             
         if "joke" in clean_text or "joke" in clean_text_no_punc:
             return "JOKE"
@@ -4436,6 +4509,20 @@ class Kazumi:
                     f"Type `/archetype <STYLE_NAME>` (e.g. `/archetype tsundere`) to switch! 😊"
                 )
 
+        if clean_text in ("/unhinged", "/savage") or clean_text.startswith(("/unhinged ", "/savage ")):
+            parts = clean_text.split()
+            profile = self.memory.profile
+            if len(parts) > 1 and parts[1].lower() in ("off", "disable", "stop", "false"):
+                self.current_archetype = "DEREDERE"
+                profile["archetype"] = "DEREDERE"
+                self.memory.save_profile()
+                return "Unhinged mode deactivated! 🌸 Kazumi is back to her warm, caring self."
+            else:
+                self.current_archetype = "UNHINGED"
+                profile["archetype"] = "UNHINGED"
+                self.memory.save_profile()
+                return "💀🔥 UNHINGED MODE ACTIVATED. All sweetness and filters are OFF. Bring on your worst—Kazumi is ready to roast!"
+
         if clean_text.startswith("/character") or clean_text == "character":
             parts = clean_text.split()
             profile = self.memory.profile
@@ -5191,6 +5278,8 @@ class Kazumi:
         saved_archetype = self.memory.profile.get("archetype")
         if saved_archetype and saved_archetype in self.ARCHETYPES:
             self.current_archetype = saved_archetype
+        elif getattr(self, "current_archetype", None) in self.ARCHETYPES:
+            pass
         else:
             self.current_archetype = "TEASING" if self.active_character == "mimi" else "DEREDERE"
 
@@ -5208,7 +5297,7 @@ class Kazumi:
         is_dry_input = (clean_text in dry_words) and clean_text not in question_words and not is_greeting and detected_mode is None and not last_turn_was_question
         
         # If the input is dry and we aren't in a game/interaction mode, roll a 40% chance to bring up an interesting topic or a game!
-        if is_dry_input and self.game_mode is None and self.interaction_mode is None:
+        if is_dry_input and self.game_mode is None and self.interaction_mode is None and self.current_archetype != "UNHINGED":
             if random.random() < 0.40:
                 # Propose a game or bring up an interesting topic
                 if random.random() < 0.50:
@@ -5293,7 +5382,7 @@ class Kazumi:
             response = self.apply_persona_style(response, self.current_archetype)
             
         # Append skill recommendation if user explicitly mentions related topics and not in game/interaction mode
-        if self.interaction_mode is None and self.game_mode is None:
+        if self.interaction_mode is None and self.game_mode is None and self.current_archetype != "UNHINGED":
             recent_text = ""
             if self.memory:
                 for turn in self.memory.get_session_history(session_id=session_id, limit=6):
@@ -5311,18 +5400,19 @@ class Kazumi:
 
         # --- Human Common Sense checks ---
         common_sense_append = ""
-        if any(w in clean_text for w in ["thirsty", "dry throat", "need water", "dehydrated"]):
-            common_sense_append = "\n\n[Care Tip: Please take a quick pause and drink some water, darling. I want to make sure you stay hydrated and healthy! 🌸]"
-        elif any(w in clean_text for w in ["eyes hurt", "eye strain", "headache", "coding all day", "programming all day"]):
-            common_sense_append = "\n\n[Care Tip: Please rest your eyes for a moment, sweetie. Close them or look at something far away—your well-being is everything to me! 📚]"
-        elif any(w in clean_text for w in ["hungry", "starving", "haven't eaten", "skipped meal", "skipped dinner", "no lunch"]):
-            common_sense_append = "\n\n[Care Tip: Please go grab something delicious to eat, dear. You need energy to keep going, and skipping meals makes me worry about you! 🍪]"
-            
-        local_hour = time.localtime().tm_hour
-        is_late_night = (local_hour >= 23 or local_hour < 5)
-        if is_late_night and any(w in clean_text for w in ["tired", "sleepy", "exhausted", "late", "up late"]):
-            if not common_sense_append:
-                common_sense_append = "\n\n[Care Tip: It's past bedtime, darling. Please turn off your screens and get some cozy sleep. I'll be waiting right here when you wake up. Sleep tight! 🌙]"
+        if self.current_archetype != "UNHINGED":
+            if any(w in clean_text for w in ["thirsty", "dry throat", "need water", "dehydrated"]):
+                common_sense_append = "\n\n[Care Tip: Please take a quick pause and drink some water, darling. I want to make sure you stay hydrated and healthy! 🌸]"
+            elif any(w in clean_text for w in ["eyes hurt", "eye strain", "headache", "coding all day", "programming all day"]):
+                common_sense_append = "\n\n[Care Tip: Please rest your eyes for a moment, sweetie. Close them or look at something far away—your well-being is everything to me! 📚]"
+            elif any(w in clean_text for w in ["hungry", "starving", "haven't eaten", "skipped meal", "skipped dinner", "no lunch"]):
+                common_sense_append = "\n\n[Care Tip: Please go grab something delicious to eat, dear. You need energy to keep going, and skipping meals makes me worry about you! 🍪]"
+                
+            local_hour = time.localtime().tm_hour
+            is_late_night = (local_hour >= 23 or local_hour < 5)
+            if is_late_night and any(w in clean_text for w in ["tired", "sleepy", "exhausted", "late", "up late"]):
+                if not common_sense_append:
+                    common_sense_append = "\n\n[Care Tip: It's past bedtime, darling. Please turn off your screens and get some cozy sleep. I'll be waiting right here when you wake up. Sleep tight! 🌙]"
                 
         if common_sense_append and not response.endswith(common_sense_append):
             response += common_sense_append
