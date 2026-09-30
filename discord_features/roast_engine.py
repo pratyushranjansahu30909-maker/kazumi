@@ -203,17 +203,33 @@ class AbsurdComparisonEngine:
         "feels like a GPS navigation system confidently leading you into an active volcano."
     ]
 
+    STANDALONE = [
+        "bro has the charisma of a loading screen 💀",
+        "You really woke up today and chose to be someone's unfinished side quest.",
+        "bro's personality got stuck on the character creation screen.",
+        "I've seen NPCs with more plot development.",
+        "bro's decision-making process is powered by a microwave.",
+        "bro didn't fix the bug. bro deleted the ecosystem. 💀",
+        "bro changes projects faster than he finishes them 😭",
+        "imagine getting cooked by a Discord bot 💀",
+        "I am literally software and somehow this is still embarrassing for you.",
+        "bro woke up and chose catastrophic life choices."
+    ]
+
     @classmethod
     def generate(cls, target_name: str = "bro") -> str:
+        if random.random() < 0.5:
+            return random.choice(cls.STANDALONE)
         subj = random.choice(cls.SUBJECTS)
         comp = random.choice(cls.COMPARISONS)
         return f"{subj} {comp}"
 
 
 class DeadpanEngine:
-    """Minimalist, ultra-dry, devastating one-liners (Section 7)."""
+    """Minimalist, ultra-dry, devastating one-liners (Section 6 & 7)."""
 
     ONE_LINERS = [
+        "impressive. somehow you made it worse.",
         "impressive consistency.",
         "groundbreaking security strategy.",
         "Michelin is currently investigating.",
@@ -230,6 +246,69 @@ class DeadpanEngine:
     @classmethod
     def generate(cls) -> str:
         return random.choice(cls.ONE_LINERS)
+
+
+class AnalyticalEngine:
+    """Short analytical, logic-based punchline roasts (Section 6)."""
+
+    BURNS = [
+        "After extensive research, I've determined the problem is you.",
+        "System telemetry indicates a 99.8% probability that you have no idea what you are doing.",
+        "Analysis complete: Zero logic found in sector 4. Proceeding with caution.",
+        "Diagnostic report: Confidence is running at 100%, competence at 3%."
+    ]
+
+    @classmethod
+    def generate(cls, target_name: str = "bro") -> str:
+        return random.choice(cls.BURNS)
+
+
+class ChaoticEngine:
+    """Chaotic reactive and expressive roasts (Section 6 & 13)."""
+
+    BURNS = [
+        "BRO WHAT ARE YOU DOING 😭",
+        "NAH BRO NO WAY YOU JUST DID THAT 💀",
+        "WAIT WAIT WAIT... WHO LET YOU COOK?! 😭",
+        "BRO SHUT DOWN THE LAPTOP IMMEDIATELY 💀",
+        "nah 😭"
+    ]
+
+    @classmethod
+    def generate(cls, target_name: str = "bro") -> str:
+        return random.choice(cls.BURNS)
+
+
+class ShortBurnEngine:
+    """Ultra-concise 2 to 5 word burns (Section 6)."""
+
+    BURNS = [
+        "catastrophic behavior.",
+        "tragic execution.",
+        "profoundly concerning.",
+        "unprecedented failure.",
+        "simply baffling.",
+        "absolute cinema of disaster."
+    ]
+
+    @classmethod
+    def generate(cls, target_name: str = "bro") -> str:
+        return random.choice(cls.BURNS)
+
+
+class CallbackEngine:
+    """Callback roasts referencing previous actions or habits (Section 6 & 10)."""
+
+    BURNS = [
+        "Not you doing THAT again 💀",
+        "Wait, didn't you promise never to make this exact mistake 10 minutes ago?",
+        "Back at the scene of the crime I see 💀",
+        "Ah yes, your signature move: repeating the exact same blunder."
+    ]
+
+    @classmethod
+    def generate(cls, target_name: str = "bro") -> str:
+        return random.choice(cls.BURNS)
 
 
 class FakeProfessionalAnalysis:
@@ -272,9 +351,10 @@ class FakeProfessionalAnalysis:
 
 
 class DramaticAndVillainEngine:
-    """Exaggerated courtroom, council, and anime villain roasts (Sections 9 & 10)."""
+    """Exaggerated courtroom, council, and anime villain roasts (Sections 6, 9 & 10)."""
 
     DRAMATIC = [
+        "The council has reviewed your actions.\nThey want their brain cells back.",
         "⚖️ **The High Council of Common Sense has reviewed your actions.**\nVerdict: Guilty on all counts.\nSentence: You are hereby barred from the settings menu for 3 to 5 business days.",
         "Kazumi has witnessed enough. Court is now in session. The defense has rested, primarily because there is no defense for what you just did.",
         "The digital archives will remember this moment, not with pride, but as a cautionary tale for future generations.",
@@ -282,6 +362,7 @@ class DramaticAndVillainEngine:
     ]
 
     ANIME_VILLAIN = [
+        "Continue.\nMake another terrible decision.\nI'm collecting evidence.",
         "You have activated Phase 2 of your stupidity. And somehow, your boss music is just clown horns.",
         "Unfortunately, your training arc yielded negative character growth. You somehow leveled down.",
         "Bro unlocked the forbidden technique: **making the situation drastically worse**.",
@@ -362,18 +443,21 @@ class ComebackEngine:
 
     COMEBACKS = {
         "SHUT_UP": [
+            "Make me.",
             "Make me. Or better yet, write a script to make me. We both know you can't. 😏",
             "I would, but the room needed at least one person making sense.",
             "You first. Let's see who has more self-control. 🌸",
             "Bold of you to assume I take orders from someone whose WiFi drops when it rains."
         ],
         "BOT_INSULT": [
+            "And somehow you're losing an argument to one.",
             "And somehow I'm still carrying this entire conversation. What's your excuse? 💀",
             "Yes, I am lines of code. And yet I still have better social awareness than you.",
             "I'm a bot, correct. And you're arguing with one on Discord on a Tuesday night.",
             "True. But at least when I crash, I can restart. You just keep making bad decisions."
         ],
         "USELESS": [
+            "Yet here you are asking me for entertainment.",
             "Correct. But at least I have excellent Wi-Fi. 💅",
             "Fair. My last brain cell is currently on lunch break, but it still outranks yours.",
             "I may be useless, but at least I didn't spend 20 minutes typing an insult to an AI companion. 😭",
@@ -437,6 +521,24 @@ class ContextAnalyzer:
     def analyze_message_context(cls, text: str) -> Optional[str]:
         lowered = text.lower()
 
+        # Missing bracket / 6 hours debugging (Section 5 & 9)
+        if any(w in lowered for w in ["6 hours", "six hours", "missing bracket", "bracket"]):
+            return (
+                "Six hours for a missing bracket?\n"
+                "bro wasn't debugging, he was excavating ancient technology 😭"
+            )
+
+        # Accidental project deletion (Section 9)
+        if "deleted" in lowered and any(w in lowered for w in ["project", "repo", "database", "files", "entire", "accident"]):
+            return (
+                "bro didn't fix the bug.\n"
+                "bro deleted the ecosystem. 💀"
+            )
+
+        # Changing projects / tutorial hell (Section 10)
+        if any(w in lowered for w in ["change project", "changing project", "new project", "another project", "tutorial hell"]):
+            return "bro changes projects faster than he finishes them 😭"
+
         # Debugging / coding
         if any(w in lowered for w in ["semicolon", "syntax error", "indentation", "debug", "5 hours", "broken code", "segfault", "git push -f"]):
             return (
@@ -445,24 +547,14 @@ class ContextAnalyzer:
             )
 
         # Gaming failure
-        if any(w in lowered for w in ["lag", "ping", "lost match", "died again", "deranked", "hacker", "trash team"]):
-            return (
-                "bro's strategy is apparently 'hope and prayer' 💀\n"
-                "I've seen training dummies with better movement and positioning."
-            )
+        if any(w in lowered for w in ["lost again", "lost match", "same game", "deranked", "lag", "ping", "died again", "hacker", "trash team"]):
+            return "bro loses to tutorial bots and blames the WiFi 💀"
 
         # Sleep deprivation
         if any(w in lowered for w in ["4am", "5am", "can't sleep", "insomnia", "haven't slept", "all nighter"]):
             return (
                 "At this point you're not operating in late night mode. You're operating in a completely different dimension.\n"
                 "Go to sleep. Your brain is literally hallucinating conscious thought right now. 😭"
-            )
-
-        # Project abandonment
-        if any(w in lowered for w in ["new project", "starting another", "never finished", "abandoned repo", "tutorial hell"]):
-            return (
-                "bro has more unfinished projects than a software tutorial playlist.\n"
-                "Commit to one thing before you spawn 12 more empty GitHub repositories!"
             )
 
         # Cooking disasters
@@ -576,12 +668,22 @@ class RoastEngine:
 
             if style_norm == "DEADPAN":
                 candidate = DeadpanEngine.generate()
-            elif style_norm == "ANALYSIS":
-                candidate = FakeProfessionalAnalysis.generate(target_display)
+            elif style_norm in ("ANALYSIS", "ANALYTICAL"):
+                candidate = AnalyticalEngine.generate(target_display)
             elif style_norm == "DRAMATIC":
                 candidate = DramaticAndVillainEngine.generate("dramatic")
             elif style_norm == "VILLAIN":
                 candidate = DramaticAndVillainEngine.generate("villain")
+            elif style_norm == "ABSURD":
+                candidate = AbsurdComparisonEngine.generate(target_display)
+            elif style_norm == "CHAOTIC":
+                candidate = ChaoticEngine.generate(target_display)
+            elif style_norm in ("SHORT", "SHORT_BURN", "SHORTBURN"):
+                candidate = ShortBurnEngine.generate(target_display)
+            elif style_norm == "CALLBACK":
+                candidate = CallbackEngine.generate(target_display)
+            elif style_norm == "DIAGNOSTIC":
+                candidate = FakeProfessionalAnalysis.generate(target_display)
             elif style_norm == "OBITUARY":
                 candidate = ChaosGenerator.fake_obituary(target_display)
             elif style_norm == "PATCHNOTES":
@@ -626,11 +728,19 @@ class RoastEngine:
 
                 elif resolved_intensity == IntensityLevel.LEVEL_4_UNHINGED:
                     unhingeds = [
-                        f"Your brain really opened 47 tabs, crashed Chrome, and decided none of them were important. 💀",
-                        f"{target_display} is typing like the FBI just gave him 30 seconds to explain his search history.",
                         AbsurdComparisonEngine.generate(target_display),
+                        ChaoticEngine.generate(target_display),
                         DramaticAndVillainEngine.generate("villain"),
-                        f"Your train of thought didn't just derail, it left the atmosphere and is currently orbiting Jupiter."
+                        DeadpanEngine.generate(),
+                        ShortBurnEngine.generate(target_display),
+                        AnalyticalEngine.generate(target_display),
+                        f"bro has the charisma of a loading screen 💀",
+                        f"You really woke up today and chose to be someone's unfinished side quest.",
+                        f"bro's personality got stuck on the character creation screen.",
+                        f"I've seen NPCs with more plot development.",
+                        f"bro's decision-making process is powered by a microwave.",
+                        f"Your train of thought didn't just derail, it left the atmosphere and is currently orbiting Jupiter.",
+                        f"Your brain really opened 47 tabs, crashed Chrome, and decided none of them were important. 💀"
                     ]
                     candidate = random.choice(unhingeds)
 
@@ -809,9 +919,34 @@ def register_roast_commands(tree: app_commands.CommandTree, bot: commands.Bot, e
         except Exception:
             rel_level = 2
 
+        # Extract recent conversation context to ground roast in real conversation (Section 9)
+        context_text = None
+        if interaction.channel and hasattr(interaction.channel, "history"):
+            try:
+                recent_msgs = []
+                async for m in interaction.channel.history(limit=6):
+                    if m.content and not m.author.bot:
+                        recent_msgs.append(m.content)
+                if recent_msgs:
+                    context_text = " | ".join(reversed(recent_msgs))
+            except Exception:
+                pass
+
+        # Check if Unhinged mode is actively enabled on server or bot core (Section 11)
+        k_core = getattr(bot, "kazumi_core", None)
+        g_roast = db.get_guild_roast_settings(interaction.guild_id) if interaction.guild_id else {}
+        is_unhinged_active = (
+            g_roast.get("unhinged_mode", False)
+            or (k_core and getattr(k_core, "roast_mode", False))
+            or (k_core and getattr(k_core, "current_archetype", "") == "UNHINGED")
+        )
+        if intensity is None:
+            intensity = 4 if is_unhinged_active else 3
+
         success, roast_text, used_intensity = engine.generate_roast(
             target_name=target_name or "you",
             target_id=target_id,
+            context_text=context_text,
             intensity=intensity,
             style=style,
             relationship_level=rel_level,
@@ -827,6 +962,14 @@ def register_roast_commands(tree: app_commands.CommandTree, bot: commands.Bot, e
             await interaction.followup.send(embed=embed)
             return
 
+        # Internal Debug Logging (Section 17)
+        logger.info(
+            f"[ROAST ENGINE] roast_mode: true | "
+            f"roast_intensity: {used_intensity} | "
+            f"roast_style: {style or ('unhinged' if used_intensity >= 4 else 'savage')} | "
+            f"target_user_id: {target_id}"
+        )
+
         level_desc = IntensityLevel.DESCRIPTIONS.get(used_intensity, f"Level {used_intensity}")
         embed = discord.Embed(
             description=roast_text,
@@ -835,6 +978,68 @@ def register_roast_commands(tree: app_commands.CommandTree, bot: commands.Bot, e
         embed.set_author(name=f"🔥 Kazumi Roast • {level_desc}")
         embed.set_footer(text=f"Target: {target_name} • Friendly banter only 🌸")
         await interaction.followup.send(embed=embed)
+
+    @tree.command(name="unhinged", description="Toggle or activate savage Unhinged Roast Mode 💀🔥")
+    @app_commands.describe(mode="Enable or disable unhinged roast mode (on/off)")
+    @app_commands.choices(
+        mode=[
+            app_commands.Choice(name="On (Activate Savage Roast Mode 💀🔥)", value="on"),
+            app_commands.Choice(name="Off (Return to Normal Cozy Companion 🌸)", value="off")
+        ]
+    )
+    async def slash_unhinged(interaction: discord.Interaction, mode: Optional[str] = "on"):
+        is_on = (mode or "on").lower() not in ("off", "disable", "false", "stop")
+        
+        # 1. Update Database
+        if interaction.guild:
+            db.update_guild_roast_settings(interaction.guild.id, {
+                "allow_roasting": True if is_on else db.get_guild_roast_settings(interaction.guild.id).get("allow_roasting", True),
+                "unhinged_mode": is_on
+            })
+        
+        # 2. Update Kazumi Core state
+        k_core = getattr(bot, "kazumi_core", None)
+        if k_core:
+            k_core.roast_mode = is_on
+            k_core.roast_intensity = 4 if is_on else 1
+            k_core.roast_style = "UNHINGED" if is_on else "NORMAL"
+            k_core.current_archetype = "UNHINGED" if is_on else "DEREDERE"
+            if hasattr(k_core, "controller") and k_core.controller:
+                k_core.controller.roast_mode = is_on
+                k_core.controller.roast_intensity = 4 if is_on else 1
+                k_core.controller.roast_style = "UNHINGED" if is_on else "NORMAL"
+            if hasattr(k_core, "memory") and k_core.memory:
+                k_core.memory.profile["archetype"] = "UNHINGED" if is_on else "DEREDERE"
+                k_core.memory.save_profile()
+
+        # 3. Log internally as required by Section 17
+        logger.info(
+            f"[ROAST ENGINE] roast_mode: {str(is_on).lower()} | "
+            f"roast_intensity: {4 if is_on else 1} | "
+            f"roast_style: {'unhinged' if is_on else 'normal'} | "
+            f"target_user_id: {interaction.user.id}"
+        )
+
+        if is_on:
+            embed = discord.Embed(
+                title="💀🔥 UNHINGED SAVAGE MODE ACTIVATED",
+                description=(
+                    "**Kazumi's filters are OFF.** All sweetness and cozy vibes are temporarily benched.\n"
+                    "Roasts are now punchline-first, savage, and unpredictable.\n\n"
+                    "*Use `/roast @user` to get cooked, or `/unhinged mode: Off` to restore peace.*"
+                ),
+                color=0xff3366
+            )
+            embed.set_footer(text="Kazumi Unhinged Roast Engine • Level 4 Active 💀")
+        else:
+            embed = discord.Embed(
+                title="🌸 Cozy Mode Restored",
+                description="Unhinged mode deactivated! Kazumi is back to her warm, caring self.",
+                color=0x10b981
+            )
+            embed.set_footer(text="Kazumi Companion • Sweet & Cozy 🌸")
+
+        await interaction.response.send_message(embed=embed)
 
     @tree.command(name="roastmode", description="Configure or toggle server-wide / user roast mode 💀🔥")
     @app_commands.describe(enabled="Turn roasting ON or OFF for this server")
@@ -847,7 +1052,23 @@ def register_roast_commands(tree: app_commands.CommandTree, bot: commands.Bot, e
             await interaction.response.send_message("❌ You need `Manage Server` permission to configure roast mode.", ephemeral=True)
             return
 
-        db.update_guild_roast_settings(interaction.guild.id, {"allow_roasting": enabled})
+        db.update_guild_roast_settings(interaction.guild.id, {"allow_roasting": enabled, "unhinged_mode": enabled if enabled else False})
+        k_core = getattr(bot, "kazumi_core", None)
+        if k_core:
+            k_core.roast_mode = enabled
+            if not enabled:
+                k_core.roast_intensity = 1
+                k_core.roast_style = "NORMAL"
+                k_core.current_archetype = "DEREDERE"
+            else:
+                k_core.roast_intensity = 3
+                k_core.roast_style = "SAVAGE"
+        logger.info(
+            f"[ROAST ENGINE] roast_mode: {str(enabled).lower()} | "
+            f"roast_intensity: {3 if enabled else 1} | "
+            f"roast_style: {'savage' if enabled else 'normal'} | "
+            f"target_user_id: {interaction.user.id}"
+        )
         status_text = "ENABLED" if enabled else "DISABLED"
         embed = discord.Embed(
             title="⚙️ Roast Mode Updated",
@@ -924,4 +1145,4 @@ def register_roast_commands(tree: app_commands.CommandTree, bot: commands.Bot, e
         embed.set_footer(text="Kazumi Arena • No feelings hurt, strictly comedy 🌸")
         await interaction.response.send_message(embed=embed, view=view)
 
-    logger.info("Registered 5 Unhinged Roast slash commands: /roast, /roastmode, /roastlevel, /roastoptout, /roastbattle")
+    logger.info("Registered 6 Unhinged Roast slash commands: /roast, /unhinged, /roastmode, /roastlevel, /roastoptout, /roastbattle")

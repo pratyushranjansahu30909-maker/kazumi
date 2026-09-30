@@ -11,6 +11,7 @@ KAZUMI ADVANCED SOCIAL & SERVER INTELLIGENCE
 - Kazumi Moments & Server Events (spontaneous community milestones with strict throttling)
 """
 
+import re
 import time
 import random
 import logging
@@ -286,7 +287,8 @@ class SmartSilenceEngine:
                 # Even if mentioned, in observation mode Kazumi reacts or sends a brief notice
                 return "REACT"
             # 8% chance to react if funny/exciting
-            if any(w in content.lower() for w in ["haha", "lmao", "gg", "w", "congrats", "rip", "omg"]):
+            tokens = set(re.findall(r"\b\w+\b", content.lower()))
+            if any(w in tokens for w in ["haha", "lmao", "gg", "congrats", "rip", "omg"]):
                 return "REACT" if random.random() < 0.15 else "SILENCE"
             return "SILENCE"
 

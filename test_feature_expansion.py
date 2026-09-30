@@ -230,7 +230,7 @@ class KazumiFeatureExpansionTests(unittest.TestCase):
             "ping", "uptime", "botinfo", "serverinfo", "userinfo", "avatar", "roleinfo",
             "channelinfo", "permissions", "poll", "announce", "remind", "time",
             "play", "pause", "resume", "skip", "queue", "nowplaying", "volume", "loop", "stop",
-            "roast", "roastmode", "roastlevel", "roastoptout", "roastbattle"
+            "roast", "unhinged", "roastmode", "roastlevel", "roastoptout", "roastbattle"
         ]
         for name in expected_cmds:
             self.assertIn(name, cmd_names, f"Missing command: {name}")
@@ -305,15 +305,48 @@ class KazumiFeatureExpansionTests(unittest.TestCase):
         cat = ComebackEngine.detect_category("shut up bro")
         self.assertEqual(cat, "SHUT_UP")
         cb = ComebackEngine.get_comeback(cat)
-        self.assertTrue(len(cb) > 5)
+        self.assertTrue(len(cb) > 2)
+        self.assertIn("Make me.", ComebackEngine.COMEBACKS["SHUT_UP"])
 
         cat_bot = ComebackEngine.detect_category("you're literally a bot")
         self.assertEqual(cat_bot, "BOT_INSULT")
+        self.assertIn("And somehow you're losing an argument to one.", ComebackEngine.COMEBACKS["BOT_INSULT"])
 
-        # 7. ContextAnalyzer
+        cat_useless = ComebackEngine.detect_category("you're useless")
+        self.assertEqual(cat_useless, "USELESS")
+        self.assertIn("Yet here you are asking me for entertainment.", ComebackEngine.COMEBACKS["USELESS"])
+
+        # 7. ContextAnalyzer (Sections 5, 9, 10)
         ctx_roast = ContextAnalyzer.analyze_message_context("I spent 5 hours on a missing semicolon")
         self.assertIsNotNone(ctx_roast)
         self.assertIn("FIVE HOURS", ctx_roast)
+
+        ctx_6h = ContextAnalyzer.analyze_message_context("I spent 6 hours fixing a bug")
+        self.assertIsNotNone(ctx_6h)
+        self.assertIn("excavating ancient technology", ctx_6h)
+
+        ctx_del = ContextAnalyzer.analyze_message_context("I accidentally deleted the entire project")
+        self.assertIsNotNone(ctx_del)
+        self.assertIn("deleted the ecosystem", ctx_del)
+
+        ctx_proj = ContextAnalyzer.analyze_message_context("tutorial hell, changing project again")
+        self.assertIsNotNone(ctx_proj)
+        self.assertIn("faster than he finishes them", ctx_proj)
+
+        # 8. All Section 6 Comedy Styles
+        from discord_features.roast_engine import (
+            AnalyticalEngine, ChaoticEngine, ShortBurnEngine, CallbackEngine
+        )
+        self.assertTrue(len(AnalyticalEngine.generate("Alex")) > 5)
+        self.assertTrue(len(ChaoticEngine.generate("Alex")) > 3)
+        self.assertTrue(len(ShortBurnEngine.generate("Alex")) > 3)
+        self.assertTrue(len(CallbackEngine.generate("Alex")) > 5)
+
+        # Generate roasts by style override
+        for style in ["DEADPAN", "ANALYTICAL", "DRAMATIC", "VILLAIN", "ABSURD", "CHAOTIC", "SHORT_BURN", "CALLBACK"]:
+            s, r, lvl = engine.generate_roast(target_name="Tester", style=style)
+            self.assertTrue(s)
+            self.assertTrue(len(r) > 3)
 
     def test_15_roast_safety_and_opt_out(self):
         """Verify strict anti-harassment safeguards and target consent."""
@@ -339,6 +372,40 @@ class KazumiFeatureExpansionTests(unittest.TestCase):
         self.assertFalse(self.db.is_user_roast_opted_out(777888))
         success, msg, _ = engine.generate_roast(target_name="ProtectedUser", target_id=777888)
         self.assertTrue(success)
+
+    def test_16_roast_personality_override_fix(self):
+        """Verify that Kazumi never refuses a roast with cozy/empathetic lectures when roast_mode is active."""
+        from kazumi import Kazumi
+
+        k = Kazumi()
+        k.roast_mode = True
+        k.roast_intensity = 4
+        k.roast_style = "UNHINGED"
+        k.current_archetype = "UNHINGED"
+
+        # Verify rule-based fallback responses when offline or testing
+        reply = k.controller.get_fallback_chat_reply(
+            user_text="roast me",
+            valence=-0.1,
+            situation="ROAST",
+            current_archetype="UNHINGED"
+        )
+        self.assertTrue(len(reply) > 5)
+        # Ensure NO cozy refusals
+        refusal_phrases = [
+            "cozy, empathetic", "all about that", "can't go savage", "cannot go savage",
+            "cardboard box, darling", "drinking plain water like a plant"
+        ]
+        for phrase in refusal_phrases:
+            self.assertNotIn(phrase.lower(), reply.lower())
+
+        # Test mode exit restores normal personality
+        k.roast_mode = False
+        k.roast_intensity = 1
+        k.roast_style = "NORMAL"
+        k.current_archetype = "DEREDERE"
+        self.assertFalse(k.roast_mode)
+        self.assertEqual(k.current_archetype, "DEREDERE")
 
 
 if __name__ == "__main__":

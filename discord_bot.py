@@ -142,6 +142,7 @@ bot = commands.Bot(
     help_command=None,
     connector=bot_connector
 )
+bot.kazumi_core = kazumi_core
 
 # Initialize Kazumi Advanced Feature Suite (Moderation, Logging, Tickets, Giveaways, Music, etc.)
 import discord_features
@@ -783,26 +784,40 @@ async def on_message(message: discord.Message):
                 return
 
         # Build multi-dimensional social & contextual directive (Sections 13, 14, 16, 17, 18, 19)
+        g_roast = db_inst.get_guild_roast_settings(message.guild.id) if (db_inst and message.guild) else {}
+        is_roast_active = (
+            getattr(kazumi_core, "roast_mode", False)
+            or getattr(kazumi_core, "current_archetype", "") == "UNHINGED"
+            or g_roast.get("unhinged_mode", False)
+        )
+        if is_roast_active and kazumi_core:
+            kazumi_core.roast_mode = True
+            kazumi_core.roast_intensity = 4
+            kazumi_core.roast_style = "UNHINGED"
+            kazumi_core.current_archetype = "UNHINGED"
+
         social_directives = []
-        if message.guild:
-            mood_val = kazumi_features["mood"].get_guild_mood(message.guild.id)
-            mood_desc = kazumi_features["mood"].get_mood_prompt_modifier(mood_val)
-            fam_desc = kazumi_features["social_graph"].get_familiarity_context(message.guild.id, message.author.id)
-            server_desc = kazumi_features["server_memory"].get_server_context_summary(message.guild.id)
-            resumed_ctx = kazumi_features["continuity"].get_resumed_context(message.guild.id, message.author.id)
-
-            social_directives.append(f"[Current Internal Mood: {mood_val} - {mood_desc}]")
-            if fam_desc:
-                social_directives.append(f"[{fam_desc}]")
-            if resumed_ctx:
-                social_directives.append(f"[{resumed_ctx}]")
-            if server_desc:
-                social_directives.append(f"[{server_desc}]")
-
-        if getattr(kazumi_core, "current_archetype", "") == "UNHINGED":
+        if is_roast_active:
             social_directives.append(
-                "[UNHINGED SAVAGE ROAST MODE ACTIVE: Deliver a razor-sharp, hilarious, sarcastic, unhinged roast or comeback!]"
+                "[UNHINGED SAVAGE ROAST PERSONALITY ACTIVE: Your normal sweet/cozy rules are benched. "
+                "Deliver a razor-sharp, hilarious, sarcastic punchline roast (3 to 20 words max!). "
+                "Never apologize. Never say you're all about cozy empathetic vibes. Never refuse to roast.]"
             )
+        else:
+            if message.guild:
+                mood_val = kazumi_features["mood"].get_guild_mood(message.guild.id)
+                mood_desc = kazumi_features["mood"].get_mood_prompt_modifier(mood_val)
+                fam_desc = kazumi_features["social_graph"].get_familiarity_context(message.guild.id, message.author.id)
+                server_desc = kazumi_features["server_memory"].get_server_context_summary(message.guild.id)
+                resumed_ctx = kazumi_features["continuity"].get_resumed_context(message.guild.id, message.author.id)
+
+                social_directives.append(f"[Current Internal Mood: {mood_val} - {mood_desc}]")
+                if fam_desc:
+                    social_directives.append(f"[{fam_desc}]")
+                if resumed_ctx:
+                    social_directives.append(f"[{resumed_ctx}]")
+                if server_desc:
+                    social_directives.append(f"[{server_desc}]")
 
         if adaptive_directive:
             social_directives.append(adaptive_directive)
@@ -1252,38 +1267,6 @@ async def slash_persona(interaction: discord.Interaction, archetype: Optional[ap
         description=desc,
         color=0xff3366 if getattr(kazumi_core, "current_archetype", "") == "UNHINGED" else 0xc084fc
     )
-    await interaction.followup.send(embed=embed)
-
-
-
-@bot.tree.command(name="unhinged", description="Toggle or activate Kazumi's unhinged savage roast mode 💀🔥")
-@app_commands.describe(enabled="Turn unhinged mode ON or OFF")
-async def slash_unhinged(interaction: discord.Interaction, enabled: bool = True):
-    await interaction.response.defer(thinking=True)
-    if not kazumi_core:
-        await interaction.followup.send("Kazumi core is currently offline.")
-        return
-
-    with kazumi_lock:
-        if enabled:
-            kazumi_core.current_archetype = "UNHINGED"
-            kazumi_core.memory.profile["archetype"] = "UNHINGED"
-            kazumi_core.memory.save_profile()
-            embed = create_kazumi_embed(
-                title="💀🔥 Unhinged Savage Mode ACTIVATED",
-                description="All sweetness, kindness, and filters have been turned OFF. Prepare yourself—Kazumi will roast anyone who speaks with razor-sharp wit and zero mercy!",
-                color=0xff3366
-            )
-        else:
-            kazumi_core.current_archetype = "DEREDERE"
-            kazumi_core.memory.profile["archetype"] = "DEREDERE"
-            kazumi_core.memory.save_profile()
-            embed = create_kazumi_embed(
-                title="🌸 Unhinged Mode Deactivated",
-                description="Kazumi is back to her warm, caring, and loving self. Ready to have cozy chats!",
-                color=0xc084fc
-            )
-
     await interaction.followup.send(embed=embed)
 
 
