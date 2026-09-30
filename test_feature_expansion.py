@@ -236,7 +236,22 @@ class KazumiFeatureExpansionTests(unittest.TestCase):
 
         print(f"\n[OK] All {len(cmd_names)} Discord commands registered without collision!")
 
+    def test_13_config_and_secret_redaction(self):
+        """Verify centralized configuration and sensitive token masking (Phase 1)."""
+        from discord_features.config import KazumiConfig, sanitize_secrets
+        # Ensure default feature flags are present
+        self.assertTrue(KazumiConfig.is_feature_enabled("moderation"))
+        self.assertTrue(KazumiConfig.is_feature_enabled("automod"))
+
+        # Test token masking
+        fake_token = "dummy_auth_" + "part1_key." + "part2_signature." + "part3_verifier"
+        fake_key = "sk-" + "dummykey1234567890abcdef12345678"
+        masked = sanitize_secrets(f"Connecting with {fake_token} and key {fake_key}")
+        self.assertNotIn(fake_key, masked)
+        self.assertIn("[REDACTED_SECRET]", masked)
+
 
 
 if __name__ == "__main__":
+
     unittest.main()

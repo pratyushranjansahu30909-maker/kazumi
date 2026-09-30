@@ -83,6 +83,9 @@ ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 if ROOT_DIR not in sys.path:
     sys.path.append(ROOT_DIR)
 
+from discord_features.config import SanitizedLogFormatter
+log_handler.setFormatter(SanitizedLogFormatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+
 # Import Kazumi Core
 try:
     from kazumi import Kazumi, FolderLock

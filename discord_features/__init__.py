@@ -23,8 +23,10 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from .config import KazumiConfig, sanitize_secrets, SanitizedLogFormatter
 from .database import FeatureDatabase, get_feature_db, FeatureDB
 from .moderation import AutoModTracker, register_moderation_commands
+
 from .logging import ServerLogging, register_logging_commands
 from .welcome import WelcomeSystem, register_welcome_commands
 from .autorole import AutoRoleSystem, register_autorole_commands
