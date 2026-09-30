@@ -229,7 +229,8 @@ class KazumiFeatureExpansionTests(unittest.TestCase):
             "autorole", "ticket", "giveaway", "reactionrole", "customcommand", "tag",
             "ping", "uptime", "botinfo", "serverinfo", "userinfo", "avatar", "roleinfo",
             "channelinfo", "permissions", "poll", "announce", "remind", "time",
-            "play", "pause", "resume", "skip", "queue", "nowplaying", "volume", "loop", "stop"
+            "play", "pause", "resume", "skip", "queue", "nowplaying", "volume", "loop", "stop",
+            "roast", "roastmode", "roastlevel", "roastoptout", "roastbattle"
         ]
         for name in expected_cmds:
             self.assertIn(name, cmd_names, f"Missing command: {name}")
@@ -250,8 +251,95 @@ class KazumiFeatureExpansionTests(unittest.TestCase):
         self.assertNotIn(fake_key, masked)
         self.assertIn("[REDACTED_SECRET]", masked)
 
+    def test_14_unhinged_roast_engine_generation(self):
+        """Verify Unhinged Roast Engine generators, styles, and comebacks."""
+        from discord_features.roast_engine import (
+            RoastEngine,
+            IntensityLevel,
+            ComebackEngine,
+            ContextAnalyzer,
+            AbsurdComparisonEngine,
+            DeadpanEngine,
+            FakeProfessionalAnalysis,
+            DramaticAndVillainEngine,
+            ChaosGenerator
+        )
+
+        engine = RoastEngine(self.db)
+
+        # 1. Procedural Intensity Generation
+        for lvl in range(1, 6):
+            success, roast, used_lvl = engine.generate_roast(target_name="Aamir", intensity=lvl)
+            self.assertTrue(success)
+            self.assertTrue(len(roast) > 5)
+            self.assertEqual(used_lvl, lvl)
+
+        # 2. Absurd Comparisons & Deadpan
+        comp = AbsurdComparisonEngine.generate("Alex")
+        self.assertTrue(len(comp) > 10)
+        deadpan = DeadpanEngine.generate()
+        self.assertTrue(len(deadpan) > 5)
+
+        # 3. Diagnostic Analysis
+        analysis = FakeProfessionalAnalysis.generate("Shan")
+        self.assertIn("Findings:", analysis)
+        self.assertIn("Clinical Diagnosis:", analysis)
+
+        # 4. Dramatic & Villain Modes
+        dramatic = DramaticAndVillainEngine.generate("dramatic")
+        self.assertTrue(len(dramatic) > 10)
+        villain = DramaticAndVillainEngine.generate("villain")
+        self.assertTrue(len(villain) > 10)
+
+        # 5. Chaos formats (Obituary, Patch Notes, Error 404, Security Alert)
+        obit = ChaosGenerator.fake_obituary("Jordan")
+        self.assertIn("HERE LIES", obit)
+        patch = ChaosGenerator.patch_notes("Jordan")
+        self.assertIn("Patch Notes", patch)
+        err404 = ChaosGenerator.error_404("Jordan")
+        self.assertIn("ERROR 404", err404)
+        sec = ChaosGenerator.security_alert("Jordan")
+        self.assertIn("SECURITY ALERT", sec)
+
+        # 6. ComebackEngine triggers
+        cat = ComebackEngine.detect_category("shut up bro")
+        self.assertEqual(cat, "SHUT_UP")
+        cb = ComebackEngine.get_comeback(cat)
+        self.assertTrue(len(cb) > 5)
+
+        cat_bot = ComebackEngine.detect_category("you're literally a bot")
+        self.assertEqual(cat_bot, "BOT_INSULT")
+
+        # 7. ContextAnalyzer
+        ctx_roast = ContextAnalyzer.analyze_message_context("I spent 5 hours on a missing semicolon")
+        self.assertIsNotNone(ctx_roast)
+        self.assertIn("FIVE HOURS", ctx_roast)
+
+    def test_15_roast_safety_and_opt_out(self):
+        """Verify strict anti-harassment safeguards and target consent."""
+        from discord_features.roast_engine import RoastEngine, SafetyFilter
+
+        engine = RoastEngine(self.db)
+
+        # Hard safety filter against harassment / slurs
+        safe, redirect_msg = SafetyFilter.is_safe_prompt("you should kys right now")
+        self.assertFalse(safe)
+        self.assertIn(redirect_msg, SafetyFilter.SAFE_REDIRECT_RESPONSES)
+
+        # Opt-out test
+        self.db.set_user_roast_opt_out(777888, True)
+        self.assertTrue(self.db.is_user_roast_opted_out(777888))
+
+        success, msg, _ = engine.generate_roast(target_name="ProtectedUser", target_id=777888)
+        self.assertFalse(success)
+        self.assertIn(msg, SafetyFilter.OPT_OUT_RESPONSES)
+
+        # Opt back in
+        self.db.set_user_roast_opt_out(777888, False)
+        self.assertFalse(self.db.is_user_roast_opted_out(777888))
+        success, msg, _ = engine.generate_roast(target_name="ProtectedUser", target_id=777888)
+        self.assertTrue(success)
 
 
 if __name__ == "__main__":
-
     unittest.main()

@@ -44,6 +44,7 @@ class FeatureDatabase:
         self.reminders_path = os.path.join(self.persist_dir, "reminders.json")
         self.social_graph_path = os.path.join(self.persist_dir, "social_graph.json")
         self.server_memory_path = os.path.join(self.persist_dir, "server_memory.json")
+        self.roast_metadata_path = os.path.join(self.persist_dir, "roast_metadata.json")
 
         # In-memory caches
         self.guild_settings: Dict[str, Dict[str, Any]] = {}
@@ -55,6 +56,7 @@ class FeatureDatabase:
         self.reminders: List[Dict[str, Any]] = []
         self.social_graph: Dict[str, Dict[str, Any]] = {}
         self.server_memory: Dict[str, Dict[str, Any]] = {}
+        self.roast_metadata: Dict[str, Any] = {"opt_out": [], "users": {}, "guilds": {}}
 
         self.load_all()
 
@@ -105,6 +107,7 @@ class FeatureDatabase:
             self.reminders = self._safe_read(self.reminders_path, [])
             self.social_graph = self._safe_read(self.social_graph_path, {})
             self.server_memory = self._safe_read(self.server_memory_path, {})
+            self.roast_metadata = self._safe_read(self.roast_metadata_path, {"opt_out": [], "users": {}, "guilds": {}})
 
     # --- Guild Settings ---
     def get_guild_settings(self, guild_id: str) -> Dict[str, Any]:
@@ -332,6 +335,92 @@ class FeatureDatabase:
             mem = self.get_server_memory(gid)
             mem.update(updates)
             self._atomic_write(self.server_memory_path, self.server_memory)
+
+    # --- Roast Engine Settings & Metadata (Sections 16, 25, 26) ---
+    def get_guild_roast_settings(self, guild_id: Any) -> Dict[str, Any]:
+        gid = str(guild_id)
+        with self._lock:
+            guilds = self.roast_metadata.setdefault("guilds", {})
+            if gid not in guilds:
+                guilds[gid] = {
+                    "allow_roasting": True,
+                    "default_intensity": 2,
+                    "max_intensity": 5,
+                    "allow_user_to_opt_out": True,
+                    "unhinged_mode": False
+                }
+            return dict(guilds[gid])
+
+    def update_guild_roast_settings(self, guild_id: Any, updates: Dict[str, Any]) -> None:
+        gid = str(guild_id)
+        with self._lock:
+            guilds = self.roast_metadata.setdefault("guilds", {})
+            if gid not in guilds:
+                self.get_guild_roast_settings(gid)
+            guilds[gid].update(updates)
+            self._atomic_write(self.roast_metadata_path, self.roast_metadata)
+
+    def is_user_roast_opted_out(self, user_id: Any) -> bool:
+        uid = str(user_id)
+        with self._lock:
+            opt_out_list = self.roast_metadata.setdefault("opt_out", [])
+            return uid in opt_out_list
+
+    def set_user_roast_opt_out(self, user_id: Any, opt_out: bool) -> None:
+        uid = str(user_id)
+        with self._lock:
+            opt_out_list = self.roast_metadata.setdefault("opt_out", [])
+            if opt_out and uid not in opt_out_list:
+                opt_out_list.append(uid)
+            elif not opt_out and uid in opt_out_list:
+                opt_out_list.remove(uid)
+            # Update in user meta as well
+            users = self.roast_metadata.setdefault("users", {})
+            u_meta = users.setdefault(uid, {"roast_count": 0, "preferred_intensity": 2, "opt_out": False})
+            u_meta["opt_out"] = bool(opt_out)
+            self._atomic_write(self.roast_metadata_path, self.roast_metadata)
+
+    def get_user_roast_meta(self, user_id: Any) -> Dict[str, Any]:
+        uid = str(user_id)
+        with self._lock:
+            users = self.roast_metadata.setdefault("users", {})
+            if uid not in users:
+                is_opted_out = uid in self.roast_metadata.setdefault("opt_out", [])
+                users[uid] = {
+                    "roast_count": 0,
+                    "preferred_intensity": 2,
+                    "opt_out": is_opted_out,
+                    "last_roast_time": 0.0
+                }
+            return dict(users[uid])
+
+    def set_user_roast_level(self, user_id: Any, level: int) -> None:
+        uid = str(user_id)
+        level = max(1, min(5, int(level)))
+        with self._lock:
+            users = self.roast_metadata.setdefault("users", {})
+            u_meta = users.setdefault(uid, {
+                "roast_count": 0,
+                "preferred_intensity": 2,
+                "opt_out": False,
+                "last_roast_time": 0.0
+            })
+            u_meta["preferred_intensity"] = level
+            self._atomic_write(self.roast_metadata_path, self.roast_metadata)
+
+    def record_user_roast_interaction(self, user_id: Any, intensity: int = 2) -> None:
+        uid = str(user_id)
+        with self._lock:
+            users = self.roast_metadata.setdefault("users", {})
+            u_meta = users.setdefault(uid, {
+                "roast_count": 0,
+                "preferred_intensity": 2,
+                "opt_out": False,
+                "last_roast_time": 0.0
+            })
+            u_meta["roast_count"] = u_meta.get("roast_count", 0) + 1
+            u_meta["last_roast_time"] = time.time()
+            self._atomic_write(self.roast_metadata_path, self.roast_metadata)
 
 
 _global_feature_db = None

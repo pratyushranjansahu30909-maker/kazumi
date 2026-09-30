@@ -51,6 +51,22 @@ from .server_memory import (
     KazumiMomentsEngine
 )
 from .music import setup_music_commands, MusicControlView
+from .roast_engine import (
+    RoastEngine,
+    IntensityLevel,
+    IntensityController,
+    SafetyFilter,
+    ComebackEngine,
+    ContextAnalyzer,
+    AbsurdComparisonEngine,
+    DeadpanEngine,
+    FakeProfessionalAnalysis,
+    DramaticAndVillainEngine,
+    ChaosGenerator,
+    SimilarityChecker,
+    RoastBattleView,
+    register_roast_commands
+)
 
 logger = std_logging.getLogger("KazumiFeatures")
 
@@ -109,6 +125,10 @@ def setup_all_features(bot: commands.Bot, tree: app_commands.CommandTree) -> Dic
     # 11. Music System
     setup_music_commands(tree, bot)
 
+    # 12. Unhinged Roast Engine (Sections 1-28)
+    roast_engine = RoastEngine(db)
+    register_roast_commands(tree, bot, roast_engine, db)
+
     # Register persistent views for button listeners across bot reboots
     try:
         bot.add_view(TicketLaunchView())
@@ -135,5 +155,6 @@ def setup_all_features(bot: commands.Bot, tree: app_commands.CommandTree) -> Dic
         "continuity": continuity_tracker,
         "smart_silence": smart_silence,
         "reaction_picker": reaction_picker,
-        "moments": moments_engine
+        "moments": moments_engine,
+        "roast_engine": roast_engine
     }

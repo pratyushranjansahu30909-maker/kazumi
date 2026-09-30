@@ -155,6 +155,10 @@ CONVERSATION_TIMEOUT_SECONDS = 90  # Stays attentive for 90 seconds after direct
 # Cache of recent message IDs sent by Kazumi to accurately detect replies
 recent_bot_message_ids = set()
 
+# Observational Roasting & Message Activity Tracking (Sections 5 & 21)
+user_rapid_typing: dict[int, list[float]] = {}
+recent_messages_for_delete_observation: dict[int, float] = {}
+
 # Stop / silence phrases in English and Hindi / Hinglish
 STOP_PHRASES = {
     "stop", "shut up", "stfu", "quiet", "silent", "silence",
@@ -410,6 +414,23 @@ async def on_resumed():
 
 
 @bot.event
+async def on_message_delete(message: discord.Message):
+    """Observational Roasting: Catch quick message deletes (Section 5)."""
+    if not message or not message.author or message.author.bot:
+        return
+    send_time = recent_messages_for_delete_observation.pop(message.id, None)
+    if send_time and (time.time() - send_time <= 12.0):
+        if is_kazumi_channel(message.channel) or isinstance(message.channel, discord.DMChannel):
+            db_inst = kazumi_features.get("db")
+            if db_inst and not db_inst.is_user_roast_opted_out(message.author.id):
+                if random.random() < 0.40:
+                    try:
+                        await message.channel.send("too late. the digital crime scene has been secured. 📸💀")
+                    except Exception:
+                        pass
+
+
+@bot.event
 async def on_message(message: discord.Message):
     # Ignore self and other bots
     if message.author.bot or (bot.user and message.author.id == bot.user.id):
@@ -419,6 +440,29 @@ async def on_message(message: discord.Message):
     channel = message.channel
     is_dm = isinstance(channel, discord.DMChannel)
     in_kazumi_channel = is_kazumi_channel(channel)
+
+    # Record message for quick deletion observation (Section 5)
+    recent_messages_for_delete_observation[message.id] = time.time()
+    if len(recent_messages_for_delete_observation) > 500:
+        try:
+            recent_messages_for_delete_observation.pop(next(iter(recent_messages_for_delete_observation)))
+        except Exception:
+            pass
+
+    # Observational Roasting: Rapid-fire messages (Section 5)
+    user_times = user_rapid_typing.setdefault(message.author.id, [])
+    now_t = time.time()
+    user_times.append(now_t)
+    user_rapid_typing[message.author.id] = [t for t in user_times if now_t - t <= 8.0]
+    if len(user_rapid_typing[message.author.id]) >= 5:
+        user_rapid_typing[message.author.id].clear()
+        db_inst = kazumi_features.get("db")
+        if (is_dm or in_kazumi_channel) and (not db_inst or not db_inst.is_user_roast_opted_out(message.author.id)):
+            try:
+                await message.channel.send("bro is typing like the FBI just gave him 30 seconds to explain himself 💀")
+                return
+            except Exception:
+                pass
 
     # =========================================================================
     # 0A. AUTOMOD ENFORCEMENT (Section 2)
@@ -726,6 +770,18 @@ async def on_message(message: discord.Message):
         if creator_title:
             logger.info(f"👑 Creator interaction detected! Author: {message.author} -> {creator_title}")
 
+        # Check Unhinged Comeback Engine (Sections 11, 12, 13)
+        roast_engine = kazumi_features.get("roast_engine")
+        db_inst = kazumi_features.get("db")
+        if roast_engine and db_inst and not db_inst.is_user_roast_opted_out(message.author.id):
+            comeback_cat = discord_features.ComebackEngine.detect_category(clean_text)
+            is_unhinged_active = (getattr(kazumi_core, "current_archetype", "") == "UNHINGED")
+            if comeback_cat and (is_unhinged_active or random.random() < 0.65):
+                comeback = discord_features.ComebackEngine.get_comeback(comeback_cat)
+                active_conversations[session_key] = time.time()
+                await send_kazumi_response(message, comeback)
+                return
+
         # Build multi-dimensional social & contextual directive (Sections 13, 14, 16, 17, 18, 19)
         social_directives = []
         if message.guild:
@@ -742,6 +798,11 @@ async def on_message(message: discord.Message):
                 social_directives.append(f"[{resumed_ctx}]")
             if server_desc:
                 social_directives.append(f"[{server_desc}]")
+
+        if getattr(kazumi_core, "current_archetype", "") == "UNHINGED":
+            social_directives.append(
+                "[UNHINGED SAVAGE ROAST MODE ACTIVE: Deliver a razor-sharp, hilarious, sarcastic, unhinged roast or comeback!]"
+            )
 
         if adaptive_directive:
             social_directives.append(adaptive_directive)
@@ -1193,21 +1254,6 @@ async def slash_persona(interaction: discord.Interaction, archetype: Optional[ap
     )
     await interaction.followup.send(embed=embed)
 
-
-@bot.tree.command(name="roast", description="Deliver an unapologetically savage roast to you or someone else 💀🔥")
-@app_commands.describe(target="Who should Kazumi roast? (Leave empty to roast yourself)")
-async def slash_roast(interaction: discord.Interaction, target: Optional[str] = None):
-    await interaction.response.defer(thinking=True)
-    session_id = get_user_session_id(interaction.user)
-    target_prompt = f"Roast {target.strip()} ruthlessly and savagely!" if target else "Roast me ruthlessly and savagely!"
-    reply_text = await ask_kazumi(target_prompt, session_id)
-    chunks = split_message(reply_text)
-    await interaction.followup.send(chunks[0])
-    for chunk in chunks[1:]:
-        try:
-            await interaction.channel.send(chunk)
-        except Exception:
-            pass
 
 
 @bot.tree.command(name="unhinged", description="Toggle or activate Kazumi's unhinged savage roast mode 💀🔥")
