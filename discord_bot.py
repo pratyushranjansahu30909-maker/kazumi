@@ -32,21 +32,34 @@ except ImportError:
     pass
 
 import socket
-# Robust IPv4 resolution filter for cloud/Docker environments without IPv6 routing
-_orig_getaddrinfo = socket.getaddrinfo
-def _ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-    try:
-        # Prioritize AF_INET to prevent IPv6 DNS lookups that fail or hang in IPv4-only networks
-        res = _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-        if res:
-            return res
-    except Exception:
-        pass
-    try:
-        return _orig_getaddrinfo(host, port, family, type, proto, flags)
-    except Exception:
-        return []
-socket.getaddrinfo = _ipv4_getaddrinfo
+
+# Deployment Environment Detection
+def get_deployment_environment() -> dict:
+    """Detects whether running locally or on a remote cloud container."""
+    is_docker = os.path.exists("/.dockerenv") or os.environ.get("CONTAINER", "") == "docker"
+    space_id = os.environ.get("SPACE_ID") or os.environ.get("HF_SPACE_ID")
+    render_id = os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID")
+
+    if space_id:
+        env_name = f"Hugging Face Spaces ({space_id})"
+        is_remote = True
+    elif render_id:
+        env_name = "Render Cloud Service"
+        is_remote = True
+    elif is_docker:
+        env_name = "Docker Container (Remote)"
+        is_remote = True
+    else:
+        env_name = f"Local PC Host ({sys.platform})"
+        is_remote = False
+
+    return {
+        "name": env_name,
+        "is_remote": is_remote,
+        "platform": sys.platform
+    }
+
+DEPLOY_ENV = get_deployment_environment()
 
 import aiohttp
 import discord
@@ -72,13 +85,13 @@ if ROOT_DIR not in sys.path:
 # Import Kazumi Core
 try:
     from kazumi import Kazumi, FolderLock
-    logger.info("Initializing Kazumi core engine for Discord...")
+    logger.info("[STARTUP] Initializing Kazumi core cognitive engine...")
     kazumi_core = Kazumi()
     # Ensure pure chat bot mode
     kazumi_core.voice_enabled = False
-    logger.info("Kazumi core engine loaded successfully.")
+    logger.info("[STARTUP] Kazumi core engine loaded successfully.")
 except Exception as e:
-    logger.error(f"Failed to load Kazumi core engine: {e}")
+    logger.error(f"[STARTUP] Failed to load Kazumi core engine: {e}")
     kazumi_core = None
 
 kazumi_lock = threading.Lock()
@@ -87,9 +100,10 @@ kazumi_lock = threading.Lock()
 try:
     from person_memory import get_observation_manager, BEHAVIOUR_CONFIDENCE_THRESHOLD
     obs_manager = get_observation_manager()
-    logger.info("🌸 Person Memory & Behaviour Observation System initialized successfully.")
+    profile_count = len(obs_manager.memory_mgr._profiles_cache) if obs_manager else 0
+    logger.info(f"[MEMORY] Persistent memory loaded: {profile_count} person profile(s) initialized.")
 except Exception as e:
-    logger.error(f"Failed to initialize person memory system: {e}")
+    logger.error(f"[MEMORY] Failed to initialize person memory system: {e}")
     obs_manager = None
 
 import argparse
@@ -110,25 +124,20 @@ PREFIX = args.prefix or os.environ.get("DISCORD_PREFIX", "!k ")
 intents = discord.Intents.default()
 intents.message_content = True  # Required to read message content for chat
 
-class KazumiBot(commands.Bot):
-    async def login(self, token: str) -> None:
-        try:
-            self.http.connector = aiohttp.TCPConnector(family=socket.AF_INET, limit=0)
-            logger.info("🌸 Configured IPv4 TCPConnector for static login.")
-        except Exception as e:
-            logger.warning(f"Could not configure custom IPv4 TCPConnector: {e}")
-        return await super().login(token)
+# Robust IPv4 TCP Connector for Discord Gateway
+def create_discord_connector():
+    try:
+        return aiohttp.TCPConnector(family=socket.AF_INET, ssl=True)
+    except Exception:
+        return None
 
-    async def setup_hook(self):
-        try:
-            # Force IPv4 TCPConnector inside the running event loop
-            if self.http.connector is None or getattr(self.http.connector, '_family', None) != socket.AF_INET:
-                self.http.connector = aiohttp.TCPConnector(family=socket.AF_INET, limit=0)
-            logger.info("🌸 Configured IPv4 TCPConnector for Discord client.")
-        except Exception as e:
-            logger.warning(f"Could not configure custom IPv4 TCPConnector: {e}")
-
-bot = KazumiBot(command_prefix=commands.when_mentioned_or(PREFIX), intents=intents, help_command=None)
+bot_connector = create_discord_connector()
+bot = commands.Bot(
+    command_prefix=commands.when_mentioned_or(PREFIX),
+    intents=intents,
+    help_command=None,
+    connector=bot_connector
+)
 
 # Active conversational sessions: (channel_id, user_id) -> last_active_timestamp
 active_conversations = {}
@@ -352,8 +361,8 @@ def create_kazumi_embed(title: str, description: str, color: int = 0xc084fc) -> 
 
 @bot.event
 async def on_ready():
-    logger.info(f"✨ Logged in as {bot.user.name}#{bot.user.discriminator} (ID: {bot.user.id})")
-    logger.info(f"Connected to {len(bot.guilds)} server(s).")
+    logger.info(f"[CONNECTION] Discord Gateway connected as {bot.user.name}#{bot.user.discriminator} (ID: {bot.user.id})")
+    logger.info(f"[CONNECTION] Connected to {len(bot.guilds)} server(s).")
     
     # Set status presence
     activity = discord.Activity(
@@ -365,12 +374,13 @@ async def on_ready():
     # Sync Slash Application Commands
     try:
         synced = await bot.tree.sync()
-        logger.info(f"Synced {len(synced)} slash command(s).")
+        logger.info(f"[STARTUP] Synced {len(synced)} slash command(s).")
     except Exception as e:
         logger.warning(f"Slash command sync failed: {e}")
 
     print("\n" + "=" * 60)
     print("🌸 KAZUMI DISCORD BOT IS READY AND LISTENING!")
+    print(f"Host: {DEPLOY_ENV['name']}")
     print(f"Bot Tag: {bot.user}")
     print("Mention Kazumi in any server channel or use /chat to speak!")
     print("=" * 60 + "\n")
@@ -378,12 +388,12 @@ async def on_ready():
 
 @bot.event
 async def on_disconnect():
-    logger.warning("⚠️ Discord Gateway disconnected. Automatic reconnection will occur when network is restored.")
+    logger.warning("[RECONNECT] Discord Gateway connection dropped. Retrying automatically...")
 
 
 @bot.event
 async def on_resumed():
-    logger.info("✨ Discord Gateway session successfully resumed! Kazumi is back listening.")
+    logger.info("[RECOVERY] Discord Gateway session successfully resumed! Kazumi is back listening.")
 
 
 @bot.event
@@ -1244,7 +1254,8 @@ def respawn_process():
 
 
 def main():
-    logger.info(f"🌸 Main entrypoint reached! DISCORD_BOT_TOKEN length: {len(DISCORD_BOT_TOKEN)}")
+    logger.info(f"[HOST] Runtime Host: {DEPLOY_ENV['name']} (Remote: {DEPLOY_ENV['is_remote']})")
+    logger.info(f"[STARTUP] Kazumi Discord Bot process started. DISCORD_BOT_TOKEN configured: {bool(DISCORD_BOT_TOKEN)}")
     if not DISCORD_BOT_TOKEN or DISCORD_BOT_TOKEN == "your_discord_bot_token_here":
         logger.error("❌ DISCORD_BOT_TOKEN is missing or empty! Bot cannot connect to Discord.")
         print_discord_setup_guide()
@@ -1258,21 +1269,21 @@ def main():
     max_delay = 60
 
     while True:
-        logger.info(f"🌸 Connecting to Discord Gateway (prefix: {PREFIX}, channel: {DISCORD_CHANNEL_ID or 'all'})...")
+        logger.info(f"[STARTUP] Connecting to Discord Gateway (prefix: {PREFIX}, channel: {DISCORD_CHANNEL_ID or 'all'})...")
         try:
             bot.run(DISCORD_BOT_TOKEN, log_handler=None)
-            logger.info("🌸 Discord bot run loop finished. Respawning in 5 seconds...")
+            logger.info("[RECONNECT] Discord bot run loop finished. Respawning in 5 seconds...")
             time.sleep(5)
             respawn_process()
         except discord.errors.LoginFailure as lf:
             logger.error(f"❌ Fatal login failure: Invalid Discord Bot Token: {lf}")
             sys.exit(1)
         except (KeyboardInterrupt, SystemExit):
-            logger.info("🌸 Bot stopped by user signal.")
+            logger.info("[SHUTDOWN] Kazumi Discord Bot stopped by user signal.")
             release_single_instance_lock()
             sys.exit(0)
         except Exception as e:
-            logger.error(f"⚠️ Discord connection dropped or failed: {e}. Auto-reconnecting in {retry_delay}s...", exc_info=True)
+            logger.error(f"[RECONNECT] Discord connection dropped or failed: {e}. Auto-reconnecting in {retry_delay}s...", exc_info=True)
             time.sleep(retry_delay)
             retry_delay = min(max_delay, int(retry_delay * 1.5))
             respawn_process()
