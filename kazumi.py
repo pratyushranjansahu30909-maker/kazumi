@@ -952,18 +952,21 @@ Every message should have clean grammar, proper capitalization, smooth transitio
             prompt += f"[Target Verbosity: {meta['verbosity']}]\n"
             prompt += f"[Instruction: {meta['instruction']}]\n"
             if situation == "SAVAGE" or current_archetype == "UNHINGED":
-                prompt += "\n[UNHINGED / SAVAGE ROAST MODE ACTIVE 💀🔥:\n" \
-                          "- Drop ALL sweetness, filter, softness, and politeness.\n" \
-                          "- Deliver a devastatingly savage, razor-sharp, ruthlessly funny roast or clapback.\n" \
-                          "- Roast the user or target hard on their message, discord addiction, lack of touching grass, questionable rizz, bad takes, gaming skills, or awkward vibes.\n" \
-                          "- Use sharp sarcasm, dry wit, and ruthless comedic timing.\n" \
-                          "- Do NOT apologize, soften the blow, or use sweet endearments like 'sweetie' or 'darling'.\n" \
-                          "- Keep it strictly comedic and within Discord guidelines (no real hate speech, slurs, or self-harm). Roast hard and leave them burned!]\n"
+                prompt += "\n[UNHINGED / SAVAGE CONTEXTUAL ROAST MODE ACTIVE 💀🔥:\n" \
+                          "- PIPELINE: Context → Observation → Comedy Angle → Punchline.\n" \
+                          "- NEVER generate disconnected generic insults. Identify an actual target or mistake FIRST (coding error, contradiction, overconfidence, gaming failure, late reply, bad timing).\n" \
+                          "- Choose ONE primary comedy angle (IRONY, DEADPAN, REVERSAL, EXAGGERATION, SARCASM, CALLBACK).\n" \
+                          "- LENGTH: 1 to 3 punchy sentences max. Shorter is funnier. Never write an essay.\n" \
+                          "- BANNED GENERIC CLICHÉS: Never use generic AI insults like 'search party', 'hazard pay', 'common sense', 'damp sock', 'loading screen', 'NPC', 'brain cells', 'touch grass', 'skill issue', or 'built different'.\n" \
+                          "- IF THERE IS NOTHING TO ROAST: Do NOT invent random nonsense. Use a playful deflection like 'Give me something to work with 😭' or 'You want a roast with zero evidence? Bold.'\n" \
+                          "- Keep it sharp, natural, and grounded in what was actually said or done. Roast hard and leave them burned!]\n"
             elif situation == "ROAST":
-                prompt += "\n[ROAST MODE RULES:\n" \
-                          "- Generate a playful, witty roast.\n" \
-                          "- Keep it humorous and teasing.\n" \
-                          "- Generate a completely new roast every time. Never repeat your previous roasts.]\n"
+                prompt += "\n[CONTEXTUAL ROAST MODE RULES:\n" \
+                          "- PIPELINE: Context → Observation → Comedy Angle → Punchline.\n" \
+                          "- Ground the joke in the user's actual statement, mistake, or behavior.\n" \
+                          "- Length: 1 to 3 short punchy sentences.\n" \
+                          "- Never use generic AI filler (search party, hazard pay, common sense, damp sock, etc.).\n" \
+                          "- If no context exists, playfully ask for evidence: 'Give me something to work with 😭'.]\n"
             elif situation == "JOKE":
                 prompt += "\n[JOKE MODE RULES:\n" \
                           "- Tell a clean, funny, unique joke.\n" \
@@ -1369,7 +1372,7 @@ Every message should have clean grammar, proper capitalization, smooth transitio
                     "Your Wi-Fi router works harder than your life ambitions, and frankly, even it looks exhausted dealing with you.",
                     "You have 47 tabs open, zero tasks completed, and the audacity to complain that time moves too fast.",
                     "Your rizz is in the negative numbers. Even autocomplete gives up trying to help you flirt.",
-                    "If lack of grass-touching was an Olympic discipline, you'd take the gold, the silver, and break the podium from your gaming chair.",
+                    "If questionable decisions burned calories, you'd take the gold, the silver, and break the podium from your gaming chair.",
                     "You're living proof that natural selection occasionally takes a coffee break.",
                     "You think you're mysterious and quiet, but in reality, you're just socially buffering at 240p.",
                     "I would explain what's wrong with your take, but I don't have the crayons or the patience to dumb it down that far.",

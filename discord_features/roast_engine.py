@@ -204,10 +204,10 @@ class AbsurdComparisonEngine:
     ]
 
     STANDALONE = [
-        "bro has the charisma of a loading screen 💀",
+        "bro has the conversational presence of a CAPTCHA code 💀",
         "You really woke up today and chose to be someone's unfinished side quest.",
         "bro's personality got stuck on the character creation screen.",
-        "I've seen NPCs with more plot development.",
+        "I've seen background characters with more character development.",
         "bro's decision-making process is powered by a microwave.",
         "bro didn't fix the bug. bro deleted the ecosystem. 💀",
         "bro changes projects faster than he finishes them 😭",
@@ -354,11 +354,11 @@ class DramaticAndVillainEngine:
     """Exaggerated courtroom, council, and anime villain roasts (Sections 6, 9 & 10)."""
 
     DRAMATIC = [
-        "The council has reviewed your actions.\nThey want their brain cells back.",
-        "⚖️ **The High Council of Common Sense has reviewed your actions.**\nVerdict: Guilty on all counts.\nSentence: You are hereby barred from the settings menu for 3 to 5 business days.",
+        "The council has reviewed your actions.\nThey have unanimously declined to acknowledge them.",
+        "First you made the mistake. Then you doubled down. Then you explained it. That's not a mistake anymore, that's a development roadmap.",
         "Kazumi has witnessed enough. Court is now in session. The defense has rested, primarily because there is no defense for what you just did.",
-        "The digital archives will remember this moment, not with pride, but as a cautionary tale for future generations.",
-        "I just dispatched a search party for your common sense. They found nothing and requested hazard pay."
+        "The digital archives will remember this moment as a cautionary tale for future generations.",
+        "The confidence was impressive. The results were not."
     ]
 
     ANIME_VILLAIN = [
@@ -383,7 +383,7 @@ class ChaosGenerator:
     @classmethod
     def fake_obituary(cls, target_name: str = "User") -> str:
         return (
-            f"🪦 **HERE LIES {target_name.upper()}'S COMMON SENSE**\n"
+            f"🪦 **HERE LIES {target_name.upper()}'S DIGNITY**\n"
             f"*(Born: Unknown — Deceased: Just Now)*\n\n"
             f"It fought bravely against overwhelming odds, but was ultimately no match "
             f"for whatever catastrophe of a decision was just executed.\n"
@@ -407,7 +407,7 @@ class ChaosGenerator:
         return (
             f"⚠️ `ERROR 404: Competent Decision Not Found`\n\n"
             f"The requested logic module for `{target_name}` could not be retrieved from system cache.\n"
-            f"Possible causes: Attempted to think under pressure; forgot to engage brain cells."
+            f"Possible causes: Attempted to think under pressure; forgot to engage logic modules."
         )
 
     @classmethod
@@ -416,7 +416,7 @@ class ChaosGenerator:
             f"🚨 **KAZUMI SECURITY ALERT**\n\n"
             f"**Threat Detected:** Unauthorized lack of logic in sector `{target_name}`.\n"
             f"**Status:** Emergency quarantine of user's confidence initiated.\n"
-            f"Please stand back while emergency common sense is deployed."
+            f"Please stand back while emergency reality checks are deployed."
         )
 
 
@@ -511,77 +511,466 @@ class ComebackEngine:
 
 
 # =============================================================================
-# 5. CONTEXT & OBSERVATIONAL ANALYZER (Sections 4 & 5)
+# =============================================================================
+# 5. CONTEXT & OBSERVATIONAL INTELLIGENCE PIPELINE (Sections 1, 2, 3, 4, 10, 17)
 # =============================================================================
 
+class ComedyAngle:
+    """Primary comedy angles (Section 4). One angle selected per roast."""
+    ABSURDITY = "ABSURDITY"
+    OVERCONFIDENCE = "OVERCONFIDENCE"
+    IRONY = "IRONY"
+    EXAGGERATION = "EXAGGERATION"
+    CALLBACK = "CALLBACK"
+    DEADPAN = "DEADPAN"
+    WORDPLAY = "WORDPLAY"
+    COMPARISON = "COMPARISON"
+    REVERSAL = "REVERSAL"
+    SARCASM = "SARCASM"
+    MISSED_EXPECTATION = "MISSED_EXPECTATION"
+    CHAOTIC = "CHAOTIC"
+
+
+# Banned generic filler phrases with heavy repetition penalties (Section 13)
+BANNED_GENERIC_FILLER = [
+    "common sense",
+    "search party",
+    "hazard pay",
+    "damp sock",
+    "loading screen",
+    "npc",
+    "brain cells",
+    "touch grass",
+    "skill issue",
+    "built different"
+]
+
+# Playful honest deflections when zero context is present (Section 3)
+NO_CONTEXT_PLAYFUL_RESPONSES = [
+    "Give me something to work with 😭",
+    "You want a roast with zero evidence? Bold.",
+    "Stand still for five minutes and I'm sure you'll provide material.",
+    "I roast bad decisions, not innocent bystanders. Give me something to work with first!",
+    "Zero context detected. Do something questionable and come back 💀"
+]
+
+
+class RoastObservation:
+    """Encapsulates a concrete contextual finding and comedy angle."""
+    def __init__(
+        self,
+        category: str,
+        angle: str,
+        summary: str,
+        punchlines_by_level: Dict[int, str],
+        confidence: float = 1.0
+    ):
+        self.category = category
+        self.angle = angle
+        self.summary = summary
+        self.punchlines_by_level = punchlines_by_level
+        self.confidence = confidence
+
+    def get_punchline(self, level: int = 3, target_name: str = "bro") -> str:
+        lvl = max(1, min(5, level))
+        punch = self.punchlines_by_level.get(lvl)
+        if not punch:
+            available = sorted(self.punchlines_by_level.keys())
+            closest = min(available, key=lambda x: abs(x - lvl))
+            punch = self.punchlines_by_level[closest]
+        return punch.replace("{target}", target_name)
+
+
 class ContextAnalyzer:
-    """Extracts contextual clues from conversation history to ground roasts in reality."""
+    """
+    Extracts contextual clues from conversation history, target messages, and memory.
+    Implements Priority Pipeline (Section 17):
+    1. Current message / target recent statements
+    2. Surrounding conversation flow
+    3. Recent interactions / time gap
+    4. Known harmless behavior patterns (habits, projects)
+    5. Previous funny callbacks
+    """
+
+    @classmethod
+    def find_roastable_observation(
+        cls,
+        target_recent_messages: Optional[List[str]] = None,
+        all_context_messages: Optional[List[str]] = None,
+        target_patterns: Optional[List[str]] = None,
+        time_away_seconds: Optional[float] = None,
+        target_name: str = "bro"
+    ) -> Optional[RoastObservation]:
+        """Scans context for roastable observations according to Section 1 & 2."""
+        raw_target_text = " ".join(target_recent_messages or []).lower().strip()
+        all_text = " ".join(all_context_messages or []).lower().strip()
+        combined_text = f"{raw_target_text} {all_text}".strip()
+        patterns_lowered = [p.lower() for p in (target_patterns or [])]
+
+        # 1. CODING SEQUEL (Section 5: fixed it, then broke again)
+        if ("fix" in raw_target_text or "fixed" in raw_target_text) and any(b in raw_target_text for b in ["broke", "broken", "again", "sequel"]) and not any(h in raw_target_text for h in ["6 hours", "six hours", "5 hours", "five hours"]):
+            return RoastObservation(
+                category="CODING_SEQUEL",
+                angle=ComedyAngle.REVERSAL,
+                summary="Target fixed code but it immediately broke again",
+                punchlines_by_level={
+                    1: "You fixed it so well you created a sequel 😂",
+                    2: "You fixed it so hard you created a sequel 💀",
+                    3: "Bro didn't fix the bug. He gave it character development.",
+                    4: "Bro really looked at a working build and said 'this lacks dramatic tension' 😭",
+                    5: "Bro didn't fix the bug. He gave it character development, a tragic backstory, and a multi-season franchise deal 💀"
+                }
+            )
+
+        # 2. CODING ARCHAEOLOGY (6 Hours / Bracket)
+        if any(w in raw_target_text for w in ["6 hours", "six hours", "missing bracket", "bracket"]):
+            return RoastObservation(
+                category="CODING_ARCHAEOLOGY_6H",
+                angle=ComedyAngle.EXAGGERATION,
+                summary="Spending six hours looking for a single bracket",
+                punchlines_by_level={
+                    1: "All that time for a punctuation mark? bro really went on an expedition 😭",
+                    2: "Six hours for a missing bracket?\nbro wasn't debugging, he was excavating ancient technology 😭",
+                    3: "Five hours looking for a missing bracket when the compiler was screaming at line 4 the whole time.",
+                    4: "Bro spent six hours conducting an archaeological dig just to find out he forgot to close a parenthesis 💀",
+                    5: "Bro didn't debug the script. He performed a multi-hour spiritual pilgrimage for a single punctuation mark and still lost."
+                }
+            )
+
+        # 3. CODING ARCHAEOLOGY (5 Hours / Semicolon / Debugging)
+        if any(w in raw_target_text for w in ["semicolon", "syntax error", "indentation", "debug", "5 hours", "five hours", "broken code", "segfault", "git push -f", "missing comma"]):
+            return RoastObservation(
+                category="CODING_ARCHAEOLOGY_5H",
+                angle=ComedyAngle.EXAGGERATION,
+                summary="Spending five hours debugging a syntax error",
+                punchlines_by_level={
+                    1: "Five hours for syntax? bro really went on a journey 😭",
+                    2: "FIVE HOURS 😭\nbro wasn't debugging, he was conducting an archaeological excavation for a missing punctuation mark.",
+                    3: "Five hours looking for a missing semicolon when the linter told you where it was immediately.",
+                    4: "Bro spent five hours on a single line of code just to discover he mistyped a punctuation mark 💀",
+                    5: "Five hours conducting an excavation for a syntax error. A masterclass in weaponized stubbornness."
+                }
+            )
+
+        # 3. ACCIDENTAL PROJECT DELETION / SCORCHED EARTH
+        if "deleted" in raw_target_text and any(w in raw_target_text for w in ["project", "repo", "database", "files", "folder", "prod", "entire", "accident"]):
+            return RoastObservation(
+                category="CODING_DELETION",
+                angle=ComedyAngle.ABSURDITY,
+                summary="Accidental deletion of a codebase or database",
+                punchlines_by_level={
+                    1: "Accidentally wiped it? Character development incoming 😭",
+                    2: "bro didn't fix the bug.\nbro deleted the ecosystem. 💀",
+                    3: "Accidentally deleting the whole project is certainly one way to resolve the merge conflict.",
+                    4: "Bro really solved the bug by eliminating the universe it lived in 💀",
+                    5: "Bro achieved zero bugs by achieving zero files. A devastatingly efficient scorched-earth policy."
+                }
+            )
+
+        # 4. GAMING LOSS STREAK & DONATIONS (Section 6)
+        if any(w in raw_target_text for w in ["lost", "loss", "losing", "deranked"]) and any(w in raw_target_text for w in ["again", "in a row", "5", "five", "matchmaking", "ping", "lag", "trash team", "died again"]):
+            return RoastObservation(
+                category="GAMING_DONATION",
+                angle=ComedyAngle.IRONY,
+                summary="Losing multiple gaming matches in a row while blaming team/matchmaking",
+                punchlines_by_level={
+                    1: "Another match down? You're being awfully generous to the other team today 😂",
+                    2: "Five losses in a row and bro is still blaming matchmaking 😭",
+                    3: "At this point you're not playing the game. You're personally donating wins.",
+                    4: "Bro is treating competitive ranked like a registered charity for the enemy team 💀",
+                    5: "Five losses in a row, zero objectives secured, and bro is still typing a thesis in chat blaming matchmaking."
+                }
+            )
+
+        # 5. OVERCONFIDENCE REVERSAL (Section 7)
+        if any(w in raw_target_text for w in ["easy", "ez", "i know what i'm doing", "i know exactly", "trust me", "handled it", "i got this", "watch this"]) and any(w in raw_target_text for w in ["wait", "broke", "failed", "died", "oops", "nevermind", "help"]):
+            return RoastObservation(
+                category="OVERCONFIDENCE",
+                angle=ComedyAngle.OVERCONFIDENCE,
+                summary="Display of absolute certainty followed by immediate blunder",
+                punchlines_by_level={
+                    1: "The confidence was there. The results were... taking notes.",
+                    2: "The confidence was impressive. The results were not.",
+                    3: "I respect your confidence. I just wish reality did too.",
+                    4: "Bro walked in with 100% swagger and walked out with a 404 error code 💀",
+                    5: "First you had the confidence. Then reality made contact. And now we have a full incident review."
+                }
+            )
+
+        # 6. PROCRASTINATION & BROKEN PROMISES (Section 2 & 12)
+        if any(w in raw_target_text for w in ["not going to procrastinate", "won't procrastinate", "procrastinating", "procrastination", "i'll do it later", "tomorrow for sure", "deadline tomorrow", "started late"]):
+            return RoastObservation(
+                category="PROCRASTINATION",
+                angle=ComedyAngle.MISSED_EXPECTATION,
+                summary="Claims of not procrastinating or postponing work until the deadline",
+                punchlines_by_level={
+                    1: "Starting right now? Sure, and I believe you completely 😂",
+                    2: "Sure. And I'm the CEO of Microsoft.",
+                    3: "Yeah, you've said that before. Your procrastination has a longer history than some countries.",
+                    4: "At this point procrastination isn't a habit. It's your default operating system.",
+                    5: "You really waited until the final hour. Procrastination isn't just your habit anymore, it's a fully funded lifestyle."
+                }
+            )
+
+        # 7. LATE RESPONSE / SIDE QUEST (Section 8)
+        if (time_away_seconds is not None and time_away_seconds >= 7200) or any(w in raw_target_text for w in ["sorry was busy", "sorry i was busy", "fell asleep", "lost track of time", "i'm back", "sorry for late reply"]):
+            return RoastObservation(
+                category="LATE_RESPONSE",
+                angle=ComedyAngle.DEADPAN,
+                summary="Returning after hours of silence with a casual excuse",
+                punchlines_by_level={
+                    1: "Look who decided to rejoin society 😂",
+                    2: "bro took a side quest and came back like nothing happened 💀",
+                    3: "Did you get lost in Narnia or did you just remember this conversation exists?",
+                    4: "Bro disappeared for hours like an anime character training in the mountains, only to return with zero buffs.",
+                    5: "Disappearing for eight hours and casually saying 'sorry busy' is a level of unbothered diplomacy that should be studied by historians."
+                }
+            )
+
+        # 8. PROJECT HOPPING / TUTORIAL HELL (Section 10)
+        if any(w in raw_target_text for w in ["change project", "changing project", "new project", "another project", "tutorial hell", "abandoned"]) or any("project" in p for p in patterns_lowered):
+            return RoastObservation(
+                category="PROJECT_HOPPING",
+                angle=ComedyAngle.CALLBACK,
+                summary="Habitual project starter who rarely finishes anything",
+                punchlines_by_level={
+                    1: "Another new project? Where do the old ones go to retire? 😂",
+                    2: "bro changes projects faster than he finishes them 😭",
+                    3: "Another one? Your unfinished-project folder is about to need its own server.",
+                    4: "Bro has started 12 projects this month and finished exactly zero of them. The GitHub cemetery is full.",
+                    5: "Your graveyard of abandoned projects has formed its own independent territory with its own local government."
+                }
+            )
+
+        # 9. SLEEP DEPRIVATION / 4 AM DISASTERS
+        if any(w in raw_target_text for w in ["4am", "5am", "3am", "all nighter", "haven't slept", "sleep is for the weak", "can't sleep"]):
+            return RoastObservation(
+                category="SLEEP_DEPRIVATION",
+                angle=ComedyAngle.EXAGGERATION,
+                summary="Operating on zero sleep at ungodly hours",
+                punchlines_by_level={
+                    1: "Go to sleep before your keyboard starts answering for you 😭",
+                    2: "At this point you're not operating in late night mode. You're operating in a completely different dimension.",
+                    3: "It's 4 AM and you're making life decisions. Go to sleep, your brain is currently running on emergency backup power.",
+                    4: "Bro is hallucinating conscious thoughts at 4 AM and wondering why everything is breaking 💀",
+                    5: "You are actively negotiating with hallucinations at this hour. Close the laptop before you commit to another disaster."
+                }
+            )
+
+        # 10. COOKING DISASTER
+        if any(w in raw_target_text for w in ["burned food", "burned the", "ruined dinner", "kitchen fire", "tastes bad", "burnt"]):
+            return RoastObservation(
+                category="COOKING_DISASTER",
+                angle=ComedyAngle.SARCASM,
+                summary="Catastrophic culinary attempt",
+                punchlines_by_level={
+                    1: "The kitchen survived, right? That's what counts 😂",
+                    2: "Michelin is currently investigating this crime scene.\nEven the smoke detector is judging your culinary technique.",
+                    3: "That wasn't cooking, that was a high-heat exorcism of edible matter.",
+                    4: "Bro turned basic ingredients into hazardous waste and called it dinner 😭",
+                    5: "Even the smoke detector filed an emergency complaint regarding your culinary technique."
+                }
+            )
+
+        # 11. PASSWORD LOCKOUT / 2FA
+        if any(w in raw_target_text for w in ["forgot password", "locked out", "lost 2fa", "reset password"]):
+            return RoastObservation(
+                category="PASSWORD_LOCKOUT",
+                angle=ComedyAngle.DEADPAN,
+                summary="User locked themselves out of their own account",
+                punchlines_by_level={
+                    1: "Locked out again? Classic move 😂",
+                    2: "Groundbreaking security strategy: locking yourself out so hackers can't get in either.\nAbsolute galaxy brain move.",
+                    3: "The ultimate firewall: your own memory.",
+                    4: "Bro secured the account so aggressively that even he doesn't have access anymore 💀",
+                    5: "A masterclass in zero-trust architecture. You don't even trust yourself with the credentials."
+                }
+            )
+
+        # 12. DOUBLING DOWN ON A MISTAKE (Section 12 Escalation)
+        if any(w in raw_target_text for w in ["no but see", "actually it works", "i meant to do that", "it's a feature", "trust the process"]):
+            return RoastObservation(
+                category="DOUBLING_DOWN",
+                angle=ComedyAngle.EXAGGERATION,
+                summary="Explaining or justifying an obvious failure",
+                punchlines_by_level={
+                    1: "Explaining it definitely made it look intentional 😂",
+                    2: "You really doubled down on that? Bold choice.",
+                    3: "Remember when you said you learned from that mistake? Neither does the mistake apparently.",
+                    4: "First you made the mistake. Then you doubled down. Then you explained it. That's not a mistake anymore, that's a development roadmap.",
+                    5: "You didn't misunderstand the assignment. You misunderstood reality. And now you're defending it with a PowerPoint presentation."
+                }
+            )
+
+        # 13. RECENT TARGET STATEMENT (General contextual statement)
+        if target_recent_messages and len(raw_target_text) >= 6:
+            return RoastObservation(
+                category="QUESTIONABLE_STATEMENT",
+                angle=ComedyAngle.DEADPAN,
+                summary="Recent statement made by the target",
+                punchlines_by_level={
+                    1: "That was certainly one of the statements of all time 😂",
+                    2: "bro really typed that out, looked at it, and hit send anyway 💀",
+                    3: "bro really looked at that decision and said 'yeah this'll work' 😭",
+                    4: "You didn't misunderstand the assignment. You misunderstood reality.",
+                    5: "Impressive. Not positively, but undeniably impressive in scope."
+                }
+            )
+
+        # No roastable context found
+        return None
 
     @classmethod
     def analyze_message_context(cls, text: str) -> Optional[str]:
-        lowered = text.lower()
-
-        # Missing bracket / 6 hours debugging (Section 5 & 9)
-        if any(w in lowered for w in ["6 hours", "six hours", "missing bracket", "bracket"]):
-            return (
-                "Six hours for a missing bracket?\n"
-                "bro wasn't debugging, he was excavating ancient technology 😭"
-            )
-
-        # Accidental project deletion (Section 9)
-        if "deleted" in lowered and any(w in lowered for w in ["project", "repo", "database", "files", "entire", "accident"]):
-            return (
-                "bro didn't fix the bug.\n"
-                "bro deleted the ecosystem. 💀"
-            )
-
-        # Changing projects / tutorial hell (Section 10)
-        if any(w in lowered for w in ["change project", "changing project", "new project", "another project", "tutorial hell"]):
-            return "bro changes projects faster than he finishes them 😭"
-
-        # Debugging / coding
-        if any(w in lowered for w in ["semicolon", "syntax error", "indentation", "debug", "5 hours", "broken code", "segfault", "git push -f"]):
-            return (
-                "FIVE HOURS 😭\n"
-                "bro wasn't debugging, he was conducting an archaeological excavation for a missing punctuation mark."
-            )
-
-        # Gaming failure
-        if any(w in lowered for w in ["lost again", "lost match", "same game", "deranked", "lag", "ping", "died again", "hacker", "trash team"]):
-            return "bro loses to tutorial bots and blames the WiFi 💀"
-
-        # Sleep deprivation
-        if any(w in lowered for w in ["4am", "5am", "can't sleep", "insomnia", "haven't slept", "all nighter"]):
-            return (
-                "At this point you're not operating in late night mode. You're operating in a completely different dimension.\n"
-                "Go to sleep. Your brain is literally hallucinating conscious thought right now. 😭"
-            )
-
-        # Cooking disasters
-        if any(w in lowered for w in ["burned food", "burned the", "ruined dinner", "kitchen fire", "tastes bad"]):
-            return (
-                "Michelin is currently investigating this crime scene.\n"
-                "Even the smoke detector is judging your culinary technique."
-            )
-
-        # Forgot password / login issues
-        if any(w in lowered for w in ["forgot password", "locked out", "lost 2fa", "reset password"]):
-            return (
-                "Groundbreaking security strategy: locking yourself out so hackers can't get in either.\n"
-                "Absolute galaxy brain move."
-            )
-
+        """Backward-compatible helper for legacy single-string context inspection."""
+        obs = cls.find_roastable_observation(target_recent_messages=[text])
+        if obs:
+            return obs.get_punchline(level=2, target_name="bro")
         return None
 
 
 # =============================================================================
-# 6. ANTI-REPETITION & SIMILARITY CHECKER (Section 22)
+# 6. SEMANTIC VALIDATION & ANTI-REPETITION CHECKER (Sections 13, 14, 21)
 # =============================================================================
+
+class RoastValidator:
+    """
+    Semantic validation before sending any roast.
+    Enforces context connection, punchline clarity, natural phrasing,
+    and the 8-point quality test (Sections 14 & 21).
+    """
+
+    BANNED_FILLER = BANNED_GENERIC_FILLER
+
+    CORPORATE_AI_PHRASES = [
+        "demonstrates a remarkable lack of",
+        "resembles that of a",
+        "it is imperative that",
+        "upon closer inspection",
+        "an analytical breakdown reveals",
+        "this indicates a suboptimal",
+        "is indicative of",
+        "it would appear that"
+    ]
+
+    @classmethod
+    def validate_roast(
+        cls,
+        roast: str,
+        context: Optional[str] = None,
+        target_name: str = "bro",
+        allow_generic: bool = False,
+        level: int = 3
+    ) -> Dict[str, Any]:
+        result = {
+            "is_valid": False,
+            "has_context_connection": False,
+            "has_clear_punchline": False,
+            "is_understandable": False,
+            "is_natural": True,
+            "is_repetitive": False,
+            "is_generic": False,
+            "is_overwritten": False,
+            "score": 0,
+            "rejection_reasons": []
+        }
+
+        if not roast or not roast.strip():
+            result["rejection_reasons"].append("Roast is empty")
+            return result
+
+        clean_text = roast.strip()
+        lowered = clean_text.lower()
+
+        # 1. Banned Generic Filler check (Section 13)
+        for filler in cls.BANNED_FILLER:
+            if re.search(rf"\b{re.escape(filler)}\b", lowered):
+                result["is_generic"] = True
+                result["rejection_reasons"].append(f"Contains banned generic filler: '{filler}'")
+
+        # 2. Length / Overwritten check (Section 19: default 1-3 sentences)
+        sentences = [s.strip() for s in re.split(r"[.!?\n]+", clean_text) if s.strip()]
+        sentence_count = len(sentences)
+        if sentence_count > 4 or len(clean_text) > 350:
+            result["is_overwritten"] = True
+            result["rejection_reasons"].append(f"Roast is overwritten ({sentence_count} sentences / {len(clean_text)} chars)")
+
+        # 3. Understandable check
+        if 8 <= len(clean_text) <= 350:
+            result["is_understandable"] = True
+
+        # 4. Natural phrasing check (Section 20)
+        for corp in cls.CORPORATE_AI_PHRASES:
+            if corp in lowered:
+                result["is_natural"] = False
+                result["rejection_reasons"].append(f"Contains corporate AI phrasing: '{corp}'")
+                break
+
+        # 5. Internal repetition check
+        words = re.findall(r"\b[a-zA-Z]{4,}\b", lowered)
+        word_counts = {}
+        for w in words:
+            if w not in ("bro", "your", "that", "this", "like", "with", "have", "more", "than", "what", "from"):
+                word_counts[w] = word_counts.get(w, 0) + 1
+                if word_counts[w] >= 3:
+                    result["is_repetitive"] = True
+                    result["rejection_reasons"].append(f"Repeats word '{w}' {word_counts[w]} times")
+                    break
+
+        # 6. Clear punchline check
+        has_punctuation = any(clean_text.endswith(p) for p in [".", "!", "?", "💀", "😭", "😂", "😏", "💅", "'", '"', ")"])
+        has_multiline_punch = "\n" in clean_text or sentence_count >= 2 or any(e in clean_text for e in ["💀", "😭", "😂"])
+        if has_punctuation or has_multiline_punch:
+            result["has_clear_punchline"] = True
+
+        # 7. Context connection check (Sections 14 & 17)
+        if any(resp.lower() in lowered for resp in NO_CONTEXT_PLAYFUL_RESPONSES):
+            result["has_context_connection"] = True
+        elif allow_generic:
+            result["has_context_connection"] = True
+        elif context:
+            ctx_lowered = context.lower()
+            ctx_tokens = set(re.findall(r"\b[a-zA-Z]{3,}\b", ctx_lowered))
+            roast_tokens = set(re.findall(r"\b[a-zA-Z]{3,}\b", lowered))
+            stopwords = {"the", "and", "that", "this", "with", "from", "your", "have", "what", "just", "like", "they", "will", "been", "were", "there"}
+            meaningful_overlap = (ctx_tokens & roast_tokens) - stopwords
+            thematic_keywords = [
+                "code", "bug", "broke", "broken", "fix", "fixed", "lost", "loss", "losing",
+                "game", "match", "sleep", "project", "later", "tomorrow", "busy", "lock",
+                "4am", "mistake", "statement", "excuse", "blunder"
+            ]
+            has_thematic_match = any(k in ctx_lowered for k in thematic_keywords)
+            if target_name.lower() in lowered or meaningful_overlap or has_thematic_match:
+                result["has_context_connection"] = True
+            else:
+                result["rejection_reasons"].append("No semantic connection found between roast and target context")
+        else:
+            result["rejection_reasons"].append("Context connection required but no context was provided")
+
+        # 8-Point Quality Score (Section 21)
+        score = 0
+        if result["has_context_connection"]: score += 1
+        if (target_name.lower() in lowered or result["has_context_connection"]) and not result["is_generic"]: score += 1
+        if result["has_clear_punchline"]: score += 1
+        if result["is_understandable"] and not result["is_overwritten"]: score += 1
+        if result["is_natural"]: score += 1
+        if not result["is_repetitive"]: score += 1
+        if not result["is_overwritten"]: score += 1
+        if not result["is_generic"]: score += 1
+
+        result["score"] = score
+
+        passes_connection = result["has_context_connection"] or allow_generic
+        passes_generic = not result["is_generic"] or allow_generic
+        result["is_valid"] = (score >= 6) and passes_connection and passes_generic and not result["is_overwritten"]
+
+        return result
+
 
 class SimilarityChecker:
     """Prevents Kazumi from repeating jokes or overusing trendy buzzwords."""
 
-    OVERUSED_WORDS = ["npc", "skill issue", "touch grass", "cooked", "bro is cooked", "ratio"]
+    OVERUSED_WORDS = BANNED_GENERIC_FILLER + ["cooked", "bro is cooked", "ratio"]
 
     def __init__(self, max_history: int = 40):
         self.max_history = max_history
@@ -605,13 +994,13 @@ class SimilarityChecker:
 
 
 # =============================================================================
-# 7. MAIN ROAST ENGINE ORCHESTRATOR (Sections 1, 27, 28)
+# 7. MAIN ROAST ENGINE ORCHESTRATOR (Sections 1, 3, 11, 14, 15, 21)
 # =============================================================================
 
 class RoastEngine:
     """
-    Main orchestrator for Kazumi's Unhinged Roast Engine.
-    Coordinates Safety, Intensity, Context, Comebacks, Chaos, and Anti-Repetition.
+    Main orchestrator for Kazumi's Contextual Roast Intelligence Engine.
+    Coordinates Safety, Intensity, Context Observation, Validation, and Anti-Repetition.
     """
 
     def __init__(self, db: Any = None):
@@ -624,13 +1013,17 @@ class RoastEngine:
         target_name: str = "you",
         target_id: Optional[int] = None,
         context_text: Optional[str] = None,
+        target_recent_messages: Optional[List[str]] = None,
+        target_behaviour_patterns: Optional[List[str]] = None,
+        time_away_seconds: Optional[float] = None,
         intensity: Optional[int] = None,
         style: Optional[str] = None,
+        allow_random: bool = False,
         relationship_level: int = 1,
         guild_id: Optional[int] = None
     ) -> Tuple[bool, str, int]:
         """
-        Generates a context-aware roast.
+        Generates a context-grounded roast.
         Returns: (success: bool, roast_text: str, used_intensity: int)
         """
         # 1. Target Opt-Out & Safety Verification
@@ -639,8 +1032,10 @@ class RoastEngine:
             if opted_out:
                 return False, opt_msg, 0
 
-        if context_text:
-            safe, safe_msg = SafetyFilter.is_safe_prompt(context_text)
+        # Safety check on context text
+        all_eval_text = " ".join(filter(None, [context_text] + (target_recent_messages or [])))
+        if all_eval_text:
+            safe, safe_msg = SafetyFilter.is_safe_prompt(all_eval_text)
             if not safe:
                 return False, safe_msg, 0
 
@@ -662,8 +1057,9 @@ class RoastEngine:
 
         # 3. Check for specific style overrides
         style_norm = (style or "").upper().strip()
+        is_style_override = bool(style_norm and style_norm not in ("DEFAULT", "CONTEXT"))
 
-        for _ in range(5):  # Up to 5 generation attempts to satisfy similarity checker
+        for _ in range(5):
             candidate = ""
 
             if style_norm == "DEADPAN":
@@ -674,7 +1070,7 @@ class RoastEngine:
                 candidate = DramaticAndVillainEngine.generate("dramatic")
             elif style_norm == "VILLAIN":
                 candidate = DramaticAndVillainEngine.generate("villain")
-            elif style_norm == "ABSURD":
+            elif style_norm in ("ABSURD", "RANDOM"):
                 candidate = AbsurdComparisonEngine.generate(target_display)
             elif style_norm == "CHAOTIC":
                 candidate = ChaoticEngine.generate(target_display)
@@ -692,81 +1088,55 @@ class RoastEngine:
                 candidate = ChaosGenerator.error_404(target_display)
             elif style_norm == "SECURITY":
                 candidate = ChaosGenerator.security_alert(target_display)
-            elif context_text and (ctx_res := ContextAnalyzer.analyze_message_context(context_text)):
-                candidate = ctx_res
             else:
-                # Level-based procedural generation
-                if resolved_intensity == IntensityLevel.LEVEL_1_TEASING:
-                    teases = [
-                        f"bro really tried 😭",
-                        f"bold decision from {target_display} 😂",
-                        f"I respect the confidence, I just have several urgent questions about the execution.",
-                        f"That was certainly one of the decisions made today.",
-                        f"A valiant attempt. Tragically flawed, but valiant."
-                    ]
-                    candidate = random.choice(teases)
+                # 4. Contextual Observation Pipeline (Sections 1, 2, 3, 11)
+                effective_target_msgs = target_recent_messages or ([context_text] if context_text else None)
+                observation = ContextAnalyzer.find_roastable_observation(
+                    target_recent_messages=effective_target_msgs,
+                    all_context_messages=[context_text] if context_text else None,
+                    target_patterns=target_behaviour_patterns,
+                    time_away_seconds=time_away_seconds,
+                    target_name=target_display
+                )
 
-                elif resolved_intensity == IntensityLevel.LEVEL_2_PLAYFUL:
-                    playfuls = [
-                        f"I've seen NPCs make better decisions under pressure. 😭",
-                        f"bro's decision-making process is running on Internet Explorer with dial-up.",
-                        AbsurdComparisonEngine.generate(target_display),
-                        f"I'm not saying {target_display} is wrong, but Google is actively embarrassed.",
-                        f"You have the energy of someone who clicks 'remind me tomorrow' on life itself."
+                if observation:
+                    # Observation found -> Level 1 to 5 punchline
+                    candidate = observation.get_punchline(level=resolved_intensity, target_name=target_display)
+                elif allow_random:
+                    # Random roast requested explicitly
+                    candidate = AbsurdComparisonEngine.generate(target_display)
+                else:
+                    # Section 3: If there is nothing to roast, don't invent something!
+                    no_ctx_pool = [
+                        "Give me something to work with 😭",
+                        f"You want a roast for {target_display} with zero evidence? Bold.",
+                        "Stand still for five minutes and I'm sure you'll provide material.",
+                        f"I roast bad decisions, but {target_display} hasn't made one in front of me yet. Give it a minute.",
+                        "Zero context detected. Do something questionable and come back 💀"
                     ]
-                    candidate = random.choice(playfuls)
+                    candidate = random.choice(no_ctx_pool)
 
-                elif resolved_intensity == IntensityLevel.LEVEL_3_SAVAGE:
-                    savages = [
-                        f"You have the unshakeable confidence of someone who has never experienced consequences.",
-                        f"That excuse arrived with zero witnesses, no ID, and a fake passport.",
-                        f"You're living proof that curiosity doesn't always come with common sense. 💀",
-                        AbsurdComparisonEngine.generate(target_display),
-                        f"I'd roast you harder, but reality is clearly already doing that for free."
-                    ]
-                    candidate = random.choice(savages)
+            # 5. Semantic Validation & 8-point check (Section 14 & 21)
+            val = RoastValidator.validate_roast(
+                roast=candidate,
+                context=context_text,
+                target_name=target_display,
+                allow_generic=(allow_random or is_style_override),
+                level=resolved_intensity
+            )
 
-                elif resolved_intensity == IntensityLevel.LEVEL_4_UNHINGED:
-                    unhingeds = [
-                        AbsurdComparisonEngine.generate(target_display),
-                        ChaoticEngine.generate(target_display),
-                        DramaticAndVillainEngine.generate("villain"),
-                        DeadpanEngine.generate(),
-                        ShortBurnEngine.generate(target_display),
-                        AnalyticalEngine.generate(target_display),
-                        f"bro has the charisma of a loading screen 💀",
-                        f"You really woke up today and chose to be someone's unfinished side quest.",
-                        f"bro's personality got stuck on the character creation screen.",
-                        f"I've seen NPCs with more plot development.",
-                        f"bro's decision-making process is powered by a microwave.",
-                        f"Your train of thought didn't just derail, it left the atmosphere and is currently orbiting Jupiter.",
-                        f"Your brain really opened 47 tabs, crashed Chrome, and decided none of them were important. 💀"
-                    ]
-                    candidate = random.choice(unhingeds)
-
-                else:  # LEVEL 5 NUCLEAR
-                    nuclears = [
-                        f"I'm not saying your plan is bad, but even the loading screen gave up and closed the game.",
-                        f"The High Council of Common Sense has reviewed your case and revoked your right to have opinions for the next 3 to 5 business days.",
-                        f"If questionable decisions burned calories, {target_display} would be an Olympic athlete.",
-                        DramaticAndVillainEngine.generate("dramatic"),
-                        AbsurdComparisonEngine.generate(target_display)
-                    ]
-                    candidate = random.choice(nuclears)
-
-            # Check similarity
-            if not self.similarity_checker.is_too_similar(candidate):
+            if val["is_valid"] and not self.similarity_checker.is_too_similar(candidate):
                 self.similarity_checker.record_roast(candidate)
                 if target_id and self.db:
                     self.db.record_user_roast_interaction(target_id, resolved_intensity)
                 return True, candidate, resolved_intensity
 
-        # Fallback if all attempts had collision
-        final_fallback = AbsurdComparisonEngine.generate(target_display)
-        self.similarity_checker.record_roast(final_fallback)
+        # Fallback to guaranteed valid playful response (Section 3)
+        fallback = f"You want a roast for {target_display} with zero evidence? Bold."
+        self.similarity_checker.record_roast(fallback)
         if target_id and self.db:
             self.db.record_user_roast_interaction(target_id, resolved_intensity)
-        return True, final_fallback, resolved_intensity
+        return True, fallback, resolved_intensity
 
 
 # =============================================================================
@@ -862,7 +1232,8 @@ def register_roast_commands(tree: app_commands.CommandTree, bot: commands.Bot, e
     @app_commands.describe(
         target="Who should Kazumi roast? (Mention or name, defaults to you)",
         intensity="Roast intensity level (1: Teasing, 2: Playful, 3: Savage, 4: Unhinged, 5: Nuclear)",
-        style="Roast format (default, deadpan, analysis, dramatic, villain, obituary, patchnotes, error404)"
+        style="Roast format (default, deadpan, analysis, dramatic, villain, obituary, patchnotes, error404, random)",
+        random="Allow generic random roast if no context exists (default: False)"
     )
     @app_commands.choices(
         intensity=[
@@ -880,14 +1251,16 @@ def register_roast_commands(tree: app_commands.CommandTree, bot: commands.Bot, e
             app_commands.Choice(name="Anime Villain Phase 2", value="villain"),
             app_commands.Choice(name="Fake Obituary", value="obituary"),
             app_commands.Choice(name="User Patch Notes", value="patchnotes"),
-            app_commands.Choice(name="System Error 404", value="error404")
+            app_commands.Choice(name="System Error 404", value="error404"),
+            app_commands.Choice(name="Random Absurdity", value="random")
         ]
     )
     async def slash_roast(
         interaction: discord.Interaction,
         target: Optional[str] = None,
         intensity: Optional[int] = None,
-        style: Optional[str] = None
+        style: Optional[str] = None,
+        random: Optional[bool] = False
     ):
         await interaction.response.defer(thinking=True)
 
@@ -908,29 +1281,44 @@ def register_roast_commands(tree: app_commands.CommandTree, bot: commands.Bot, e
             target_name = interaction.user.display_name
             target_id = interaction.user.id
 
-        # Determine relationship level if target member is present
+        # Determine relationship level and memory patterns if target member is present
         rel_level = 2
+        target_patterns = []
         try:
             from person_memory import get_observation_manager
             obs = get_observation_manager()
             if obs and target_id:
                 prof = obs.memory_mgr.get_profile(str(target_id), target_name or "")
                 rel_level = obs.rel_mgr.compute_relationship_level(prof)
+                if hasattr(prof, "habits") and prof.habits:
+                    target_patterns.extend(prof.habits)
+                if hasattr(prof, "traits") and prof.traits:
+                    target_patterns.extend(prof.traits)
+                if hasattr(prof, "notes") and prof.notes:
+                    target_patterns.extend(prof.notes)
         except Exception:
             rel_level = 2
 
-        # Extract recent conversation context to ground roast in real conversation (Section 9)
-        context_text = None
+        # Extract recent conversation context isolating target messages (Section 18)
+        target_recent_msgs = []
+        channel_context_msgs = []
+        time_away_seconds = None
+
         if interaction.channel and hasattr(interaction.channel, "history"):
             try:
-                recent_msgs = []
-                async for m in interaction.channel.history(limit=6):
-                    if m.content and not m.author.bot:
-                        recent_msgs.append(m.content)
-                if recent_msgs:
-                    context_text = " | ".join(reversed(recent_msgs))
+                now_ts = time.time()
+                async for m in interaction.channel.history(limit=15):
+                    if not m.content or m.author.bot:
+                        continue
+                    channel_context_msgs.append(m.content)
+                    if (target_id and m.author.id == target_id) or (not target_id and target_name and target_name.lower() in m.author.name.lower()):
+                        target_recent_msgs.append(m.content)
+                        if time_away_seconds is None and hasattr(m, "created_at"):
+                            time_away_seconds = max(0.0, now_ts - m.created_at.timestamp())
             except Exception:
                 pass
+
+        context_text = " | ".join(reversed(channel_context_msgs)) if channel_context_msgs else None
 
         # Check if Unhinged mode is actively enabled on server or bot core (Section 11)
         k_core = getattr(bot, "kazumi_core", None)
@@ -943,12 +1331,18 @@ def register_roast_commands(tree: app_commands.CommandTree, bot: commands.Bot, e
         if intensity is None:
             intensity = 4 if is_unhinged_active else 3
 
+        allow_random_mode = bool(random or (style and style.lower() == "random"))
+
         success, roast_text, used_intensity = engine.generate_roast(
             target_name=target_name or "you",
             target_id=target_id,
             context_text=context_text,
+            target_recent_messages=list(reversed(target_recent_msgs)),
+            target_behaviour_patterns=target_patterns,
+            time_away_seconds=time_away_seconds,
             intensity=intensity,
             style=style,
+            allow_random=allow_random_mode,
             relationship_level=rel_level,
             guild_id=interaction.guild_id
         )

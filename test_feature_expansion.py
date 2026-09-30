@@ -407,6 +407,129 @@ class KazumiFeatureExpansionTests(unittest.TestCase):
         self.assertFalse(k.roast_mode)
         self.assertEqual(k.current_archetype, "DEREDERE")
 
+    def test_17_contextual_roast_intelligence_fix(self):
+        """
+        Verify KAZUMI CONTEXTUAL ROAST INTELLIGENCE FIX:
+        1. Context -> Observation -> Joke Angle -> Punchline pipeline
+        2. Detection of Coding Sequel, Gaming Donations, Overconfidence, Procrastination, Late Return
+        3. Semantic validation rejects generic filler (search party, hazard pay, common sense)
+        4. Honest playful deflection when zero context exists (Section 3)
+        5. Random roast mode allowance (Section 16)
+        """
+        from discord_features.roast_engine import (
+            RoastEngine,
+            ContextAnalyzer,
+            RoastValidator,
+            ComedyAngle,
+            BANNED_GENERIC_FILLER,
+            NO_CONTEXT_PLAYFUL_RESPONSES
+        )
+
+        engine = RoastEngine(self.db)
+
+        # 1. Pipeline: Coding Sequel
+        obs_code = ContextAnalyzer.find_roastable_observation(
+            target_recent_messages=["Bro I fixed my code", "wait it broke again"],
+            target_name="DevUser"
+        )
+        self.assertIsNotNone(obs_code)
+        self.assertEqual(obs_code.category, "CODING_SEQUEL")
+        self.assertEqual(obs_code.angle, ComedyAngle.REVERSAL)
+        self.assertIn("character development", obs_code.get_punchline(level=3))
+
+        # 2. Pipeline: Gaming Donations & Excuses
+        obs_game = ContextAnalyzer.find_roastable_observation(
+            target_recent_messages=["Five losses in a row and I'm still deranked, trash team and lag"],
+            target_name="Gamer"
+        )
+        self.assertIsNotNone(obs_game)
+        self.assertEqual(obs_game.category, "GAMING_DONATION")
+        self.assertEqual(obs_game.angle, ComedyAngle.IRONY)
+        self.assertIn("donating wins", obs_game.get_punchline(level=3))
+
+        # 3. Pipeline: Overconfidence Reversal
+        obs_conf = ContextAnalyzer.find_roastable_observation(
+            target_recent_messages=["Easy. I know exactly what I'm doing.", "wait it broke help"],
+            target_name="Pro"
+        )
+        self.assertIsNotNone(obs_conf)
+        self.assertEqual(obs_conf.category, "OVERCONFIDENCE")
+        self.assertIn("confidence was impressive", obs_conf.get_punchline(level=2))
+
+        # 4. Pipeline: Procrastination
+        obs_proc = ContextAnalyzer.find_roastable_observation(
+            target_recent_messages=["I'm definitely not going to procrastinate this time"],
+            target_name="Student"
+        )
+        self.assertIsNotNone(obs_proc)
+        self.assertEqual(obs_proc.category, "PROCRASTINATION")
+        self.assertIn("CEO of Microsoft", obs_proc.get_punchline(level=2))
+
+        # 5. Pipeline: Late Response / Side Quest
+        obs_late = ContextAnalyzer.find_roastable_observation(
+            target_recent_messages=["sorry i was busy"],
+            time_away_seconds=9000,
+            target_name="Wanderer"
+        )
+        self.assertIsNotNone(obs_late)
+        self.assertEqual(obs_late.category, "LATE_RESPONSE")
+        self.assertIn("side quest", obs_late.get_punchline(level=2))
+
+        # 6. Pipeline: Project Hopping from Memory Pattern
+        obs_proj = ContextAnalyzer.find_roastable_observation(
+            target_recent_messages=["I have another amazing project idea"],
+            target_patterns=["unfinished_projects", "project_hopper"],
+            target_name="Maker"
+        )
+        self.assertIsNotNone(obs_proj)
+        self.assertEqual(obs_proj.category, "PROJECT_HOPPING")
+        self.assertIn("unfinished-project folder", obs_proj.get_punchline(level=3))
+
+        # 7. Semantic Validation: Rejection of Banned Generic Clichés
+        bad_generic = "I just dispatched a search party for your common sense. They found nothing and requested hazard pay."
+        val_bad = RoastValidator.validate_roast(bad_generic, context="whatever", target_name="Target")
+        self.assertFalse(val_bad["is_valid"])
+        self.assertTrue(val_bad["is_generic"])
+        self.assertTrue(any("banned generic filler" in r.lower() for r in val_bad["rejection_reasons"]))
+
+        # 8. Semantic Validation: Acceptance of Good Contextual Roast
+        good_roast = "Bro didn't fix the bug. He gave it character development."
+        val_good = RoastValidator.validate_roast(good_roast, context="wait it broke again", target_name="DevUser")
+        self.assertTrue(val_good["is_valid"])
+        self.assertFalse(val_good["is_generic"])
+        self.assertGreaterEqual(val_good["score"], 6)
+
+        # 9. Section 3: If no context exists, DO NOT invent random nonsense
+        s_no_ctx, r_no_ctx, lvl_no_ctx = engine.generate_roast(
+            target_name="InnocentUser",
+            context_text=None,
+            target_recent_messages=[],
+            allow_random=False
+        )
+        self.assertTrue(s_no_ctx)
+        # Must be an honest playful deflection, NOT a disconnected insult
+        valid_deflections = [
+            "give me something to work with",
+            "zero evidence",
+            "stand still for five minutes",
+            "innocent bystanders",
+            "zero context detected"
+        ]
+        self.assertTrue(any(v in r_no_ctx.lower() for v in valid_deflections), f"Unexpected response: {r_no_ctx}")
+        for filler in BANNED_GENERIC_FILLER:
+            self.assertNotIn(filler, r_no_ctx.lower())
+
+        # 10. Section 16: Random Roast Mode explicitly allowed
+        s_rand, r_rand, _ = engine.generate_roast(
+            target_name="RandomUser",
+            allow_random=True
+        )
+        self.assertTrue(s_rand)
+        self.assertGreater(len(r_rand), 5)
+        for filler in BANNED_GENERIC_FILLER:
+            self.assertNotIn(filler, r_rand.lower())
+
 
 if __name__ == "__main__":
     unittest.main()
+
