@@ -1064,6 +1064,10 @@ Every message should have clean grammar, proper capitalization, smooth transitio
             # Dynamic Creator Bond Directive
             if getattr(self, "creator_context", None):
                 active_sys_prompt += f"\n\n[SPECIAL CREATOR BOND: You are talking directly with {self.creator_context}! They are your creator and father. You are their beloved, proud daughter. Treat them with deep filial love, respect, warmth, gratitude, and sweet daughterly devotion.]\n"
+
+            # Dynamic Subtle Communication Style Adaptation (Person Recognition System)
+            if getattr(self, "person_directive", None):
+                active_sys_prompt += f"\n\n{self.person_directive}\n"
             
             # Build messages list incorporating rolling conversation history
             messages = [{"role": "system", "content": active_sys_prompt}]
@@ -5419,6 +5423,8 @@ class Kazumi:
         # Generate response passing situation, anger, jealousy levels, user profile, and persona instruction!
         persona_inst = self.ARCHETYPES[self.current_archetype]["instruction"]
         char_prompt = self.CHARACTERS[self.active_character]["system_prompt"]
+        self.controller.creator_context = getattr(self, "creator_context", None)
+        self.controller.person_directive = getattr(self, "person_directive", None)
         response = self.controller.generate_response(
             text, valence, memory_context, situation, 
             self.anger_level, self.jealousy_level, self.memory.profile,

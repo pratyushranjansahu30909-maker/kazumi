@@ -83,6 +83,15 @@ except Exception as e:
 
 kazumi_lock = threading.Lock()
 
+# Person Memory & Behaviour Observation System
+try:
+    from person_memory import get_observation_manager, BEHAVIOUR_CONFIDENCE_THRESHOLD
+    obs_manager = get_observation_manager()
+    logger.info("🌸 Person Memory & Behaviour Observation System initialized successfully.")
+except Exception as e:
+    logger.error(f"Failed to initialize person memory system: {e}")
+    obs_manager = None
+
 import argparse
 
 # Parse CLI arguments if provided
@@ -259,7 +268,7 @@ def detect_creator_relationship(user: discord.User | discord.Member) -> tuple[Op
     return (None, None)
 
 
-def sync_kazumi_reply(text: str, session_id: str, user_name: Optional[str] = None, creator_identity: Optional[str] = None) -> str:
+def sync_kazumi_reply(text: str, session_id: str, user_name: Optional[str] = None, creator_identity: Optional[str] = None, person_directive: Optional[str] = None) -> str:
     """Thread-safe call to Kazumi's sync reply function."""
     if not kazumi_core:
         return "I'm having a little trouble connecting to my thoughts right now. Please try again in a moment! 🌸"
@@ -269,6 +278,11 @@ def sync_kazumi_reply(text: str, session_id: str, user_name: Optional[str] = Non
         else:
             kazumi_core.creator_context = None
 
+        if person_directive:
+            kazumi_core.person_directive = person_directive
+        else:
+            kazumi_core.person_directive = None
+
         if user_name:
             kazumi_core.load_game_states(session_id)
             curr = kazumi_core.memory.profile.get("name")
@@ -276,13 +290,14 @@ def sync_kazumi_reply(text: str, session_id: str, user_name: Optional[str] = Non
                 kazumi_core.memory.profile["name"] = user_name
         res = kazumi_core.reply(text, session_id=session_id)
         kazumi_core.creator_context = None
+        kazumi_core.person_directive = None
         return res if res else "I'm right here with you! 🌸 (Kazumi smiles warmly.)"
 
 
-async def ask_kazumi(text: str, session_id: str, user_name: Optional[str] = None, creator_identity: Optional[str] = None) -> str:
+async def ask_kazumi(text: str, session_id: str, user_name: Optional[str] = None, creator_identity: Optional[str] = None, person_directive: Optional[str] = None) -> str:
     """Non-blocking asynchronous wrapper over Kazumi's core reply."""
     try:
-        reply = await asyncio.to_thread(sync_kazumi_reply, text, session_id, user_name, creator_identity)
+        reply = await asyncio.to_thread(sync_kazumi_reply, text, session_id, user_name, creator_identity, person_directive)
         return (reply or "").strip() or "I'm right here with you! 🌸"
     except Exception as e:
         logger.error(f"Error in ask_kazumi wrapper: {e}", exc_info=True)
@@ -430,14 +445,50 @@ async def on_message(message: discord.Message):
         if cl.startswith("!k") or cl.startswith("!kazumi") or cl.startswith("k!") or (prefix_clean and cl.startswith(prefix_clean)):
             is_prefix_called = True
 
+    # 5. Check if directly addressed or pinged
+    is_addressed = is_user_mentioned or is_role_mentioned or is_reply_to_kazumi or is_directly_addressed or is_prefix_called
+
     # =========================================================================
-    # 🚫 RULE 1: STRICT CHANNEL PERMISSION
-    # Kazumi has permission to chat ONLY in Kazumi channels (and DMs).
-    # In other channels (like #meme, #general), she NEVER chats or auto-replies.
+    # 🌸 PERSON OBSERVATION & ADAPTIVE INTERACTION PIPELINE
     # =========================================================================
-    if not in_kazumi_channel:
-        # If someone explicitly tagged Kazumi in another channel, politely redirect once
-        if is_mentioned or is_reply_to_kazumi or is_prefix_called:
+    author_name = getattr(message.author, "display_name", "") or getattr(message.author, "name", "")
+    author_id_str = str(message.author.id)
+
+    channel_mode = "ACTIVE_CHAT" if (is_dm or in_kazumi_channel) else "OBSERVATION_ONLY"
+    react_emoji = None
+    adaptive_directive = None
+
+    if obs_manager:
+        try:
+            channel_mode, react_emoji, adaptive_directive = obs_manager.process_message(
+                user_id=author_id_str,
+                display_name=author_name,
+                channel_id=str(channel.id),
+                text=raw_content,
+                is_dm=is_dm,
+                is_dedicated=in_kazumi_channel,
+                is_direct_address=is_addressed
+            )
+        except Exception as obs_err:
+            logger.warning(f"Error in person observation manager: {obs_err}")
+
+    # Mode 1: DISABLED — channel is completely ignored
+    if channel_mode == "DISABLED":
+        return
+
+    # Mode 2: OBSERVATION_ONLY — secondary chats (Section 2B & 11)
+    # - Silently observe and update behavioral profile
+    # - NEVER send normal conversational text replies
+    # - React with context-aware emoji if appropriate (cooldown & probability enforced)
+    if channel_mode == "OBSERVATION_ONLY":
+        if react_emoji:
+            try:
+                await message.add_reaction(react_emoji)
+            except Exception:
+                pass
+
+        # If user explicitly pinged/addressed Kazumi in an observation channel, politely redirect once
+        if is_addressed:
             kazumi_ch = find_kazumi_channel_in_guild(message.guild)
             if kazumi_ch and kazumi_ch.id != channel.id:
                 try:
@@ -455,7 +506,7 @@ async def on_message(message: discord.Message):
                     )
                 except Exception:
                     pass
-        # In all cases in non-Kazumi channels, DO NOT chat further
+        # Never send normal text in observation-only channels
         return
 
     # =========================================================================
@@ -589,11 +640,11 @@ async def on_message(message: discord.Message):
         # Safely trigger typing indicator while generating reply
         try:
             async with message.channel.typing():
-                reply_text = await asyncio.wait_for(ask_kazumi(clean_text, session_id, display_author, creator_ctx), timeout=35.0)
+                reply_text = await asyncio.wait_for(ask_kazumi(clean_text, session_id, display_author, creator_ctx, person_directive=adaptive_directive), timeout=35.0)
         except Exception as typing_err:
             if not reply_text:
                 try:
-                    reply_text = await asyncio.wait_for(ask_kazumi(clean_text, session_id, display_author, creator_ctx), timeout=25.0)
+                    reply_text = await asyncio.wait_for(ask_kazumi(clean_text, session_id, display_author, creator_ctx, person_directive=adaptive_directive), timeout=25.0)
                 except Exception as core_err:
                     logger.error(f"Error querying Kazumi core: {core_err}", exc_info=True)
                     reply_text = "I'm right here with you! 🌸 (Kazumi smiles warmly.) What's on your mind?"
@@ -650,10 +701,27 @@ async def slash_chat(interaction: discord.Interaction, message: str):
     await interaction.response.defer(thinking=True)
     session_id = get_user_session_id(interaction.user)
     author_name = getattr(interaction.user, "display_name", "") or getattr(interaction.user, "name", "")
+    author_id_str = str(interaction.user.id)
     creator_title, creator_ctx = detect_creator_relationship(interaction.user)
     display_author = creator_title if creator_title else author_name
+
+    adaptive_directive = None
+    if obs_manager:
+        try:
+            _, _, adaptive_directive = obs_manager.process_message(
+                user_id=author_id_str,
+                display_name=author_name,
+                channel_id=str(interaction.channel_id),
+                text=message,
+                is_dm=interaction.guild is None,
+                is_dedicated=True,
+                is_direct_address=True
+            )
+        except Exception as obs_err:
+            logger.warning(f"Error in slash_chat observation: {obs_err}")
+
     try:
-        reply_text = await asyncio.wait_for(ask_kazumi(message, session_id, display_author, creator_ctx), timeout=35.0)
+        reply_text = await asyncio.wait_for(ask_kazumi(message, session_id, display_author, creator_ctx, person_directive=adaptive_directive), timeout=35.0)
     except Exception as e:
         logger.error(f"Error in slash_chat: {e}", exc_info=True)
         reply_text = "I'm right here with you! 🌸 (Kazumi smiles warmly.) Please ask me again, I'm ready to chat!"
@@ -957,9 +1025,109 @@ async def slash_help(interaction: discord.Interaction):
             "• `/quests` - View active quests and challenges\n"
             "• `/horoscope` - Get your daily astrological reading\n"
             "• `/reset` - Start a fresh conversation session\n"
+            "• `/vibe` - Check your conversational vibe and familiarity with Kazumi ✨\n"
+            "• `/channel_mode [mode]` - Set channel mode (Active Chat, Observation Only, or Disabled) ⚙️\n"
+            "• `/reset_person [user]` - Reset behavioral profile and learned patterns (Privacy) 🔒\n"
             "• `/help` - Show this helpful guide"
         )
     )
+    await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="channel_mode", description="Configure Kazumi's mode in this channel (ACTIVE_CHAT, OBSERVATION_ONLY, or DISABLED)")
+@app_commands.describe(mode="Active Chat (talks), Observation Only (reactions only, no text), or Disabled")
+@app_commands.choices(mode=[
+    app_commands.Choice(name="Active Chat (Replies & talks normally)", value="ACTIVE_CHAT"),
+    app_commands.Choice(name="Observation Only (Watches & reacts with emojis, NO text)", value="OBSERVATION_ONLY"),
+    app_commands.Choice(name="Disabled (Completely ignores this channel)", value="DISABLED"),
+])
+async def slash_channel_mode(interaction: discord.Interaction, mode: app_commands.Choice[str]):
+    # Permissions check: Require manage_channels or admin in guilds
+    if interaction.guild:
+        perms = interaction.channel.permissions_for(interaction.user)
+        if not (perms.manage_channels or perms.administrator or interaction.user.guild_permissions.administrator):
+            await interaction.response.send_message("❌ You need the **Manage Channels** or **Administrator** permission to change channel modes.", ephemeral=True)
+            return
+
+    if obs_manager:
+        obs_manager.set_channel_mode(str(interaction.channel_id), mode.value)
+        embed = create_kazumi_embed(
+            title="🌸 Channel Mode Updated",
+            description=(
+                f"This channel (<#{interaction.channel_id}>) has been set to **{mode.name}**!\n\n"
+                f"• **Active Chat**: Kazumi speaks and answers conversations normally.\n"
+                f"• **Observation Only**: Kazumi observes context and occasionally adds natural emoji reactions (probability & cooldown limited), but **never** sends text messages.\n"
+                f"• **Disabled**: Kazumi completely ignores this channel."
+            )
+        )
+        await interaction.response.send_message(embed=embed)
+    else:
+        await interaction.response.send_message("Observation manager is not initialized.", ephemeral=True)
+
+
+@bot.tree.command(name="reset_person", description="Reset learned behavior profile (Privacy & Safety)")
+@app_commands.describe(user="The user whose profile to reset (defaults to yourself)")
+async def slash_reset_person(interaction: discord.Interaction, user: Optional[discord.User] = None):
+    target = user or interaction.user
+    # If resetting someone else, require manage_guild or admin
+    if target.id != interaction.user.id and interaction.guild:
+        perms = interaction.channel.permissions_for(interaction.user)
+        if not (perms.manage_guild or perms.administrator or interaction.user.guild_permissions.administrator):
+            await interaction.response.send_message("❌ You can only reset your own profile unless you have **Administrator** or **Manage Server** permissions.", ephemeral=True)
+            return
+
+    if obs_manager:
+        obs_manager.reset_user(str(target.id))
+        embed = create_kazumi_embed(
+            title="🌸 Behavioral Profile Reset",
+            description=f"The learned behavioral observations and communication profile for **{target.display_name}** have been completely reset.\n\nKazumi will start observing fresh from scratch."
+        )
+        await interaction.response.send_message(embed=embed)
+    else:
+        await interaction.response.send_message("Observation manager is not initialized.", ephemeral=True)
+
+
+@bot.tree.command(name="vibe", description="Check your conversational vibe and familiarity with Kazumi 🌸")
+async def slash_vibe(interaction: discord.Interaction):
+    if not obs_manager:
+        await interaction.response.send_message("Observation manager is not initialized.", ephemeral=True)
+        return
+
+    profile = obs_manager.get_profile(str(interaction.user.id), display_name=interaction.user.display_name)
+    from person_memory.relationship_manager import RelationshipManager
+    rel_title = RelationshipManager.get_relationship_title(profile.relationship_level)
+
+    # Stylistic Vibe
+    style = profile.communication_style
+    vibes = []
+    if style.humor >= 0.5:
+        vibes.append("Playful & Witty 😂")
+    elif style.formality >= 0.6:
+        vibes.append("Thoughtful & Articulate 📜")
+    else:
+        vibes.append("Casual & Warm 🌸")
+
+    if style.energy >= 0.6:
+        vibes.append("High Energy ✨")
+    elif style.energy <= 0.3:
+        vibes.append("Calm & Chill ☕")
+
+    vibe_str = " • ".join(vibes)
+
+    embed = create_kazumi_embed(
+        title=f"🌸 Conversational Harmony • {interaction.user.display_name}",
+        description=f"Here is how Kazumi experiences your shared conversational rhythm!"
+    )
+    embed.add_field(name="Companion Familiarity", value=f"💫 **{rel_title}** (Level {profile.relationship_level}/4)", inline=True)
+    embed.add_field(name="Conversational Vibe", value=f"✨ **{vibe_str}**", inline=True)
+    embed.add_field(name="Interactions Observed", value=f"💬 **{profile.interaction_count} messages**", inline=True)
+
+    if profile.interests:
+        embed.add_field(name="Shared Topics", value=", ".join([f"`{i.title()}`" for i in profile.interests[:4]]), inline=False)
+
+    if profile.behaviour_patterns:
+        embed.add_field(name="Observed Rhythm", value="\n".join([f"• {p}" for p in profile.behaviour_patterns[:3]]), inline=False)
+
     await interaction.response.send_message(embed=embed)
 
 
