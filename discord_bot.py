@@ -17,8 +17,12 @@ import re
 import asyncio
 import threading
 import logging
+import random
 import time
 from typing import List, Optional
+
+from text_recognition import get_text_recognition_engine
+from kazumi_emotions import get_emotion_engine
 
 # Load environment variables
 try:
@@ -32,13 +36,16 @@ import socket
 _orig_getaddrinfo = socket.getaddrinfo
 def _ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
     try:
-        # Enforce AF_INET to prevent IPv6 DNS lookups that fail or hang in IPv4-only networks
-        return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+        # Prioritize AF_INET to prevent IPv6 DNS lookups that fail or hang in IPv4-only networks
+        res = _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+        if res:
+            return res
     except Exception:
-        try:
-            return _orig_getaddrinfo(host, port, family, type, proto, flags)
-        except Exception:
-            return []
+        pass
+    try:
+        return _orig_getaddrinfo(host, port, family, type, proto, flags)
+    except Exception:
+        return []
 socket.getaddrinfo = _ipv4_getaddrinfo
 
 import aiohttp
@@ -116,13 +123,69 @@ bot = KazumiBot(command_prefix=commands.when_mentioned_or(PREFIX), intents=inten
 
 # Active conversational sessions: (channel_id, user_id) -> last_active_timestamp
 active_conversations = {}
-# Active channel sessions: channel_id -> last_active_timestamp
-active_channel_conversations = {}
-CONVERSATION_TIMEOUT_SECONDS = 300  # Continuous conversation (5 minutes) without requiring repetitive @Kazumi tags
-CHANNEL_CONVERSATION_TIMEOUT_SECONDS = 120  # Channel stays attentive for 2 minutes after Kazumi speaks
+CONVERSATION_TIMEOUT_SECONDS = 90  # Stays attentive for 90 seconds after direct interaction
 
 # Cache of recent message IDs sent by Kazumi to accurately detect replies
 recent_bot_message_ids = set()
+
+# Stop / silence phrases in English and Hindi / Hinglish
+STOP_PHRASES = {
+    "stop", "shut up", "stfu", "quiet", "silent", "silence",
+    "leave me alone", "go away", "stop talking", "dont talk",
+    "don't talk", "dont reply", "don't reply", "stop replying",
+    "stop spamming", "dont spam", "don't spam", "stop bot",
+    "chup", "chup kar", "chup ho ja", "chup chap", "chupkr",
+    "spam mat kar", "message spam mat kar", "mat bol", "mat bolo",
+    "bas kar", "band kar", "ruk ja", "shh", "shhh", "shutup",
+    "die", "u die", "you die", "abe u die"
+}
+
+# Chat slang, laughter, and reaction words that should NEVER trigger an unprompted bot reply
+CHAT_REACTIONS_AND_SLANG = {
+    "lol", "lmao", "lmfao", "lawl", "haha", "hahaha", "hahahaha", "xd",
+    "rofl", "kek", "gg", "w", "l", "fr", "nah", "bruh", "damn", "wtf",
+    "omg", "no way", "oof", "yea", "yeah", "ok", "okay", "k", "die",
+    "rip", "f", "cope", "ratio", "pog", "poggers", "cap", "no cap",
+    "crazy", "wild", "real", "idk", "smh", "tbh", "wth", "yep", "yup",
+    "abe u die", "u die", "you die", "ye kya hai", "kya hai ye", "kya hai",
+    "wait", "what", "bro", "dude", "man"
+}
+
+
+def is_kazumi_channel(channel) -> bool:
+    """Returns True if the channel is permitted for Kazumi conversations."""
+    if isinstance(channel, discord.DMChannel):
+        return True
+    if DISCORD_CHANNEL_ID and str(channel.id) == str(DISCORD_CHANNEL_ID):
+        return True
+    ch_name = getattr(channel, "name", "").lower()
+    return "kazumi" in ch_name
+
+
+def find_kazumi_channel_in_guild(guild: Optional[discord.Guild]) -> Optional[discord.TextChannel]:
+    """Finds a dedicated Kazumi channel in the guild if one exists."""
+    if not guild or not hasattr(guild, "text_channels"):
+        return None
+    for ch in guild.text_channels:
+        if is_kazumi_channel(ch):
+            return ch
+    return None
+
+
+def is_stop_command(text: str) -> bool:
+    """Detects if user is asking Kazumi to be quiet, stop talking, or stop spamming."""
+    if not text:
+        return False
+    norm = re.sub(r"[^\w\s]", " ", text.lower()).strip()
+    norm = re.sub(r"\s+", " ", norm)
+    if not norm:
+        return False
+    if norm in STOP_PHRASES:
+        return True
+    for phrase in STOP_PHRASES:
+        if norm.startswith(phrase + " ") or norm.endswith(" " + phrase) or f" {phrase} " in f" {norm} ":
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -175,19 +238,51 @@ def get_user_session_id(user: discord.User | discord.Member) -> str:
     return f"discord_user_{user.id}"
 
 
-def sync_kazumi_reply(text: str, session_id: str) -> str:
+def detect_creator_relationship(user: discord.User | discord.Member) -> tuple[Optional[str], Optional[str]]:
+    """
+    Identifies whether the Discord user is one of Kazumi's creators and fathers:
+    - 'Aamir the Chad'
+    - 'Sir Shan D. First'
+    Returns (creator_title, creator_context_description) or (None, None).
+    """
+    uid_str = str(getattr(user, "id", ""))
+    combined = f"{getattr(user, 'name', '')} {getattr(user, 'display_name', '')} {getattr(user, 'global_name', '')}".lower()
+    
+    # Check Shan
+    if uid_str == "1203721997805424650" or any(w in combined for w in ["shan2157", "sir shan", "shan d. first", "shan d first", "shan"]):
+        return ("Sir Shan D. First", "Sir Shan D. First (your creator and father)")
+        
+    # Check Aamir
+    if any(w in combined for w in ["aamir the chad", "aamir", "amir"]):
+        return ("Aamir the Chad", "Aamir the Chad (your creator and father)")
+        
+    return (None, None)
+
+
+def sync_kazumi_reply(text: str, session_id: str, user_name: Optional[str] = None, creator_identity: Optional[str] = None) -> str:
     """Thread-safe call to Kazumi's sync reply function."""
     if not kazumi_core:
         return "I'm having a little trouble connecting to my thoughts right now. Please try again in a moment! 🌸"
     with kazumi_lock:
+        if creator_identity:
+            kazumi_core.creator_context = creator_identity
+        else:
+            kazumi_core.creator_context = None
+
+        if user_name:
+            kazumi_core.load_game_states(session_id)
+            curr = kazumi_core.memory.profile.get("name")
+            if not curr or curr.strip().lower() in ("friend", "user", "sweetie", "none") or creator_identity:
+                kazumi_core.memory.profile["name"] = user_name
         res = kazumi_core.reply(text, session_id=session_id)
+        kazumi_core.creator_context = None
         return res if res else "I'm right here with you! 🌸 (Kazumi smiles warmly.)"
 
 
-async def ask_kazumi(text: str, session_id: str) -> str:
+async def ask_kazumi(text: str, session_id: str, user_name: Optional[str] = None, creator_identity: Optional[str] = None) -> str:
     """Non-blocking asynchronous wrapper over Kazumi's core reply."""
     try:
-        reply = await asyncio.to_thread(sync_kazumi_reply, text, session_id)
+        reply = await asyncio.to_thread(sync_kazumi_reply, text, session_id, user_name, creator_identity)
         return (reply or "").strip() or "I'm right here with you! 🌸"
     except Exception as e:
         logger.error(f"Error in ask_kazumi wrapper: {e}", exc_info=True)
@@ -283,13 +378,12 @@ async def on_message(message: discord.Message):
         return
 
     raw_content = (message.content or "").strip()
-    logger.info(f"📩 New message from {message.author} in #{getattr(message.channel, 'name', 'DM')}: '{raw_content}'")
+    channel = message.channel
+    is_dm = isinstance(channel, discord.DMChannel)
+    in_kazumi_channel = is_kazumi_channel(channel)
 
-    # 1. Check if message is in DM (Direct Message)
-    is_dm = isinstance(message.channel, discord.DMChannel)
+    # 1. Check if user or role mentioned Kazumi
     is_user_mentioned = bot.user in message.mentions if bot.user else False
-
-    # 2. Check role mentions belonging to Kazumi
     is_role_mentioned = False
     if message.guild and message.guild.me:
         bot_roles = {r.id for r in message.guild.me.roles if r.name != "@everyone"}
@@ -304,7 +398,7 @@ async def on_message(message: discord.Message):
 
     is_mentioned = is_user_mentioned or is_role_mentioned
 
-    # 3. Check if reply to Kazumi
+    # 2. Check if reply to Kazumi
     is_reply_to_kazumi = False
     if message.reference:
         ref_id = message.reference.message_id
@@ -323,10 +417,12 @@ async def on_message(message: discord.Message):
             except Exception:
                 pass
 
-    # 4. Check if calling name in text (Kazumi, Kasumi, Zumi, Kazzy, Kaz)
-    name_called = bool(re.search(r'(?:kazumi|kasumi|kazum1|zumi|kazzy|\bkaz\b)', raw_content, re.IGNORECASE))
+    # 3. Check if directly addressed by name at start of message
+    is_directly_addressed = bool(
+        re.search(r'^\s*(?:hey|hi|hello|yo|dear)?\s*@?(?:kazumi|kasumi|zumi|kazzy)\b', raw_content, re.IGNORECASE)
+    )
 
-    # 5. Check if prefix is called
+    # 4. Check if prefix is called
     is_prefix_called = False
     prefix_clean = PREFIX.strip().lower()
     if raw_content:
@@ -334,17 +430,68 @@ async def on_message(message: discord.Message):
         if cl.startswith("!k") or cl.startswith("!kazumi") or cl.startswith("k!") or (prefix_clean and cl.startswith(prefix_clean)):
             is_prefix_called = True
 
-    # 6. Check dedicated bot channel
-    channel_name = getattr(message.channel, 'name', '').lower()
-    dedicated_keywords = ["kazumi", "companion", "ai-chat", "talk-to-kazumi", "bot-chat", "chat-with-kazumi"]
-    is_dedicated_channel = (
-        (DISCORD_CHANNEL_ID and str(message.channel.id) == str(DISCORD_CHANNEL_ID))
-        or any(k in channel_name for k in dedicated_keywords)
-        or (message.guild and len(message.guild.text_channels) <= 2)  # Focused servers like EUPHORIA with 1-2 channels
-    )
+    # =========================================================================
+    # 🚫 RULE 1: STRICT CHANNEL PERMISSION
+    # Kazumi has permission to chat ONLY in Kazumi channels (and DMs).
+    # In other channels (like #meme, #general), she NEVER chats or auto-replies.
+    # =========================================================================
+    if not in_kazumi_channel:
+        # If someone explicitly tagged Kazumi in another channel, politely redirect once
+        if is_mentioned or is_reply_to_kazumi or is_prefix_called:
+            kazumi_ch = find_kazumi_channel_in_guild(message.guild)
+            if kazumi_ch and kazumi_ch.id != channel.id:
+                try:
+                    await message.reply(
+                        f"🌸 Hi {message.author.mention}! To keep this channel clean for everyone, I only chat in <#{kazumi_ch.id}> or DMs! Come talk with me over there! ✨",
+                        mention_author=False
+                    )
+                except Exception:
+                    pass
+            elif not kazumi_ch:
+                try:
+                    await message.reply(
+                        f"🌸 Hi {message.author.mention}! Please create a dedicated `#kazumi` channel for me to chat in, or DM me directly! ✨",
+                        mention_author=False
+                    )
+                except Exception:
+                    pass
+        # In all cases in non-Kazumi channels, DO NOT chat further
+        return
 
-    # 7. Check ongoing conversational session with this user
+    # =========================================================================
+    # 🧠 RULE 2: CONVERSATIONAL INTELLIGENCE & WHEN TO REPLY (IN KAZUMI CHANNEL)
+    # =========================================================================
     session_key = (message.channel.id, message.author.id)
+
+    # A. Check for STOP / SILENCE command
+    if is_stop_command(raw_content):
+        active_conversations.pop(session_key, None)
+        if is_mentioned or is_reply_to_kazumi:
+            try:
+                await message.reply(
+                    "(Kazumi nods softly and goes quiet) 🌸 Understood! I'll stay quiet. Just mention me or say my name when you'd like to chat again!",
+                    mention_author=False
+                )
+            except Exception:
+                pass
+        return
+
+    # B. Filter chat slang, laughter, and short reaction noise
+    norm_reaction = re.sub(r"[^\w\s]", "", raw_content).lower().strip()
+    if norm_reaction in CHAT_REACTIONS_AND_SLANG and not is_mentioned and not is_prefix_called:
+        # User is just reacting/laughing in chat (e.g. LAWL, haha, bruh)
+        # React with an emoji if recent conversation was active, but NEVER send a text message
+        if session_key in active_conversations:
+            try:
+                if norm_reaction in {"lol", "lmao", "lmfao", "lawl", "haha", "hahaha", "xd", "rofl"}:
+                    await message.add_reaction("😂")
+                elif norm_reaction in {"die", "u die", "abe u die"}:
+                    await message.add_reaction("👀")
+            except Exception:
+                pass
+        return
+
+    # C. Check ongoing conversational session with THIS specific user
     now = time.time()
     is_active_convo = False
     if session_key in active_conversations:
@@ -353,34 +500,31 @@ async def on_message(message: discord.Message):
         else:
             active_conversations.pop(session_key, None)
 
-    # 8. Check recent channel-level interaction (stays attentive for 2 mins)
-    is_active_channel = False
-    if message.channel.id in active_channel_conversations:
-        if now - active_channel_conversations[message.channel.id] <= CHANNEL_CONVERSATION_TIMEOUT_SECONDS:
-            is_active_channel = True
-        else:
-            active_channel_conversations.pop(message.channel.id, None)
-
-    # If user explicitly tags someone else (and not Kazumi), they are conversing with that person
-    is_talking_to_other = bool(message.mentions) and not is_user_mentioned
-
-    # Filter out commands intended for other bots (like !play, ?ban, /skip, $price) in shared channels
+    # D. Ignore other bot commands (e.g. !play, ?ban, /skip, $price, -p)
     is_other_bot_cmd = False
     if raw_content and raw_content[0] in "!?.$-/" and not is_prefix_called:
-        if len(raw_content) > 1 and raw_content[1].isalpha():
+        if len(raw_content) > 1 and (raw_content[1].isalpha() or raw_content[1] in "!?.$-/"):
             is_other_bot_cmd = True
 
-    # Evaluate response condition:
-    # In DMs, direct mentions, replies, or prefixes -> ALWAYS RESPOND (never blocked by is_other_bot_cmd)
-    if is_dm or is_mentioned or is_reply_to_kazumi or is_prefix_called:
-        should_respond = True
-    elif (name_called or is_dedicated_channel or is_active_convo or is_active_channel) and not is_talking_to_other and not is_other_bot_cmd:
+    # E. If user explicitly tags someone else (and not Kazumi), they are talking to that other person
+    is_talking_to_other = bool(message.mentions) and not is_user_mentioned
+
+    # F. In a server channel, require direct address or clear question to avoid eavesdropping on multi-user chat
+    words_count = len(raw_content.split())
+    has_question = "?" in raw_content
+
+    # Evaluate intelligent response conditions:
+    # 1. In DMs: Respond naturally to ongoing conversation.
+    # 2. In Server Channels: ONLY respond when directly addressed (ping, reply, prefix, or starting with her name).
+    #    NEVER eavesdrop or auto-reply to unprompted multi-user chat/banter!
+    if is_dm:
+        should_respond = not is_other_bot_cmd
+    elif is_mentioned or is_reply_to_kazumi or is_prefix_called or is_directly_addressed:
         should_respond = True
     else:
         should_respond = False
 
     if not should_respond:
-        await bot.process_commands(message)
         return
 
     try:
@@ -396,33 +540,60 @@ async def on_message(message: discord.Message):
         clean_text = re.sub(r"^\s*@?(?:kazumi|kasumi|zumi|kazzy|\bkaz\b)\b[:,]?", "", clean_text, flags=re.IGNORECASE)
         clean_text = re.sub(r"^[,\s:-]+", "", clean_text).strip()
 
-        if not clean_text:
+        # --- Text Recognition System for Image & Document Attachments ---
+        attachment_texts = []
+        if message.attachments:
+            try:
+                rec_engine = get_text_recognition_engine()
+                for att in message.attachments[:3]:
+                    try:
+                        att_bytes = await att.read()
+                        res = rec_engine.extract_text_from_bytes(
+                            att_bytes,
+                            filename=att.filename,
+                            mime_type=att.content_type or "image/png",
+                            user_query=clean_text if clean_text else None
+                        )
+                        if res.get("success") and res.get("text"):
+                            attachment_texts.append(f"[Recognized Text from '{att.filename}']:\n{res['text']}")
+                    except Exception as att_err:
+                        logger.warning(f"Error processing attachment {att.filename}: {att_err}")
+            except Exception as rec_err:
+                logger.warning(f"Error accessing text recognition engine: {rec_err}")
+
+        if attachment_texts:
+            rec_block = "\n\n".join(attachment_texts)
+            if clean_text:
+                clean_text = f"{clean_text}\n\n[Attached Content - Recognized Text]:\n{rec_block}"
+            else:
+                clean_text = f"I am sharing an image or document with you. Please read the recognized text and talk with me about it:\n\n{rec_block}"
+        elif not clean_text:
             if message.attachments:
                 clean_text = "I shared a photo or attachment with you! 🌸"
             elif message.stickers:
                 clean_text = "I sent you a cute sticker! 🌸"
             else:
-                # User pinged Kazumi without extra text
-                await send_kazumi_response(
-                    message,
-                    "Hello there! 🌸 How are you doing today? You can talk to me anytime, or use `/help` to see what we can do together!"
-                )
-                active_conversations[session_key] = time.time()
-                active_channel_conversations[message.channel.id] = time.time()
-                return
+                # User called her name or pinged her! Let Kazumi respond naturally with personality!
+                clean_text = "Hey! (The user called your name or pinged you warmly to say hi)"
 
         session_id = get_user_session_id(message.author)
-        logger.info(f"🧠 Processing message from {message.author}: '{clean_text}' (session: {session_id})")
+        logger.info(f"🧠 Processing message from {message.author} in #{getattr(message.channel, 'name', 'DM')}: '{clean_text}' (session: {session_id})")
+
+        author_name = getattr(message.author, "display_name", "") or getattr(message.author, "name", "")
+        creator_title, creator_ctx = detect_creator_relationship(message.author)
+        display_author = creator_title if creator_title else author_name
+        if creator_title:
+            logger.info(f"👑 Creator interaction detected! Author: {message.author} -> {creator_title}")
 
         reply_text = None
         # Safely trigger typing indicator while generating reply
         try:
             async with message.channel.typing():
-                reply_text = await asyncio.wait_for(ask_kazumi(clean_text, session_id), timeout=35.0)
+                reply_text = await asyncio.wait_for(ask_kazumi(clean_text, session_id, display_author, creator_ctx), timeout=35.0)
         except Exception as typing_err:
             if not reply_text:
                 try:
-                    reply_text = await asyncio.wait_for(ask_kazumi(clean_text, session_id), timeout=25.0)
+                    reply_text = await asyncio.wait_for(ask_kazumi(clean_text, session_id, display_author, creator_ctx), timeout=25.0)
                 except Exception as core_err:
                     logger.error(f"Error querying Kazumi core: {core_err}", exc_info=True)
                     reply_text = "I'm right here with you! 🌸 (Kazumi smiles warmly.) What's on your mind?"
@@ -430,15 +601,26 @@ async def on_message(message: discord.Message):
         reply_text = (reply_text or "").strip() or "I'm right here with you! 🌸"
         logger.info(f"💬 Replying to {message.author}: '{reply_text[:60]}...'")
 
-        # Update active conversation timestamps (user-level and channel-level)
+        # Update active conversation timestamp (user-level only)
         active_conversations[session_key] = time.time()
-        active_channel_conversations[message.channel.id] = time.time()
 
         # If user explicitly says goodbye, end the continuous session
         farewell_words = {"bye", "goodbye", "cya", "see ya", "gn", "goodnight", "good night", "gotta go", "stop", "exit"}
         norm_clean = re.sub(r"[^\w\s]", "", clean_text).lower().strip()
         if norm_clean in farewell_words or any(norm_clean.startswith(fw + " ") for fw in farewell_words):
             active_conversations.pop(session_key, None)
+
+        # Spontaneous human girl emotion reaction on Discord message (~45% chance)
+        try:
+            emo_engine = get_emotion_engine()
+            if random.random() < 0.45:
+                emo_emoji = emo_engine.get_random_reaction_emoji()
+                try:
+                    await message.add_reaction(emo_emoji)
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         # Deliver message reliably with fallback
         await send_kazumi_response(message, reply_text)
@@ -467,8 +649,11 @@ async def on_command_error(ctx: commands.Context, error: Exception):
 async def slash_chat(interaction: discord.Interaction, message: str):
     await interaction.response.defer(thinking=True)
     session_id = get_user_session_id(interaction.user)
+    author_name = getattr(interaction.user, "display_name", "") or getattr(interaction.user, "name", "")
+    creator_title, creator_ctx = detect_creator_relationship(interaction.user)
+    display_author = creator_title if creator_title else author_name
     try:
-        reply_text = await asyncio.wait_for(ask_kazumi(message, session_id), timeout=35.0)
+        reply_text = await asyncio.wait_for(ask_kazumi(message, session_id, display_author, creator_ctx), timeout=35.0)
     except Exception as e:
         logger.error(f"Error in slash_chat: {e}", exc_info=True)
         reply_text = "I'm right here with you! 🌸 (Kazumi smiles warmly.) Please ask me again, I'm ready to chat!"
@@ -662,6 +847,94 @@ async def slash_reset(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed)
 
 
+@bot.tree.command(name="recognize_text", description="Extract and read text from an image, document, or screenshot 🔍")
+@app_commands.describe(
+    image="Upload an image, photo, screenshot, or document to extract text from",
+    query="Optional question or instructions about the text/image"
+)
+async def slash_recognize_text(interaction: discord.Interaction, image: discord.Attachment, query: Optional[str] = None):
+    await interaction.response.defer(thinking=True)
+    try:
+        rec_engine = get_text_recognition_engine()
+        img_bytes = await image.read()
+        res = rec_engine.extract_text_from_bytes(
+            img_bytes,
+            filename=image.filename,
+            mime_type=image.content_type or "image/png",
+            user_query=query
+        )
+        if not res.get("success"):
+            err_msg = res.get("error", "Unable to process image.")
+            await interaction.followup.send(f"🌸 I couldn't read the text from that image: {err_msg}")
+            return
+
+        extracted = res.get("text", "").strip()
+        if not extracted or not res.get("has_text", True):
+            embed = create_kazumi_embed(
+                title="🔍 Text Recognition Result",
+                description="I examined your image carefully, but I couldn't find any readable text in it! 🌸"
+            )
+            embed.set_thumbnail(url=image.url)
+            await interaction.followup.send(embed=embed)
+            return
+
+        char_count = res.get("char_count", len(extracted))
+        line_count = len(extracted.splitlines())
+
+        embed = create_kazumi_embed(
+            title=f"🔍 Recognized Text: {image.filename}",
+            description=f"**Characters:** {char_count} | **Lines:** {line_count}\n\n```\n{extracted[:1800]}\n```"
+        )
+        embed.set_thumbnail(url=image.url)
+        if len(extracted) > 1800:
+            embed.set_footer(text=f"Showing first 1,800 characters of {char_count} total characters.")
+
+        await interaction.followup.send(embed=embed)
+
+        # Generate Kazumi's personal thoughts on what she read
+        session_id = get_user_session_id(interaction.user)
+        prompt_for_kazumi = (
+            f"The user uploaded an image containing this text:\n\n{extracted[:1500]}\n\n"
+            f"User's question/comment: {query if query else 'What do you think of this text or document?'}"
+        )
+        commentary = await ask_kazumi(prompt_for_kazumi, session_id)
+        if commentary:
+            await interaction.followup.send(f"🌸 **Kazumi's Thoughts:**\n{commentary}")
+
+    except Exception as e:
+        logger.error(f"Error in slash_recognize_text: {e}", exc_info=True)
+        await interaction.followup.send(f"I had a little trouble reading that image: {e} 🌸")
+
+
+@bot.tree.command(name="ocr", description="Quick shortcut to extract text from an image or screenshot 🔍")
+@app_commands.describe(image="Image to extract text from", question="Optional question about the text")
+async def slash_ocr(interaction: discord.Interaction, image: discord.Attachment, question: Optional[str] = None):
+    await slash_recognize_text(interaction, image, question)
+
+
+@bot.tree.command(name="emotion", description="Check Kazumi's current human girl emotion and feelings 💕")
+async def slash_emotion(interaction: discord.Interaction):
+    await interaction.response.defer(thinking=True)
+    try:
+        emo_engine = get_emotion_engine()
+        curr_emo = emo_engine.get_current_emotion()
+        cue = emo_engine.get_random_cue()
+
+        embed = create_kazumi_embed(
+            title=f"{curr_emo['emoji']} Kazumi's Current Emotion: {curr_emo['name']}",
+            description=(
+                f"*{cue}*\n\n"
+                f"**Current Vibe:** {curr_emo['vibe_description']}\n\n"
+                f"Kazumi experiences spontaneous human girl emotions during chats—feeling shy, teasing, "
+                f"affectionate, pouty, excited, thoughtful, or sleepy depending on the moment! 🌸"
+            )
+        )
+        await interaction.followup.send(embed=embed)
+    except Exception as e:
+        logger.error(f"Error in slash_emotion: {e}", exc_info=True)
+        await interaction.followup.send("I'm feeling cozy and happy to be here with you! 🌸")
+
+
 @bot.tree.command(name="help", description="How to interact with Kazumi in your server 🌸")
 async def slash_help(interaction: discord.Interaction):
     embed = create_kazumi_embed(
@@ -671,8 +944,11 @@ async def slash_help(interaction: discord.Interaction):
             "**Ways to Chat:**\n"
             "• **Mention her:** Type `@Kazumi Hello!` anywhere in the server.\n"
             "• **Direct Message:** Send a DM directly to Kazumi.\n"
-            "• **Slash Command:** Use `/chat <message>`.\n\n"
+            "• **Slash Command:** Use `/chat <message>`.\n"
+            "• **Send Images/Screenshots:** Attach any picture with text and Kazumi will read it!\n\n"
             "**Available Commands:**\n"
+            "• `/recognize_text` (or `/ocr`) - Read & extract text from images/screenshots 🔍\n"
+            "• `/emotion` - View Kazumi's current human girl emotion & feelings 💕\n"
             "• `/roast [target]` - Deliver an unapologetically savage roast 💀🔥\n"
             "• `/unhinged [True/False]` - Toggle savage unhinged mode 💀🔥\n"
             "• `/persona [archetype]` - Switch between Deredere, Teasing, Kuudere, Tsundere, and Unhinged\n"
@@ -715,36 +991,88 @@ def print_discord_setup_guide():
     print("=" * 68 + "\n")
 
 
+import subprocess
+
 INSTANCE_LOCK_PORT = 49281
 _instance_socket = None
+_instance_mutex = None
 
-def acquire_single_instance_lock() -> bool:
-    """Ensures only a single bot process runs locally to prevent gateway session conflicts."""
-    global _instance_socket
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
-        s.bind(("127.0.0.1", INSTANCE_LOCK_PORT))
-        _instance_socket = s
-        return True
-    except socket.error:
-        return False
+def acquire_single_instance_lock(timeout: float = 6.0) -> bool:
+    """
+    Ensures only a single bot process runs locally to prevent gateway session conflicts.
+    Uses Windows Named Mutex on Windows (kernel-managed, auto-freed instantly on process termination),
+    and a non-blocking TCP socket lock on other platforms, with retry capability during respawn.
+    """
+    global _instance_socket, _instance_mutex
+    start_time = time.time()
+
+    # Windows kernel Named Mutex
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            ERROR_ALREADY_EXISTS = 183
+
+            while True:
+                mutex = kernel32.CreateMutexW(None, False, "Global\\KazumiDiscordBotRunningMutex")
+                last_err = kernel32.GetLastError()
+                if mutex and last_err != ERROR_ALREADY_EXISTS:
+                    _instance_mutex = mutex
+                    return True
+                if mutex:
+                    kernel32.CloseHandle(mutex)
+
+                if time.time() - start_time >= timeout:
+                    return False
+                time.sleep(0.5)
+        except Exception as e:
+            logger.warning(f"Windows Named Mutex check failed, falling back to socket lock: {e}")
+
+    # Cross-platform socket lock with retry
+    while True:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(("127.0.0.1", INSTANCE_LOCK_PORT))
+            _instance_socket = s
+            return True
+        except socket.error:
+            if time.time() - start_time >= timeout:
+                return False
+            time.sleep(0.5)
 
 
-def respawn_process():
-    """Cleanly releases lock and respawns the bot process."""
-    global _instance_socket
+def release_single_instance_lock():
+    """Explicitly releases any single-instance mutex or socket lock."""
+    global _instance_socket, _instance_mutex
     if _instance_socket:
         try:
             _instance_socket.close()
         except Exception:
             pass
+        _instance_socket = None
+
+    if _instance_mutex and sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.kernel32.CloseHandle(_instance_mutex)
+        except Exception:
+            pass
+        _instance_mutex = None
+
+
+def respawn_process():
+    """Cleanly releases lock and respawns the bot process safely across platforms."""
+    release_single_instance_lock()
     try:
-        os.execv(sys.executable, [sys.executable] + sys.argv)
-    except Exception:
-        import subprocess
-        subprocess.Popen([sys.executable] + sys.argv)
-        sys.exit(0)
+        if sys.platform == "win32":
+            subprocess.Popen([sys.executable] + sys.argv, close_fds=True)
+            sys.exit(0)
+        else:
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+    except Exception as e:
+        logger.error(f"Failed to respawn process: {e}")
+        time.sleep(5)
 
 
 def main():
@@ -754,7 +1082,7 @@ def main():
         print_discord_setup_guide()
         sys.exit(1)
 
-    if not acquire_single_instance_lock():
+    if not acquire_single_instance_lock(timeout=5.0):
         logger.warning("🌸 Another instance of Kazumi Discord Bot is already running on this machine. Exiting cleanly to avoid duplicate gateway conflicts.")
         sys.exit(0)
 
@@ -773,6 +1101,7 @@ def main():
             sys.exit(1)
         except (KeyboardInterrupt, SystemExit):
             logger.info("🌸 Bot stopped by user signal.")
+            release_single_instance_lock()
             sys.exit(0)
         except Exception as e:
             logger.error(f"⚠️ Discord connection dropped or failed: {e}. Auto-reconnecting in {retry_delay}s...", exc_info=True)
@@ -783,3 +1112,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

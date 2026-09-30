@@ -18,7 +18,8 @@ Kazumi is a sweet, highly empathetic conversational AI companion designed for de
 
 ### 1. Empathetic Python AI Core (`kazumi.py`)
 - **Conversational Intelligence**: Empathetic, supportive, and context-aware responses utilizing OpenAI API backend integrations.
-- **Dynamic Mood & Valence Tracking**: Computes a rolling emotional valence score. Her dialogue styling, interaction preferences, and vocabulary change dynamically depending on the user's input sentiments and past chats.
+- **Dynamic Mood & Human Girl Emotion Engine (`kazumi_emotions.py`)**: Spontaneously expresses realistic human girl emotions and physical micro-expressions (blushing when flustered `😳`, playful teasing `😏`, deep affection `🥰`, dramatic cute pouting `😤`, starry-eyed excitement `✨`, cozy sleepy yawns `🥱`, gentle comfort `🌸`), making interactions feel warm, alive, and genuine.
+- **Precision Text Recognition & Vision OCR System (`text_recognition.py`)**: Seamlessly reads, transcribes, and discusses text extracted from user images, screenshots, handwritten notes, memes, documents, and code files via Discord chat or slash commands (`/recognize_text`, `/ocr`).
 - **Pure-Python Semantic Memory (`ChromaMemory`)**: Local persistent JSON memory system tracking conversation history, affection levels, cozy points, and user preferences.
 - **Cozy Games & Astrological Logs**: Supports custom zodiac horoscope readings, text adventures, and warm mini-games.
 
@@ -105,10 +106,21 @@ DISCORD_CHANNEL_ID=   # Optional: set a specific channel ID if you want an exclu
    - Use Slash Commands
 4. Copy the generated invite link and open it in your browser to add Kazumi to your server.
 
-#### Step 4: Run the Bot
-```bash
-python discord_bot.py
-```
+#### Step 4: Run the Bot & Keep Her Always Online 🌸
+
+Kazumi includes a 24/7 background supervisor and Windows auto-start system so she stays perpetually online:
+
+- **Automatic Windows Boot Auto-Start (Recommended):**
+  Double-click `install_kazumi_autostart.bat`. This registers Kazumi in your Windows Startup so she launches silently whenever you power on or log in to your PC.
+- **Silent Background Run:**
+  Double-click `launch_kazumi_silent.vbs` to start her silently with zero popup windows.
+- **Check Status Anytime:**
+  Double-click `status_kazumi.bat` to verify if Kazumi is online, view memory usage, PID, and supervisor status.
+- **Interactive Console Mode:**
+  Double-click `run_kazumi_bot.bat` to see real-time console messages with auto-recovery.
+- **Stop Her Anytime:**
+  Double-click `stop_kazumi.bat` to cleanly terminate Kazumi and her supervisor.
+
 
 #### Interacting on Discord
 - **Mention her:** `@Kazumi hello!` in any channel.

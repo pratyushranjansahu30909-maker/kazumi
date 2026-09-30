@@ -2,7 +2,7 @@ name: Kazumi Cloud Keep-Alive
 
 on:
   schedule:
-    # Run every 10 minutes to keep cloud service awake
+    # Run every 10 minutes to keep cloud services awake 24/7
     - cron: '*/10 * * * *'
   workflow_dispatch: # Allow manual trigger from GitHub Actions tab
 
@@ -10,11 +10,21 @@ jobs:
   ping-space:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Cloud Service
+      - name: Ping Cloud Services
         run: |
-          echo "🌸 Pinging Kazumi Cloud to prevent sleep..."
-          if [ -n "${{ secrets.RENDER_APP_URL }}" ]; then
-            curl -sS -o /dev/null -w "Render Secret HTTP Status: %{http_code}\n" "${{ secrets.RENDER_APP_URL }}/api/bot-status" || true
+          echo "🌸 Pinging Kazumi Cloud services to prevent sleep..."
+          
+          # Ping Hugging Face Space (Default & Custom)
+          if [ -n "${{ secrets.SPACE_URL }}" ]; then
+            curl -sS -m 20 -o /dev/null -w "Custom Space Status: %{http_code}\n" "${{ secrets.SPACE_URL }}/api/bot-status" || true
           fi
-          curl -sS -o /dev/null -w "Render Default HTTP Status: %{http_code}\n" "https://kazumi-companion.onrender.com/api/bot-status" || true
+          curl -sS -m 20 -o /dev/null -w "Hugging Face Space API Status: %{http_code}\n" "https://kaizen2157-kazumi-companion.hf.space/api/bot-status" || true
+          curl -sS -m 20 -o /dev/null -w "Hugging Face Space Web Status: %{http_code}\n" "https://kaizen2157-kazumi-companion.hf.space/" || true
+
+          # Ping Render (Secret & Default)
+          if [ -n "${{ secrets.RENDER_APP_URL }}" ]; then
+            curl -sS -m 20 -o /dev/null -w "Render Secret Status: %{http_code}\n" "${{ secrets.RENDER_APP_URL }}/api/bot-status" || true
+          fi
+          curl -sS -m 20 -o /dev/null -w "Render Default Status: %{http_code}\n" "https://kazumi-companion.onrender.com/api/bot-status" || true
+          
           echo "🌸 Keep-alive ping complete! Kazumi is awake and active."
