@@ -820,12 +820,119 @@ app.get('/api/kazumi/voice/stream', (req, res) => {
   res.status(400).json({ success: false, error: 'Voice features are currently disabled.' });
 });
 
-// 10. Voice synthesis endpoint (disabled)
-app.post('/api/kazumi/voice/synthesize', async (req, res) => {
-  res.json({ success: false, error: 'Voice features are currently disabled. Operating in pure chat bot mode.' });
+// =========================================================================
+// 🌸 KAZUMI DISCORD BOT DASHBOARD API ENDPOINTS (SECTION 27)
+// =========================================================================
+
+// Safe JSON file reader helper
+const readJsonFile = (filePath, defaultVal = {}) => {
+  try {
+    if (fs.existsSync(filePath)) {
+      return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    }
+  } catch (err) {
+    console.error(`Error reading ${filePath}:`, err.message);
+  }
+  return defaultVal;
+};
+
+// 1. Overview & Telemetry
+app.get('/api/dashboard/overview', (req, res) => {
+  const memDir = getIsaMemoryDir();
+  const modRecords = readJsonFile(path.join(memDir, 'moderation_records.json'), { warnings: {}, actions: [] });
+  const tickets = readJsonFile(path.join(memDir, 'tickets.json'), {});
+  const giveaways = readJsonFile(path.join(memDir, 'giveaways.json'), {});
+  const guildSettings = readJsonFile(path.join(memDir, 'guild_settings.json'), {});
+  const socialGraph = readJsonFile(path.join(memDir, 'social_graph.json'), { users: {} });
+  const serverMemory = readJsonFile(path.join(memDir, 'server_memory.json'), {});
+
+  const totalWarnings = Object.values(modRecords.warnings || {}).reduce((acc, curr) => acc + (Array.isArray(curr) ? curr.length : 0), 0);
+  const totalModActions = (modRecords.actions || []).length;
+  const activeTickets = Object.values(tickets).filter(t => t.status === 'open').length;
+  const activeGiveaways = Object.values(giveaways).filter(g => !g.ended).length;
+  const knownUsersCount = Object.keys(socialGraph.users || {}).length;
+  const configuredGuilds = Object.keys(guildSettings).length;
+
+  res.json({
+    status: 'online',
+    uptime_seconds: process.uptime(),
+    timestamp: new Date().toISOString(),
+    telemetry: {
+      guilds_configured: configuredGuilds,
+      social_graph_members: knownUsersCount,
+      moderation: {
+        total_actions: totalModActions,
+        total_warnings: totalWarnings
+      },
+      tickets: {
+        active: activeTickets,
+        total: Object.keys(tickets).length
+      },
+      giveaways: {
+        active: activeGiveaways,
+        total: Object.keys(giveaways).length
+      },
+      server_memory: {
+        current_mood: serverMemory.current_mood || 'calm',
+        known_channels: Object.keys(serverMemory.channels || {}).length
+      }
+    }
+  });
+});
+
+// 2. Moderation Records
+app.get('/api/dashboard/moderation', (req, res) => {
+  const memDir = getIsaMemoryDir();
+  const mod = readJsonFile(path.join(memDir, 'moderation_records.json'), { warnings: {}, actions: [] });
+  res.json({
+    success: true,
+    warnings: mod.warnings || {},
+    recent_actions: (mod.actions || []).slice(-50).reverse()
+  });
+});
+
+// 3. Tickets
+app.get('/api/dashboard/tickets', (req, res) => {
+  const memDir = getIsaMemoryDir();
+  const tickets = readJsonFile(path.join(memDir, 'tickets.json'), {});
+  res.json({
+    success: true,
+    tickets: Object.values(tickets)
+  });
+});
+
+// 4. Giveaways
+app.get('/api/dashboard/giveaways', (req, res) => {
+  const memDir = getIsaMemoryDir();
+  const giveaways = readJsonFile(path.join(memDir, 'giveaways.json'), {});
+  res.json({
+    success: true,
+    giveaways: Object.values(giveaways)
+  });
+});
+
+// 5. Guild Settings
+app.get('/api/dashboard/settings', (req, res) => {
+  const memDir = getIsaMemoryDir();
+  const settings = readJsonFile(path.join(memDir, 'guild_settings.json'), {});
+  res.json({
+    success: true,
+    guild_settings: settings
+  });
+});
+
+// 6. Social Memory Graph
+app.get('/api/dashboard/social-graph', (req, res) => {
+  const memDir = getIsaMemoryDir();
+  const graph = readJsonFile(path.join(memDir, 'social_graph.json'), { users: {} });
+  res.json({
+    success: true,
+    users: graph.users || {}
+  });
 });
 
 app.listen(PORT, () => {
+
   console.log(`====================================================`);
   console.log(`🚀 Secure Portfolio Server running on http://localhost:${PORT}`);
   console.log(`🔐 Cryptography key status: Loaded (aes-256-cbc active)`);

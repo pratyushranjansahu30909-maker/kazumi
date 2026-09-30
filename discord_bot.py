@@ -19,6 +19,7 @@ import threading
 import logging
 import random
 import time
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from text_recognition import get_text_recognition_engine
@@ -139,9 +140,14 @@ bot = commands.Bot(
     connector=bot_connector
 )
 
+# Initialize Kazumi Advanced Feature Suite (Moderation, Logging, Tickets, Giveaways, Music, etc.)
+import discord_features
+kazumi_features = discord_features.setup_all_features(bot, bot.tree)
+
 # Active conversational sessions: (channel_id, user_id) -> last_active_timestamp
 active_conversations = {}
 CONVERSATION_TIMEOUT_SECONDS = 90  # Stays attentive for 90 seconds after direct interaction
+
 
 # Cache of recent message IDs sent by Kazumi to accurately detect replies
 recent_bot_message_ids = set()
@@ -378,12 +384,16 @@ async def on_ready():
     except Exception as e:
         logger.warning(f"Slash command sync failed: {e}")
 
+    # Launch Kazumi background feature task (Giveaways, Reminders, Server Moments)
+    bot.loop.create_task(kazumi_background_feature_loop())
+
     print("\n" + "=" * 60)
     print("🌸 KAZUMI DISCORD BOT IS READY AND LISTENING!")
     print(f"Host: {DEPLOY_ENV['name']}")
     print(f"Bot Tag: {bot.user}")
     print("Mention Kazumi in any server channel or use /chat to speak!")
     print("=" * 60 + "\n")
+
 
 
 @bot.event
@@ -407,12 +417,79 @@ async def on_message(message: discord.Message):
     is_dm = isinstance(channel, discord.DMChannel)
     in_kazumi_channel = is_kazumi_channel(channel)
 
+    # =========================================================================
+    # 0A. AUTOMOD ENFORCEMENT (Section 2)
+    # =========================================================================
+    if message.guild and kazumi_features.get("automod"):
+        gid_str = str(message.guild.id)
+        db_inst = kazumi_features["db"]
+        g_settings = db_inst.get_guild_settings(gid_str)
+        automod_cfg = g_settings.get("automod", {})
+        if automod_cfg.get("enabled", False):
+            is_staff = False
+            if hasattr(message.author, "guild_permissions"):
+                is_staff = message.author.guild_permissions.manage_messages or message.author.guild_permissions.administrator
+            if not is_staff:
+                violated, rule_name, evidence = kazumi_features["automod"].record_and_evaluate(message, automod_cfg)
+                if violated:
+                    try:
+                        await message.delete()
+                    except Exception:
+                        pass
+                    mod_embed = discord.Embed(
+                        title="🛡️ AutoMod Rule Enforced",
+                        description=(
+                            f"**User:** {message.author.mention} (`{message.author.id}`)\n"
+                            f"**Rule Violated:** `{rule_name}`\n"
+                            f"**Evidence:** {evidence}\n"
+                            f"**Channel:** {message.channel.mention}"
+                        ),
+                        color=0xf43f5e
+                    )
+                    mod_embed.timestamp = datetime.now(timezone.utc)
+                    await kazumi_features["logging"].log_event(message.guild, mod_embed)
+                    try:
+                        await message.channel.send(
+                            f"⚠️ {message.author.mention}, your message violated server rules (**{rule_name}**) and was removed.",
+                            delete_after=8
+                        )
+                    except Exception:
+                        pass
+                    return
+
+    # =========================================================================
+    # 0B. CUSTOM COMMANDS DISPATCHER (Section 9)
+    # =========================================================================
+    if await kazumi_features["custom_commands"].maybe_handle_message(message):
+        return
+
+    # =========================================================================
+    # 0C. SOCIAL GRAPH & SERVER MEMORY OBSERVATION (Sections 17 & 18)
+    # =========================================================================
+    if message.guild:
+        author_name_str = getattr(message.author, "display_name", "") or getattr(message.author, "name", "")
+        kazumi_features["social_graph"].record_interaction(
+            message.guild.id,
+            message.author.id,
+            author_name_str,
+            raw_content
+        )
+        kazumi_features["mood"].update_mood(message.guild.id, raw_content)
+        if hasattr(message.channel, "name"):
+            kazumi_features["server_memory"].learn_channel_purpose(
+                message.guild.id,
+                message.channel.id,
+                message.channel.name
+            )
+        kazumi_features["continuity"].record_subject(message.guild.id, message.author.id, raw_content)
+
     # 1. Check if user or role mentioned Kazumi
     is_user_mentioned = bot.user in message.mentions if bot.user else False
     is_role_mentioned = False
     if message.guild and message.guild.me:
         bot_roles = {r.id for r in message.guild.me.roles if r.name != "@everyone"}
         if hasattr(message, 'role_mentions'):
+
             is_role_mentioned = any(
                 role.id in bot_roles or "kazumi" in role.name.lower()
                 for role in message.role_mentions
@@ -646,18 +723,41 @@ async def on_message(message: discord.Message):
         if creator_title:
             logger.info(f"👑 Creator interaction detected! Author: {message.author} -> {creator_title}")
 
+        # Build multi-dimensional social & contextual directive (Sections 13, 14, 16, 17, 18, 19)
+        social_directives = []
+        if message.guild:
+            mood_val = kazumi_features["mood"].get_guild_mood(message.guild.id)
+            mood_desc = kazumi_features["mood"].get_mood_prompt_modifier(mood_val)
+            fam_desc = kazumi_features["social_graph"].get_familiarity_context(message.guild.id, message.author.id)
+            server_desc = kazumi_features["server_memory"].get_server_context_summary(message.guild.id)
+            resumed_ctx = kazumi_features["continuity"].get_resumed_context(message.guild.id, message.author.id)
+
+            social_directives.append(f"[Current Internal Mood: {mood_val} - {mood_desc}]")
+            if fam_desc:
+                social_directives.append(f"[{fam_desc}]")
+            if resumed_ctx:
+                social_directives.append(f"[{resumed_ctx}]")
+            if server_desc:
+                social_directives.append(f"[{server_desc}]")
+
+        if adaptive_directive:
+            social_directives.append(adaptive_directive)
+
+        combined_directive = "\n".join(social_directives) if social_directives else None
+
         reply_text = None
         # Safely trigger typing indicator while generating reply
         try:
             async with message.channel.typing():
-                reply_text = await asyncio.wait_for(ask_kazumi(clean_text, session_id, display_author, creator_ctx, person_directive=adaptive_directive), timeout=35.0)
+                reply_text = await asyncio.wait_for(ask_kazumi(clean_text, session_id, display_author, creator_ctx, person_directive=combined_directive), timeout=35.0)
         except Exception as typing_err:
             if not reply_text:
                 try:
-                    reply_text = await asyncio.wait_for(ask_kazumi(clean_text, session_id, display_author, creator_ctx, person_directive=adaptive_directive), timeout=25.0)
+                    reply_text = await asyncio.wait_for(ask_kazumi(clean_text, session_id, display_author, creator_ctx, person_directive=combined_directive), timeout=25.0)
                 except Exception as core_err:
                     logger.error(f"Error querying Kazumi core: {core_err}", exc_info=True)
                     reply_text = "I'm right here with you! 🌸 (Kazumi smiles warmly.) What's on your mind?"
+
 
         reply_text = (reply_text or "").strip() or "I'm right here with you! 🌸"
         logger.info(f"💬 Replying to {message.author}: '{reply_text[:60]}...'")
@@ -694,11 +794,243 @@ async def on_message(message: discord.Message):
         )
 
 
+# ===========================================================================
+# 🌸 BACKGROUND FEATURE WORKER LOOP (Giveaways, Reminders, Server Moments)
+# ===========================================================================
+
+async def kazumi_background_feature_loop():
+    """Periodic worker for giveaways, scheduled reminders, and server intelligence."""
+    await bot.wait_until_ready()
+    logger.info("[Background] Kazumi background feature task loop started.")
+    iteration = 0
+    while not bot.is_closed():
+        try:
+            # 1. Check giveaways every 15s
+            if kazumi_features.get("giveaways"):
+                await kazumi_features["giveaways"].check_active_giveaways(bot)
+
+            # 2. Check scheduled reminders
+            if kazumi_features.get("db"):
+                due = kazumi_features["db"].get_due_reminders()
+                for rem in due:
+                    try:
+                        channel_id = int(rem.get("channel_id", 0))
+                        user_id = int(rem.get("user_id", 0))
+                        ch = bot.get_channel(channel_id)
+                        user = bot.get_user(user_id)
+                        embed = discord.Embed(
+                            title="⏰ Kazumi Reminder 🌸",
+                            description=f"Hey {user.mention if user else 'there'}!\nYou asked me to remind you:\n\n**{rem.get('text')}**",
+                            color=0xc084fc
+                        )
+                        embed.set_footer(text="Kazumi Reminders • Never miss a moment! 🌸")
+                        embed.timestamp = datetime.now(timezone.utc)
+                        if ch:
+                            await ch.send(content=f"{user.mention if user else ''}", embed=embed)
+                        elif user:
+                            await user.send(embed=embed)
+                    except Exception as rem_err:
+                        logger.warning(f"Error dispatching reminder: {rem_err}")
+
+            # 3. Server Moments & Community Questions (every ~4 hours)
+            iteration += 1
+            if iteration % 960 == 0:  # 960 * 15s = 4 hours
+                for guild in bot.guilds:
+                    if kazumi_features.get("moments") and kazumi_features["moments"].can_trigger_moment(guild.id, min_interval_hours=24):
+                        k_channel = find_kazumi_channel_in_guild(guild)
+                        if k_channel:
+                            q = kazumi_features["moments"].get_daily_question()
+                            embed = discord.Embed(
+                                title="🌸 Kazumi Daily Community Question",
+                                description=q,
+                                color=0xffb6c1
+                            )
+                            embed.set_footer(text="Feel free to answer or chat with Kazumi anytime! 💕")
+                            try:
+                                await k_channel.send(embed=embed)
+                                kazumi_features["moments"].mark_moment_triggered(guild.id)
+                            except Exception:
+                                pass
+
+        except Exception as bg_err:
+            logger.error(f"[Background] Error in background feature loop: {bg_err}")
+
+        await asyncio.sleep(15)
+
+
+# ===========================================================================
+# 🌸 SERVER AUDIT & COMMUNITY EVENT LISTENERS (Sections 3, 4, 5)
+# ===========================================================================
+
+@bot.event
+async def on_member_join(member: discord.Member):
+    try:
+        if kazumi_features.get("welcome"):
+            await kazumi_features["welcome"].on_member_join(member)
+        if kazumi_features.get("autorole"):
+            await kazumi_features["autorole"].assign_autoroles(member)
+        # Log event
+        embed = discord.Embed(
+            title="📥 Member Joined",
+            description=f"{member.mention} (`{member.name}` - ID: `{member.id}`)\nAccount created: <t:{int(member.created_at.timestamp())}:R>",
+            color=0x10b981
+        )
+        if member.avatar:
+            embed.set_thumbnail(url=member.avatar.url)
+        embed.set_footer(text=f"Total Members: {member.guild.member_count}")
+        embed.timestamp = datetime.now(timezone.utc)
+        await kazumi_features["logging"].log_event(member.guild, embed)
+    except Exception as e:
+        logger.warning(f"Error in on_member_join handler: {e}")
+
+
+@bot.event
+async def on_member_remove(member: discord.Member):
+    try:
+        if kazumi_features.get("welcome"):
+            await kazumi_features["welcome"].on_member_remove(member)
+        embed = discord.Embed(
+            title="📤 Member Left",
+            description=f"**{member.name}** (`{member.id}`) has left the server.",
+            color=0xf43f5e
+        )
+        if member.avatar:
+            embed.set_thumbnail(url=member.avatar.url)
+        embed.set_footer(text=f"Remaining Members: {member.guild.member_count}")
+        embed.timestamp = datetime.now(timezone.utc)
+        await kazumi_features["logging"].log_event(member.guild, embed)
+    except Exception as e:
+        logger.warning(f"Error in on_member_remove handler: {e}")
+
+
+@bot.event
+async def on_message_delete(message: discord.Message):
+    if not message.guild or message.author.bot:
+        return
+    try:
+        embed = discord.Embed(
+            title="🗑️ Message Deleted",
+            description=f"**Author:** {message.author.mention} (`{message.author.id}`)\n**Channel:** {message.channel.mention}\n\n**Content:**\n{message.content or '*No text content*'}",
+            color=0xef4444
+        )
+        embed.timestamp = datetime.now(timezone.utc)
+        await kazumi_features["logging"].log_event(message.guild, embed)
+    except Exception as e:
+        logger.warning(f"Error in on_message_delete logging: {e}")
+
+
+@bot.event
+async def on_message_edit(before: discord.Message, after: discord.Message):
+    if not before.guild or before.author.bot:
+        return
+    if before.content == after.content:
+        return
+    try:
+        embed = discord.Embed(
+            title="✏️ Message Edited",
+            description=f"**Author:** {before.author.mention} (`{before.author.id}`)\n**Channel:** {before.channel.mention}\n[Jump to Message]({after.jump_url})\n\n**Before:**\n{before.content or '*Empty*'}\n\n**After:**\n{after.content or '*Empty*'}",
+            color=0x3b82f6
+        )
+        embed.timestamp = datetime.now(timezone.utc)
+        await kazumi_features["logging"].log_event(before.guild, embed)
+    except Exception as e:
+        logger.warning(f"Error in on_message_edit logging: {e}")
+
+
+@bot.event
+async def on_member_ban(guild: discord.Guild, user: discord.User | discord.Member):
+    try:
+        embed = discord.Embed(
+            title="🔨 Member Banned",
+            description=f"**User:** {user.mention} (`{user.name}` - ID: `{user.id}`)",
+            color=0xb91c1c
+        )
+        embed.timestamp = datetime.now(timezone.utc)
+        await kazumi_features["logging"].log_event(guild, embed)
+    except Exception as e:
+        logger.warning(f"Error in on_member_ban logging: {e}")
+
+
+@bot.event
+async def on_member_unban(guild: discord.Guild, user: discord.User):
+    try:
+        embed = discord.Embed(
+            title="🕊️ Member Unbanned",
+            description=f"**User:** {user.mention} (`{user.name}` - ID: `{user.id}`)",
+            color=0x10b981
+        )
+        embed.timestamp = datetime.now(timezone.utc)
+        await kazumi_features["logging"].log_event(guild, embed)
+    except Exception as e:
+        logger.warning(f"Error in on_member_unban logging: {e}")
+
+
+@bot.event
+async def on_member_update(before: discord.Member, after: discord.Member):
+    try:
+        # Nickname change
+        if before.nick != after.nick:
+            embed = discord.Embed(
+                title="📝 Nickname Changed",
+                description=f"**Member:** {after.mention}\n**Old:** {before.nick or before.name}\n**New:** {after.nick or after.name}",
+                color=0x8b5cf6
+            )
+            embed.timestamp = datetime.now(timezone.utc)
+            await kazumi_features["logging"].log_event(after.guild, embed)
+        # Role changes
+        elif before.roles != after.roles:
+            added = [r.mention for r in after.roles if r not in before.roles]
+            removed = [r.mention for r in before.roles if r not in after.roles]
+            desc = f"**Member:** {after.mention}\n"
+            if added:
+                desc += f"**Roles Added:** {', '.join(added)}\n"
+            if removed:
+                desc += f"**Roles Removed:** {', '.join(removed)}"
+            embed = discord.Embed(
+                title="🎭 Member Roles Updated",
+                description=desc,
+                color=0x8b5cf6
+            )
+            embed.timestamp = datetime.now(timezone.utc)
+            await kazumi_features["logging"].log_event(after.guild, embed)
+    except Exception as e:
+        logger.warning(f"Error in on_member_update logging: {e}")
+
+
+@bot.event
+async def on_guild_channel_create(channel: discord.abc.GuildChannel):
+    try:
+        embed = discord.Embed(
+            title="📁 Channel Created",
+            description=f"**Channel:** {channel.name} (`{channel.id}`)",
+            color=0x10b981
+        )
+        embed.timestamp = datetime.now(timezone.utc)
+        await kazumi_features["logging"].log_event(channel.guild, embed)
+    except Exception:
+        pass
+
+
+@bot.event
+async def on_guild_channel_delete(channel: discord.abc.GuildChannel):
+    try:
+        embed = discord.Embed(
+            title="🗑️ Channel Deleted",
+            description=f"**Channel:** #{channel.name} (`{channel.id}`)",
+            color=0xef4444
+        )
+        embed.timestamp = datetime.now(timezone.utc)
+        await kazumi_features["logging"].log_event(channel.guild, embed)
+    except Exception:
+        pass
+
+
 @bot.event
 async def on_command_error(ctx: commands.Context, error: Exception):
     if isinstance(error, commands.CommandNotFound):
         return  # Silently ignore unknown prefix commands
     logger.error(f"Command error in {ctx.command}: {error}")
+
 
 
 # ---------------------------------------------------------------------------
