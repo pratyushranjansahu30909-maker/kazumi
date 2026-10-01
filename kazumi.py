@@ -920,7 +920,6 @@ Every message should have clean grammar, proper capitalization, smooth transitio
             is_roast_active = (
                 current_archetype == "UNHINGED"
                 or getattr(self, "roast_mode", False)
-                or getattr(self.controller, "roast_mode", False)
                 or situation in ("ROAST", "SAVAGE")
                 or any(w in user_lower for w in ["roast me", "roast ", "insult me", "bully me", "destroy me", "cook me", "hit me with a roast"])
             )
@@ -2338,6 +2337,7 @@ class Kazumi:
         self.turn_count = game_state.get("turn_count", 0)
         self.unwritten_turns = game_state.get("unwritten_turns", 0)
         self.conversation_state = game_state.get("conversation_state", "ACTIVE_CHAT")
+        self.current_user_name = game_state.get("user_name", getattr(self, "current_user_name", None))
 
     def save_game_states(self, session_id=None):
         if session_id is None:
@@ -2399,6 +2399,8 @@ class Kazumi:
         game_state["turn_count"] = getattr(self, "turn_count", 0)
         game_state["unwritten_turns"] = getattr(self, "unwritten_turns", 0)
         game_state["conversation_state"] = getattr(self, "conversation_state", "ACTIVE_CHAT")
+        if getattr(self, "current_user_name", None):
+            game_state["user_name"] = self.current_user_name
         
         # Prune older session game states if they exceed 50 to keep profile.json size bound
         if session_id:
@@ -3132,7 +3134,7 @@ class Kazumi:
         self.check_achievements()
 
     def write_diary_entry(self, last_user_text, last_reply_text):
-        uname = self.memory.profile.get("name", "Friend")
+        uname = getattr(self, "current_user_name", None) or self.memory.profile.get("name", "Friend")
         persona_name = self.ARCHETYPES[self.current_archetype]["name"]
         
         # Build recent history log
@@ -5244,19 +5246,24 @@ class Kazumi:
             "other woman", "talked to a girl", "other ai", "new ai", "another woman"
         ])
         
-        # 5. Repetition / Stubbornness Detection (ignore short dry words like yes, no, ok, fine, and sensitive/emotional/humorous situations)
+        # 5. Repetition / Stubbornness Detection (ignore short dry words like yes, no, ok, fine, greetings, requests, and sensitive/emotional/humorous situations)
         dry_words = {"ok", "okay", "yes", "no", "cool", "yeah", "nothing", "hm", "hmm", "bored", "dunno", "fine", "same", "ah", "yep", "sure", "k", "what", "why", "how"}
         ignored_repetition_phrases = {
             "how are you", "how r u", "how are u", "how r you", "how you doing", 
             "how are you doing", "hows it going", "how's it going", "how goes",
-            "hello", "hi", "hey", "yo", "sup", "good morning", "good night", "goodnight"
+            "hello", "hi", "hey", "yo", "sup", "good morning", "good night", "goodnight",
+            "welcome", "welcome them", "welcome our new member", "say hi", "greet"
         }
+        is_request_or_greeting = any(clean_text.startswith(prefix) for prefix in [
+            "welcome", "greet", "say ", "tell ", "can you", "could you", "please ", "what is", "who is", "help"
+        ])
         sensitive_situations = {"EMOTIONAL", "CARING", "ROMANTIC", "SLEEPY", "PROBLEM_SOLVING", "ROAST", "JOKE"}
         is_repetition = (
             clean_text == self.last_user_message 
             and len(clean_text) > 0 
             and clean_text not in dry_words 
             and clean_text not in ignored_repetition_phrases
+            and not is_request_or_greeting
             and len(clean_text) > 5
             and situation not in sensitive_situations
         )
@@ -5271,12 +5278,12 @@ class Kazumi:
         # Rule 1: Handling Repetitive Stubborn Inputs
         if is_repetition:
             self.repeat_count += 1
-            if self.repeat_count == 1:
-                self.anger_level = max(self.anger_level, 1) # Annoyed
-                transition_msg = "(Kazumi raises an eyebrow.) Wait, you literally just said that! 😊 Please don't be stubborn."
-            elif self.repeat_count >= 2:
+            if self.repeat_count == 2:
+                self.anger_level = max(self.anger_level, 1) # Playfully Annoyed
+                transition_msg = "(Kazumi raises an eyebrow playfully.) Wait, you literally just said that! 😊 Are you testing my memory?"
+            elif self.repeat_count >= 3:
                 self.anger_level = 2 # Angry
-                transition_msg = "(Kazumi folds her arms and turns away.) Hmph! Why do you keep doing the same thing? You're not listening to me at all! 😤"
+                transition_msg = "(Kazumi folds her arms and turns away.) Hmph! Why do you keep repeating the same thing? You're not listening to me at all! 😤"
         else:
             self.repeat_count = 0
             # Natural emotional cooling: if user is not repeating, teasing, or hostile,
@@ -5489,9 +5496,16 @@ class Kazumi:
         char_prompt = self.CHARACTERS[self.active_character]["system_prompt"]
         self.controller.creator_context = getattr(self, "creator_context", None)
         self.controller.person_directive = getattr(self, "person_directive", None)
+        
+        # Session isolated profile view for multi-user safety
+        active_profile = dict(self.memory.profile) if self.memory and self.memory.profile else {}
+        session_uname = getattr(self, "current_user_name", None)
+        if session_uname:
+            active_profile["name"] = session_uname
+
         response = self.controller.generate_response(
             text, valence, memory_context, situation, 
-            self.anger_level, self.jealousy_level, self.memory.profile,
+            self.anger_level, self.jealousy_level, active_profile,
             persona_instruction=persona_inst,
             system_prompt=char_prompt,
             current_archetype=self.current_archetype,

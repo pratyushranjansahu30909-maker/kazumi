@@ -123,7 +123,9 @@ args, _ = parser.parse_known_args()
 DISCORD_BOT_TOKEN = (args.token or os.environ.get("DISCORD_BOT_TOKEN", "")).strip()
 DISCORD_CHANNEL_ID = (args.channel or os.environ.get("DISCORD_CHANNEL_ID", "")).strip()
 PREFIX = args.prefix or os.environ.get("DISCORD_PREFIX", "!k ")
-CREATOR_USER_IDS = set(x.strip() for x in os.environ.get("CREATOR_USER_IDS", "1203721997805424650").split(",") if x.strip())
+CREATOR_USER_IDS = set(x.strip() for x in os.environ.get("CREATOR_USER_IDS", "").split(",") if x.strip())
+AAMIR_USER_IDS = set(x.strip() for x in os.environ.get("AAMIR_USER_IDS", "").split(",") if x.strip())
+SHAN_USER_IDS = set(x.strip() for x in os.environ.get("SHAN_USER_IDS", "1203721997805424650").split(",") if x.strip())
 
 # Bot Intents
 intents = discord.Intents.default()
@@ -281,14 +283,18 @@ def detect_creator_relationship(user: discord.User | discord.Member) -> tuple[Op
     uid_str = str(getattr(user, "id", ""))
     combined = f"{getattr(user, 'name', '')} {getattr(user, 'display_name', '')} {getattr(user, 'global_name', '')}".lower()
     
-    # Check Shan
-    if uid_str in CREATOR_USER_IDS or any(w in combined for w in ["shan2157", "sir shan", "shan d. first", "shan d first", "shan"]):
-        return ("Sir Shan D. First", "Sir Shan D. First (your creator and father)")
-        
-    # Check Aamir
-    if any(w in combined for w in ["aamir the chad", "aamir", "amir"]):
+    # 1. Check Aamir first (by name keyword or explicit Aamir UID)
+    if uid_str in AAMIR_USER_IDS or any(w in combined for w in ["aamir the chad", "aamir", "amir"]):
         return ("Aamir the Chad", "Aamir the Chad (your creator and father)")
         
+    # 2. Check Shan (by name keyword or explicit Shan UID)
+    if uid_str in SHAN_USER_IDS or any(w in combined for w in ["shan2157", "sir shan", "shan d. first", "shan d first", "shan"]):
+        return ("Sir Shan D. First", "Sir Shan D. First (your creator and father)")
+        
+    # 3. Check general CREATOR_USER_IDS if configured
+    if uid_str in CREATOR_USER_IDS:
+        return ("Creator", "Creator and Father")
+
     return (None, None)
 
 
@@ -309,12 +315,21 @@ def sync_kazumi_reply(text: str, session_id: str, user_name: Optional[str] = Non
 
         if user_name:
             kazumi_core.load_game_states(session_id)
-            curr = kazumi_core.memory.profile.get("name")
-            if not curr or curr.strip().lower() in ("friend", "user", "sweetie", "none") or creator_identity:
-                kazumi_core.memory.profile["name"] = user_name
+            kazumi_core.current_user_name = user_name
+            if hasattr(kazumi_core, "memory") and hasattr(kazumi_core.memory, "profile"):
+                profile = kazumi_core.memory.profile
+                session_game_states = profile.setdefault("session_game_states", {})
+                game_state = session_game_states.setdefault(session_id, {})
+                game_state["user_name"] = user_name
+                if creator_identity:
+                    profile["name"] = user_name
+                elif not profile.get("name") or profile.get("name").strip().lower() in ("friend", "user", "sweetie", "none"):
+                    profile["name"] = user_name
+
         res = kazumi_core.reply(text, session_id=session_id)
         kazumi_core.creator_context = None
         kazumi_core.person_directive = None
+        kazumi_core.current_user_name = None
         return res if res else "I'm right here with you! 🌸 (Kazumi smiles warmly.)"
 
 
