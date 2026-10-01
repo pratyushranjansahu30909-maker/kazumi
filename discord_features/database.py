@@ -135,8 +135,8 @@ class FeatureDatabase:
                 self.guild_settings[gid] = {
                     "log_channel_id": None,
                     "welcome_channel_id": None,
-                    "welcome_message": "Welcome to the server, {user}! 🌸 We're so glad you're here.",
-                    "welcome_enabled": False,
+                    "welcome_message": "Welcome to **{server}**, {user}! 🌸 We're so excited to have you here with us.",
+                    "welcome_enabled": True,
                     "goodbye_channel_id": None,
                     "goodbye_message": "{user} has left the server. Take care! 🌸",
                     "goodbye_enabled": False,

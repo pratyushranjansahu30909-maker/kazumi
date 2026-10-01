@@ -12,7 +12,10 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+import logging
 from discord_features.database import get_feature_db
+
+logger = logging.getLogger("KazumiWelcome")
 
 
 class WelcomeSystem:
@@ -28,24 +31,108 @@ class WelcomeSystem:
         text = text.replace("{count}", str(count_val))
         return text
 
+    @classmethod
+    def resolve_welcome_channel(cls, member: discord.Member, settings: dict) -> Optional[discord.TextChannel]:
+        """Resolves the best channel to send welcome greetings into."""
+        guild = getattr(member, "guild", None)
+        if not guild or not hasattr(guild, "text_channels"):
+            return None
+
+        me = getattr(guild, "me", None)
+
+        def can_send(ch):
+            if not ch or not isinstance(ch, discord.TextChannel):
+                return False
+            if me:
+                perms = ch.permissions_for(me)
+                return perms.send_messages and perms.embed_links
+            return True
+
+        # 1. Configured channel via /welcome
+        cid = settings.get("welcome_channel_id")
+        if cid:
+            try:
+                ch = guild.get_channel(int(cid))
+                if can_send(ch):
+                    return ch
+            except Exception:
+                pass
+
+        # 2. Guild's designated system channel
+        if can_send(guild.system_channel):
+            return guild.system_channel
+
+        # 3. Dedicated Kazumi channel in the guild
+        for ch in guild.text_channels:
+            if "kazumi" in ch.name.lower() and can_send(ch):
+                return ch
+
+        # 4. Standard welcome / general channels
+        target_names = ["welcome", "joins", "arrivals", "general", "main", "chat", "lounge"]
+        for target in target_names:
+            for ch in guild.text_channels:
+                if target in ch.name.lower() and can_send(ch):
+                    return ch
+
+        # 5. First available channel with permissions
+        for ch in guild.text_channels:
+            if can_send(ch):
+                return ch
+
+        return None
+
+    @classmethod
+    def resolve_goodbye_channel(cls, member: discord.Member, settings: dict) -> Optional[discord.TextChannel]:
+        """Resolves channel for goodbye notes."""
+        guild = getattr(member, "guild", None)
+        if not guild or not hasattr(guild, "text_channels"):
+            return None
+
+        cid = settings.get("goodbye_channel_id") or settings.get("welcome_channel_id")
+        if cid:
+            try:
+                ch = guild.get_channel(int(cid))
+                if ch and isinstance(ch, discord.TextChannel):
+                    return ch
+            except Exception:
+                pass
+
+        if guild.system_channel:
+            return guild.system_channel
+        return None
+
+    @classmethod
+    async def on_member_join(cls, member: discord.Member):
+        """Dispatched when a new member joins the server."""
+        await cls.send_welcome(member)
+
+    @classmethod
+    async def on_member_remove(cls, member: discord.Member):
+        """Dispatched when a member leaves the server."""
+        await cls.send_goodbye(member)
 
     @classmethod
     async def send_welcome(cls, member: discord.Member):
-        db = get_feature_db()
-        settings = db.get_guild_settings(str(member.guild.id))
-        if not settings.get("welcome_enabled", False):
+        """Tags the new member and posts Kazumi's warm welcome card."""
+        if not member or not hasattr(member, "guild") or member.bot:
             return
 
-        cid = settings.get("welcome_channel_id")
-        if not cid:
+        db = get_feature_db()
+        settings = db.get_guild_settings(str(member.guild.id))
+        if settings.get("welcome_enabled") is False:
+            return
+
+        channel = cls.resolve_welcome_channel(member, settings)
+        if not channel:
+            logger.info(f"No suitable welcome channel found in {member.guild.name} ({member.guild.id})")
             return
 
         try:
-            channel = member.guild.get_channel(int(cid))
-            if not channel or not isinstance(channel, discord.TextChannel):
-                return
-
-            raw_msg = settings.get("welcome_message", "Welcome to **{server}**, {user}! 🌸 We're so glad you're here.")
+            default_template = (
+                "Welcome to **{server}**, {user}! 🌸 We're so excited to have you here with us.\n\n"
+                "Make yourself at home, feel free to introduce yourself, and let me know if you ever want to chat or play a game! ✨"
+            )
+            raw_msg = settings.get("welcome_message") or default_template
             rendered = cls.render_template(raw_msg, member)
 
             embed = discord.Embed(
@@ -54,30 +141,32 @@ class WelcomeSystem:
                 color=0xf472b6
             )
             embed.set_thumbnail(url=member.display_avatar.url)
-            embed.add_field(name="Member Count", value=f"✨ You are member **#{member.guild.member_count}**!", inline=True)
-            embed.set_footer(text="Kazumi Companion Welcome 🌸")
+            embed.add_field(name="✨ Member Count", value=f"You are member **#{member.guild.member_count}**!", inline=True)
+            embed.set_footer(text="Kazumi Companion Welcome 🌸 • Sweet & Cozy")
             embed.timestamp = datetime.now(timezone.utc)
 
-            await channel.send(embed=embed)
-        except Exception:
-            pass
+            # Tag the member directly in message content so Discord triggers a notification/mention
+            tag_content = f"🌸 Welcome {member.mention}! ✨"
+            await channel.send(content=tag_content, embed=embed)
+            logger.info(f"Successfully welcomed and tagged {member.name} ({member.id}) in #{channel.name}")
+        except Exception as e:
+            logger.warning(f"Failed to send welcome message in {channel.name}: {e}")
 
     @classmethod
     async def send_goodbye(cls, member: discord.Member):
+        if not member or not hasattr(member, "guild") or member.bot:
+            return
+
         db = get_feature_db()
         settings = db.get_guild_settings(str(member.guild.id))
         if not settings.get("goodbye_enabled", False):
             return
 
-        cid = settings.get("goodbye_channel_id")
-        if not cid:
+        channel = cls.resolve_goodbye_channel(member, settings)
+        if not channel:
             return
 
         try:
-            channel = member.guild.get_channel(int(cid))
-            if not channel or not isinstance(channel, discord.TextChannel):
-                return
-
             raw_msg = settings.get("goodbye_message", "{user} has left the server. Take care! 🌸")
             rendered = cls.render_template(raw_msg, member)
 
@@ -91,8 +180,8 @@ class WelcomeSystem:
             embed.timestamp = datetime.now(timezone.utc)
 
             await channel.send(embed=embed)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to send goodbye message in {channel.name}: {e}")
 
 
 def register_welcome_commands(tree: app_commands.CommandTree, bot: commands.Bot):
