@@ -45,6 +45,12 @@ class FeatureDatabase:
         self.social_graph_path = os.path.join(self.persist_dir, "social_graph.json")
         self.server_memory_path = os.path.join(self.persist_dir, "server_memory.json")
         self.roast_metadata_path = os.path.join(self.persist_dir, "roast_metadata.json")
+        self.cases_path = os.path.join(self.persist_dir, "cases.json")
+        self.mod_notes_path = os.path.join(self.persist_dir, "mod_notes.json")
+        self.reports_path = os.path.join(self.persist_dir, "reports.json")
+        self.appeals_path = os.path.join(self.persist_dir, "appeals.json")
+        self.security_path = os.path.join(self.persist_dir, "security_settings.json")
+        self.game_stats_path = os.path.join(self.persist_dir, "game_stats.json")
 
         # In-memory caches
         self.guild_settings: Dict[str, Dict[str, Any]] = {}
@@ -57,6 +63,12 @@ class FeatureDatabase:
         self.social_graph: Dict[str, Dict[str, Any]] = {}
         self.server_memory: Dict[str, Dict[str, Any]] = {}
         self.roast_metadata: Dict[str, Any] = {"opt_out": [], "users": {}, "guilds": {}}
+        self.cases: Dict[str, Dict[str, Any]] = {}
+        self.mod_notes: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
+        self.reports: Dict[str, Dict[str, Any]] = {}
+        self.appeals: Dict[str, Dict[str, Any]] = {}
+        self.security_settings: Dict[str, Dict[str, Any]] = {}
+        self.game_stats: Dict[str, Any] = {"users": {}, "daily": {}}
 
         self.load_all()
 
@@ -108,6 +120,12 @@ class FeatureDatabase:
             self.social_graph = self._safe_read(self.social_graph_path, {})
             self.server_memory = self._safe_read(self.server_memory_path, {})
             self.roast_metadata = self._safe_read(self.roast_metadata_path, {"opt_out": [], "users": {}, "guilds": {}})
+            self.cases = self._safe_read(self.cases_path, {})
+            self.mod_notes = self._safe_read(self.mod_notes_path, {})
+            self.reports = self._safe_read(self.reports_path, {})
+            self.appeals = self._safe_read(self.appeals_path, {})
+            self.security_settings = self._safe_read(self.security_path, {})
+            self.game_stats = self._safe_read(self.game_stats_path, {"users": {}, "daily": {}})
 
     # --- Guild Settings ---
     def get_guild_settings(self, guild_id: str) -> Dict[str, Any]:
@@ -421,6 +439,497 @@ class FeatureDatabase:
             u_meta["roast_count"] = u_meta.get("roast_count", 0) + 1
             u_meta["last_roast_time"] = time.time()
             self._atomic_write(self.roast_metadata_path, self.roast_metadata)
+
+    # =========================================================================
+    # --- Moderation Case Management ---
+    # =========================================================================
+    def create_case(self, guild_id: Any, user_id: Any, moderator_id: Any, action: str, reason: str, duration: Optional[str] = None, evidence: Optional[str] = None) -> int:
+        gid = str(guild_id)
+        with self._lock:
+            g_cases = self.cases.setdefault(gid, {})
+            # Generate next sequential case number, starting at 1001
+            case_id = max([int(k) for k in g_cases.keys()] or [1000]) + 1
+            case_entry = {
+                "case_id": case_id,
+                "guild_id": gid,
+                "user_id": str(user_id),
+                "moderator_id": str(moderator_id),
+                "action": action.upper(),
+                "reason": reason or "No reason provided",
+                "duration": duration,
+                "evidence": evidence,
+                "timestamp": time.time(),
+                "status": "active"
+            }
+            g_cases[str(case_id)] = case_entry
+            self._atomic_write(self.cases_path, self.cases)
+            return case_id
+
+    def get_case(self, guild_id: Any, case_id: int) -> Optional[Dict[str, Any]]:
+        gid = str(guild_id)
+        cid = str(case_id)
+        with self._lock:
+            return self.cases.get(gid, {}).get(cid)
+
+    def get_user_cases(self, guild_id: Any, user_id: Any) -> List[Dict[str, Any]]:
+        gid = str(guild_id)
+        uid = str(user_id)
+        with self._lock:
+            g_cases = self.cases.get(gid, {})
+            return sorted(
+                [c for c in g_cases.values() if str(c.get("user_id")) == uid],
+                key=lambda x: x.get("timestamp", 0),
+                reverse=True
+            )
+
+    def list_cases(self, guild_id: Any, limit: int = 25, action_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+        gid = str(guild_id)
+        with self._lock:
+            g_cases = list(self.cases.get(gid, {}).values())
+            if action_filter:
+                act = action_filter.upper()
+                g_cases = [c for c in g_cases if c.get("action") == act]
+            g_cases.sort(key=lambda x: x.get("case_id", 0), reverse=True)
+            return g_cases[:limit]
+
+    # =========================================================================
+    # --- Private Moderator Staff Notes ---
+    # =========================================================================
+    def add_mod_note(self, guild_id: Any, user_id: Any, moderator_id: Any, content: str) -> Dict[str, Any]:
+        gid = str(guild_id)
+        uid = str(user_id)
+        with self._lock:
+            g_notes = self.mod_notes.setdefault(gid, {})
+            u_notes = g_notes.setdefault(uid, [])
+            note_id = len(u_notes) + 1
+            note_entry = {
+                "note_id": note_id,
+                "moderator_id": str(moderator_id),
+                "content": content.strip(),
+                "timestamp": time.time()
+            }
+            u_notes.append(note_entry)
+            self._atomic_write(self.mod_notes_path, self.mod_notes)
+            return note_entry
+
+    def get_mod_notes(self, guild_id: Any, user_id: Any) -> List[Dict[str, Any]]:
+        gid = str(guild_id)
+        uid = str(user_id)
+        with self._lock:
+            return list(self.mod_notes.get(gid, {}).get(uid, []))
+
+    def delete_mod_note(self, guild_id: Any, user_id: Any, note_id: int) -> bool:
+        gid = str(guild_id)
+        uid = str(user_id)
+        with self._lock:
+            notes = self.mod_notes.get(gid, {}).get(uid, [])
+            for i, note in enumerate(notes):
+                if note.get("note_id") == note_id:
+                    notes.pop(i)
+                    self._atomic_write(self.mod_notes_path, self.mod_notes)
+                    return True
+            return False
+
+    # =========================================================================
+    # --- Message Report Queue System ---
+    # =========================================================================
+    def create_report(self, guild_id: Any, reporter_id: Any, reported_id: Any, channel_id: Any, message_id: Optional[Any], reason: str, details: str = "") -> int:
+        gid = str(guild_id)
+        with self._lock:
+            g_reports = self.reports.setdefault(gid, {})
+            report_id = max([int(k) for k in g_reports.keys()] or [500]) + 1
+            report_entry = {
+                "report_id": report_id,
+                "guild_id": gid,
+                "reporter_id": str(reporter_id),
+                "reported_id": str(reported_id),
+                "channel_id": str(channel_id),
+                "message_id": str(message_id) if message_id else None,
+                "reason": reason,
+                "details": details.strip(),
+                "timestamp": time.time(),
+                "status": "pending",
+                "resolved_by": None,
+                "resolution_note": None
+            }
+            g_reports[str(report_id)] = report_entry
+            self._atomic_write(self.reports_path, self.reports)
+            return report_id
+
+    def get_report(self, guild_id: Any, report_id: int) -> Optional[Dict[str, Any]]:
+        gid = str(guild_id)
+        return self.reports.get(gid, {}).get(str(report_id))
+
+    def get_pending_reports(self, guild_id: Any) -> List[Dict[str, Any]]:
+        gid = str(guild_id)
+        with self._lock:
+            g_reports = self.reports.get(gid, {})
+            pending = [r for r in g_reports.values() if r.get("status") == "pending"]
+            pending.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+            return pending
+
+    def resolve_report(self, guild_id: Any, report_id: int, status: str, moderator_id: Any, notes: str = "") -> bool:
+        gid = str(guild_id)
+        rid = str(report_id)
+        with self._lock:
+            report = self.reports.get(gid, {}).get(rid)
+            if not report:
+                return False
+            report["status"] = status  # "resolved" or "dismissed"
+            report["resolved_by"] = str(moderator_id)
+            report["resolution_note"] = notes.strip()
+            report["resolved_at"] = time.time()
+            self._atomic_write(self.reports_path, self.reports)
+            return True
+
+    # =========================================================================
+    # --- Moderation Appeals System ---
+    # =========================================================================
+    def create_appeal(self, guild_id: Any, user_id: Any, case_id: int, reason: str) -> int:
+        gid = str(guild_id)
+        with self._lock:
+            g_appeals = self.appeals.setdefault(gid, {})
+            # Check if an active appeal already exists for this case/user
+            for app in g_appeals.values():
+                if str(app.get("user_id")) == str(user_id) and app.get("case_id") == case_id and app.get("status") == "pending":
+                    return int(app["appeal_id"])
+            appeal_id = max([int(k) for k in g_appeals.keys()] or [200]) + 1
+            appeal_entry = {
+                "appeal_id": appeal_id,
+                "guild_id": gid,
+                "user_id": str(user_id),
+                "case_id": case_id,
+                "reason": reason.strip(),
+                "timestamp": time.time(),
+                "status": "pending",
+                "reviewed_by": None,
+                "review_note": None
+            }
+            g_appeals[str(appeal_id)] = appeal_entry
+            self._atomic_write(self.appeals_path, self.appeals)
+            return appeal_id
+
+    def get_appeal(self, guild_id: Any, appeal_id: int) -> Optional[Dict[str, Any]]:
+        gid = str(guild_id)
+        return self.appeals.get(gid, {}).get(str(appeal_id))
+
+    def get_user_appeals(self, guild_id: Any, user_id: Any) -> List[Dict[str, Any]]:
+        gid = str(guild_id)
+        uid = str(user_id)
+        with self._lock:
+            return [a for a in self.appeals.get(gid, {}).values() if str(a.get("user_id")) == uid]
+
+    def get_pending_appeals(self, guild_id: Any) -> List[Dict[str, Any]]:
+        gid = str(guild_id)
+        with self._lock:
+            apps = [a for a in self.appeals.get(gid, {}).values() if a.get("status") == "pending"]
+            apps.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+            return apps
+
+    def review_appeal(self, guild_id: Any, appeal_id: int, status: str, reviewer_id: Any, review_note: str = "") -> bool:
+        gid = str(guild_id)
+        aid = str(appeal_id)
+        with self._lock:
+            app = self.appeals.get(gid, {}).get(aid)
+            if not app:
+                return False
+            app["status"] = status  # "approved" or "rejected"
+            app["reviewed_by"] = str(reviewer_id)
+            app["review_note"] = review_note.strip()
+            app["reviewed_at"] = time.time()
+            self._atomic_write(self.appeals_path, self.appeals)
+            return True
+
+    # =========================================================================
+    # --- Advanced Security, Anti-Raid, Anti-Nuke, Quarantine ---
+    # =========================================================================
+    def get_security_settings(self, guild_id: Any) -> Dict[str, Any]:
+        gid = str(guild_id)
+        with self._lock:
+            if gid not in self.security_settings:
+                self.security_settings[gid] = {
+                    "anti_raid": {
+                        "enabled": False,
+                        "join_threshold": 8,
+                        "join_window_sec": 10,
+                        "action": "lockdown",  # "lockdown", "quarantine", "alert"
+                        "alert_channel_id": None
+                    },
+                    "anti_nuke": {
+                        "enabled": False,
+                        "max_channel_deletions": 4,
+                        "max_role_deletions": 4,
+                        "max_bans": 5,
+                        "max_kicks": 5,
+                        "window_sec": 12,
+                        "action": "lockdown"
+                    },
+                    "quarantine": {
+                        "enabled": False,
+                        "role_id": None,
+                        "channel_id": None
+                    },
+                    "staff_roles": {
+                        "helper": None,
+                        "moderator": None,
+                        "senior_moderator": None,
+                        "administrator": None
+                    },
+                    "quarantined_users": {},
+                    "raid_mode_active": False
+                }
+            return dict(self.security_settings[gid])
+
+    def update_security_settings(self, guild_id: Any, updates: Dict[str, Any]) -> None:
+        gid = str(guild_id)
+        with self._lock:
+            if gid not in self.security_settings:
+                self.get_security_settings(gid)
+            self.security_settings[gid].update(updates)
+            self._atomic_write(self.security_path, self.security_settings)
+
+    def is_user_quarantined(self, guild_id: Any, user_id: Any) -> bool:
+        gid = str(guild_id)
+        uid = str(user_id)
+        with self._lock:
+            settings = self.get_security_settings(gid)
+            return uid in settings.get("quarantined_users", {})
+
+    def set_user_quarantined(self, guild_id: Any, user_id: Any, quarantined: bool, moderator_id: Optional[Any] = None, reason: str = "", original_roles: Optional[List[int]] = None) -> None:
+        gid = str(guild_id)
+        uid = str(user_id)
+        with self._lock:
+            settings = self.security_settings.setdefault(gid, self.get_security_settings(gid))
+            q_users = settings.setdefault("quarantined_users", {})
+            if quarantined:
+                q_users[uid] = {
+                    "user_id": uid,
+                    "moderator_id": str(moderator_id) if moderator_id else "AutoMod",
+                    "reason": reason or "Flagged as high-risk / raid account",
+                    "original_roles": [int(r) for r in (original_roles or [])],
+                    "timestamp": time.time()
+                }
+            else:
+                q_users.pop(uid, None)
+            self._atomic_write(self.security_path, self.security_settings)
+
+    def get_quarantined_record(self, guild_id: Any, user_id: Any) -> Optional[Dict[str, Any]]:
+        gid = str(guild_id)
+        uid = str(user_id)
+        with self._lock:
+            settings = self.get_security_settings(gid)
+            return settings.get("quarantined_users", {}).get(uid)
+
+    def is_raid_mode_active(self, guild_id: Any) -> bool:
+        gid = str(guild_id)
+        with self._lock:
+            return bool(self.get_security_settings(gid).get("raid_mode_active", False))
+
+    def set_raid_mode(self, guild_id: Any, enabled: bool) -> None:
+        gid = str(guild_id)
+        with self._lock:
+            settings = self.security_settings.setdefault(gid, self.get_security_settings(gid))
+            settings["raid_mode_active"] = bool(enabled)
+            self._atomic_write(self.security_path, self.security_settings)
+
+    # =========================================================================
+    # --- Game Profiles, Leaderboards, Achievements & Daily Challenges ---
+    # =========================================================================
+    def get_game_profile(self, user_id: Any) -> Dict[str, Any]:
+        uid = str(user_id)
+        with self._lock:
+            users = self.game_stats.setdefault("users", {})
+            if uid not in users:
+                users[uid] = {
+                    "user_id": uid,
+                    "xp": 0,
+                    "level": 1,
+                    "wins": 0,
+                    "losses": 0,
+                    "draws": 0,
+                    "games_played": 0,
+                    "win_rate": 0.0,
+                    "streak": 0,
+                    "best_streak": 0,
+                    "achievements": [],
+                    "per_game": {},
+                    "daily_streak": 0,
+                    "last_daily_date": None
+                }
+            return dict(users[uid])
+
+    def record_game_outcome(self, user_id: Any, game_type: str, outcome: str, score: int = 0, xp_earned: int = 15) -> Dict[str, Any]:
+        uid = str(user_id)
+        with self._lock:
+            users = self.game_stats.setdefault("users", {})
+            prof = users.setdefault(uid, {
+                "user_id": uid,
+                "xp": 0,
+                "level": 1,
+                "wins": 0,
+                "losses": 0,
+                "draws": 0,
+                "games_played": 0,
+                "win_rate": 0.0,
+                "streak": 0,
+                "best_streak": 0,
+                "achievements": [],
+                "per_game": {},
+                "daily_streak": 0,
+                "last_daily_date": None
+            })
+
+            prof["games_played"] = prof.get("games_played", 0) + 1
+            if outcome.lower() == "win":
+                prof["wins"] = prof.get("wins", 0) + 1
+                prof["streak"] = prof.get("streak", 0) + 1
+                if prof["streak"] > prof.get("best_streak", 0):
+                    prof["best_streak"] = prof["streak"]
+            elif outcome.lower() == "loss":
+                prof["losses"] = prof.get("losses", 0) + 1
+                prof["streak"] = 0
+            else:
+                prof["draws"] = prof.get("draws", 0) + 1
+
+            total_decided = prof["wins"] + prof["losses"]
+            prof["win_rate"] = round((prof["wins"] / total_decided) * 100, 1) if total_decided > 0 else 0.0
+
+            # Award XP & compute level (100 XP per level)
+            prof["xp"] = prof.get("xp", 0) + max(0, int(xp_earned))
+            prof["level"] = max(1, (prof["xp"] // 100) + 1)
+
+            # Per-game breakdown
+            g_dict = prof.setdefault("per_game", {})
+            g_stat = g_dict.setdefault(game_type.lower(), {"wins": 0, "losses": 0, "draws": 0, "played": 0, "high_score": 0})
+            g_stat["played"] = g_stat.get("played", 0) + 1
+            if outcome.lower() == "win":
+                g_stat["wins"] = g_stat.get("wins", 0) + 1
+            elif outcome.lower() == "loss":
+                g_stat["losses"] = g_stat.get("losses", 0) + 1
+            else:
+                g_stat["draws"] = g_stat.get("draws", 0) + 1
+            if score > g_stat.get("high_score", 0):
+                g_stat["high_score"] = score
+
+            self._atomic_write(self.game_stats_path, self.game_stats)
+            return prof
+
+    def unlock_achievement(self, user_id: Any, achievement_id: str, title: str, description: str) -> bool:
+        uid = str(user_id)
+        aid = achievement_id.lower().strip()
+        with self._lock:
+            prof = self.get_game_profile(uid)
+            ach_list = prof.setdefault("achievements", [])
+            for ach in ach_list:
+                if isinstance(ach, dict) and ach.get("id") == aid:
+                    return False
+                elif isinstance(ach, str) and ach == aid:
+                    return False
+
+            ach_entry = {
+                "id": aid,
+                "title": title,
+                "description": description,
+                "unlocked_at": time.time()
+            }
+            ach_list.append(ach_entry)
+            self.game_stats["users"][uid] = prof
+            self._atomic_write(self.game_stats_path, self.game_stats)
+            return True
+
+    def get_game_leaderboard(self, game_type: Optional[str] = None, limit: int = 10) -> List[Dict[str, Any]]:
+        with self._lock:
+            users = list(self.game_stats.get("users", {}).values())
+            if game_type:
+                gt = game_type.lower()
+                users = [u for u in users if gt in u.get("per_game", {})]
+                users.sort(key=lambda x: x.get("per_game", {}).get(gt, {}).get("wins", 0), reverse=True)
+            else:
+                users.sort(key=lambda x: (x.get("wins", 0), x.get("xp", 0)), reverse=True)
+            return users[:limit]
+
+    def get_daily_challenge(self, date_str: str) -> Dict[str, Any]:
+        """Provides a deterministic daily puzzle/challenge for the specified date (YYYY-MM-DD)."""
+        with self._lock:
+            daily_dict = self.game_stats.setdefault("daily", {})
+            if date_str not in daily_dict:
+                import hashlib
+                hash_val = int(hashlib.md5(date_str.encode()).hexdigest(), 16)
+                challenges = [
+                    {
+                        "type": "word_riddle",
+                        "title": "The Cipher of the Blossom",
+                        "prompt": "I speak without a mouth and hear without ears. I have no body, but I come alive with wind. What am I?",
+                        "solution": "echo",
+                        "category": "Riddle"
+                    },
+                    {
+                        "type": "logic_puzzle",
+                        "title": "The Three Switches",
+                        "prompt": "There are three light switches outside a closed room. Only one controls the bulb inside. You can flip switches as you wish, but you can only enter the room once. What switch property reveals the bulb?",
+                        "solution": "heat",
+                        "category": "Logic"
+                    },
+                    {
+                        "type": "emoji_puzzle",
+                        "title": "Movie in Emojis",
+                        "prompt": "🦁 👑 🌅 (Guess the famous animated movie!)",
+                        "solution": "the lion king",
+                        "category": "Pop Culture"
+                    },
+                    {
+                        "type": "math_sequence",
+                        "title": "The Golden Sequence",
+                        "prompt": "What is the next number in the pattern: 2, 3, 5, 8, 13, 21, ?",
+                        "solution": "34",
+                        "category": "Pattern"
+                    },
+                    {
+                        "type": "trivia_master",
+                        "title": "Cosmic Curiosity",
+                        "prompt": "Which planet in our solar system spins clockwise (retrograde rotation)?",
+                        "solution": "venus",
+                        "category": "Astronomy"
+                    }
+                ]
+                chosen = challenges[hash_val % len(challenges)]
+                daily_dict[date_str] = {
+                    "date": date_str,
+                    "challenge": chosen,
+                    "completions": []
+                }
+                self._atomic_write(self.game_stats_path, self.game_stats)
+            return daily_dict[date_str]
+
+    def complete_daily_challenge(self, user_id: Any, date_str: str, score: int = 50) -> bool:
+        uid = str(user_id)
+        with self._lock:
+            daily = self.get_daily_challenge(date_str)
+            if uid in daily.get("completions", []):
+                return False
+            daily["completions"].append(uid)
+            prof = self.get_game_profile(uid)
+            last_date = prof.get("last_daily_date")
+            from datetime import datetime, timedelta
+            try:
+                curr_dt = datetime.strptime(date_str, "%Y-%m-%d")
+                if last_date:
+                    last_dt = datetime.strptime(last_date, "%Y-%m-%d")
+                    if (curr_dt - last_dt).days == 1:
+                        prof["daily_streak"] = prof.get("daily_streak", 0) + 1
+                    elif (curr_dt - last_dt).days > 1:
+                        prof["daily_streak"] = 1
+                else:
+                    prof["daily_streak"] = 1
+            except Exception:
+                prof["daily_streak"] = 1
+
+            prof["last_daily_date"] = date_str
+            prof["xp"] = prof.get("xp", 0) + score
+            prof["level"] = max(1, (prof["xp"] // 100) + 1)
+            self.game_stats["users"][uid] = prof
+            self._atomic_write(self.game_stats_path, self.game_stats)
+            return True
 
 
 _global_feature_db = None

@@ -91,19 +91,124 @@ class AutoModTracker:
                 contents = contents[-5:]
                 self.recent_contents[key] = contents
 
-            if contents.count(clean_norm) >= 3:
-                return (True, "Duplicate Message Flood", "Repeated the identical message 3 times consecutively.")
-
         return (False, None, None)
+
+    def calculate_spam_confidence(self, message: discord.Message, recent_warnings_count: int = 0) -> Tuple[str, float, Dict[str, Any]]:
+        """
+        Calculates a multi-factor smart spam confidence score (LOW, MEDIUM, HIGH, CRITICAL).
+        Considers:
+        - message_frequency
+        - duplicate_ratio
+        - mention_count
+        - link_count
+        - account_age
+        - recent_warnings
+        """
+        now = time.time()
+        gid = str(message.guild.id) if message.guild else "0"
+        uid = str(message.author.id)
+        key = (gid, uid)
+        text = message.content or ""
+
+        # Factor 1: Message Frequency (last 5s)
+        history = self.message_history.get(key, [])
+        recent_freq = sum(1 for t in history if now - t <= 5.0)
+
+        # Factor 2: Duplicate Ratio (last 8 messages)
+        recent_texts = self.recent_contents.get(key, [])
+        clean_curr = re.sub(r"\s+", " ", text.strip().lower())
+        dup_count = recent_texts.count(clean_curr) if clean_curr else 0
+
+        # Factor 3: Mention Count
+        mention_count = len(message.mentions) if hasattr(message, "mentions") else 0
+
+        # Factor 4: Link Count
+        link_count = len(LINK_REGEX.findall(text))
+
+        # Factor 5: Account Age in Days
+        account_age_days = (now - message.author.created_at.timestamp()) / 86400.0 if hasattr(message.author, "created_at") else 30.0
+
+        # Weighted Score Computation (0.0 to 1.0)
+        score = 0.0
+
+        # Frequency score
+        if recent_freq >= 5:
+            score += 0.35
+        elif recent_freq >= 3:
+            score += 0.15
+
+        # Duplicate score
+        if dup_count >= 3:
+            score += 0.30
+        elif dup_count >= 2:
+            score += 0.15
+
+        # Mention score
+        if mention_count >= 6:
+            score += 0.35
+        elif mention_count >= 3:
+            score += 0.15
+
+        # Link score
+        if link_count >= 3:
+            score += 0.30
+        elif link_count >= 1 and (account_age_days < 1.0):
+            score += 0.25
+
+        # Account age risk
+        if account_age_days < 0.5:  # Under 12 hours old
+            score += 0.20
+        elif account_age_days < 2.0:
+            score += 0.10
+
+        # Recent warnings escalation
+        if recent_warnings_count >= 3:
+            score += 0.20
+        elif recent_warnings_count >= 1:
+            score += 0.10
+
+        score = min(1.0, round(score, 3))
+
+        # Map to Confidence Tier
+        if score >= 0.80:
+            tier = "CRITICAL"
+        elif score >= 0.55:
+            tier = "HIGH"
+        elif score >= 0.30:
+            tier = "MEDIUM"
+        else:
+            tier = "LOW"
+
+        meta = {
+            "score": score,
+            "tier": tier,
+            "recent_freq": recent_freq,
+            "dup_count": dup_count,
+            "mention_count": mention_count,
+            "link_count": link_count,
+            "account_age_days": round(account_age_days, 1),
+            "recent_warnings": recent_warnings_count
+        }
+        return tier, score, meta
 
 
 automod_tracker = AutoModTracker()
 
 
 def check_hierarchy(mod: discord.Member, target: discord.Member) -> bool:
-    """Verifies that moderator outranks target member."""
+    """Verifies that moderator outranks target member, target is not owner/self, and bot outranks target."""
+    if mod.id == target.id:
+        return False
+    if target.id == mod.guild.owner_id:
+        return False
     if mod.guild.owner_id == mod.id:
         return True
+    
+    # Check bot's own role hierarchy
+    bot_member = mod.guild.me
+    if bot_member and target.top_role >= bot_member.top_role:
+        return False
+
     return mod.top_role > target.top_role
 
 
@@ -149,11 +254,12 @@ def register_moderation_commands(tree: app_commands.CommandTree, bot: commands.B
             return
 
         count = db.add_warning(str(interaction.guild_id), str(user.id), str(interaction.user.id), reason)
-        db.record_mod_action(str(interaction.guild_id), "WARN", str(user.id), str(interaction.user.id), reason)
+        case_id = db.create_case(interaction.guild_id, user.id, interaction.user.id, "WARN", reason)
+        db.record_mod_action(str(interaction.guild_id), "WARN", str(user.id), str(interaction.user.id), f"Case #{case_id}: {reason}")
 
         # Notify warned user in DM if possible
         try:
-            await user.send(f"⚠️ You received a warning in **{interaction.guild.name}**:\n**Reason:** {reason}\n*Total warnings: {count}*")
+            await user.send(f"⚠️ You received a warning in **{interaction.guild.name}**:\n**Reason:** {reason}\n**Case ID:** `#{case_id}`\n*Total warnings: {count}*")
         except Exception:
             pass
 
@@ -162,6 +268,7 @@ def register_moderation_commands(tree: app_commands.CommandTree, bot: commands.B
             description=f"**Member:** {user.mention} (`{user.id}`)\n"
                         f"**Moderator:** {interaction.user.mention}\n"
                         f"**Reason:** {reason}\n"
+                        f"**Case ID:** `#{case_id}`\n"
                         f"**Total Warnings:** {count}"
         )
         await interaction.response.send_message(embed=embed)
@@ -184,6 +291,34 @@ def register_moderation_commands(tree: app_commands.CommandTree, bot: commands.B
             color=0xfbbf24
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # --- Remove Specific Warning ---
+    @tree.command(name="removewarn", description="Remove a specific warning ID for a member 🌿")
+    @app_commands.describe(user="The member", warning_id="The warning number to remove")
+    async def slash_removewarn(interaction: discord.Interaction, user: discord.Member, warning_id: int):
+        if not interaction.guild or not interaction.user.guild_permissions.manage_messages:
+            await interaction.response.send_message("❌ You require **Manage Messages** permission.", ephemeral=True)
+            return
+
+        warns = db.get_warnings(str(interaction.guild_id), str(user.id))
+        found = False
+        new_warns = []
+        for w in warns:
+            if w.get("id") == warning_id:
+                found = True
+            else:
+                new_warns.append(w)
+
+        if not found:
+            await interaction.response.send_message(f"❌ Warning **#{warning_id}** not found for {user.mention}.", ephemeral=True)
+            return
+
+        key = f"{interaction.guild.id}:{user.id}"
+        with db._lock:
+            db.moderation.setdefault("warnings", {})[key] = new_warns
+            db._atomic_write(db.moderation_path, db.moderation)
+
+        await interaction.response.send_message(f"🌿 Warning **#{warning_id}** removed for {user.mention}.")
 
     # --- Clear Warnings ---
     @tree.command(name="clearwarnings", description="Clear all warnings for a member 🌿")
@@ -220,17 +355,39 @@ def register_moderation_commands(tree: app_commands.CommandTree, bot: commands.B
         duration = timedelta(minutes=minutes)
         try:
             await user.timeout(duration, reason=reason)
-            db.record_mod_action(str(interaction.guild_id), "TIMEOUT", str(user.id), str(interaction.user.id), f"{minutes}m - {reason}")
+            case_id = db.create_case(interaction.guild.id, user.id, interaction.user.id, "TIMEOUT", reason, duration=f"{minutes}m")
+            db.record_mod_action(str(interaction.guild_id), "TIMEOUT", str(user.id), str(interaction.user.id), f"Case #{case_id}: {minutes}m - {reason}")
             embed = create_mod_embed(
                 title="⏳ Member Timed Out",
                 description=f"**Member:** {user.mention}\n"
                             f"**Duration:** {minutes} minute(s)\n"
                             f"**Moderator:** {interaction.user.mention}\n"
-                            f"**Reason:** {reason}"
+                            f"**Reason:** {reason}\n"
+                            f"**Case ID:** `#{case_id}`"
             )
             await interaction.response.send_message(embed=embed)
         except Exception as e:
             await interaction.response.send_message(f"❌ Failed to timeout member: {e}", ephemeral=True)
+
+    # --- Untimeout ---
+    @tree.command(name="untimeout", description="Remove timeout from a member 🕊️")
+    @app_commands.describe(user="The member to release from timeout", reason="Reason for lifting timeout")
+    async def slash_untimeout(interaction: discord.Interaction, user: discord.Member, reason: Optional[str] = "Timeout revoked"):
+        if not interaction.guild or not interaction.user.guild_permissions.moderate_members:
+            await interaction.response.send_message("❌ Moderate Members permission required.", ephemeral=True)
+            return
+
+        try:
+            await user.timeout(None, reason=reason)
+            case_id = db.create_case(interaction.guild.id, user.id, interaction.user.id, "UNTIMEOUT", reason)
+            embed = create_mod_embed(
+                title="🕊️ Timeout Lifted",
+                description=f"**Member:** {user.mention}\n**Moderator:** {interaction.user.mention}\n**Reason:** {reason}\n**Case ID:** `#{case_id}`",
+                color=0x10b981
+            )
+            await interaction.response.send_message(embed=embed)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Failed to untimeout member: {e}", ephemeral=True)
 
     # --- Kick ---
     @tree.command(name="kick", description="Kick a member from the server 👢")
@@ -246,16 +403,43 @@ def register_moderation_commands(tree: app_commands.CommandTree, bot: commands.B
 
         try:
             await user.kick(reason=reason)
-            db.record_mod_action(str(interaction.guild_id), "KICK", str(user.id), str(interaction.user.id), reason)
+            case_id = db.create_case(interaction.guild.id, user.id, interaction.user.id, "KICK", reason)
+            db.record_mod_action(str(interaction.guild_id), "KICK", str(user.id), str(interaction.user.id), f"Case #{case_id}: {reason}")
             embed = create_mod_embed(
                 title="👢 Member Kicked",
                 description=f"**Member:** {user.mention} (`{user.id}`)\n"
                             f"**Moderator:** {interaction.user.mention}\n"
-                            f"**Reason:** {reason}"
+                            f"**Reason:** {reason}\n"
+                            f"**Case ID:** `#{case_id}`"
             )
             await interaction.response.send_message(embed=embed)
         except Exception as e:
             await interaction.response.send_message(f"❌ Failed to kick member: {e}", ephemeral=True)
+
+    # --- Softban ---
+    @tree.command(name="softban", description="Ban and immediately unban a member to purge their messages 🧹")
+    @app_commands.describe(user="The member to softban", reason="Reason for softban")
+    async def slash_softban(interaction: discord.Interaction, user: discord.Member, reason: Optional[str] = "Softban message purge"):
+        if not interaction.guild or not interaction.user.guild_permissions.ban_members:
+            await interaction.response.send_message("❌ Ban Members permission required.", ephemeral=True)
+            return
+
+        if not check_hierarchy(interaction.user, user):
+            await interaction.response.send_message("❌ Role hierarchy check failed.", ephemeral=True)
+            return
+
+        try:
+            await user.ban(delete_message_seconds=86400, reason=f"Softban: {reason}")
+            await interaction.guild.unban(user, reason="Softban completion")
+            case_id = db.create_case(interaction.guild.id, user.id, interaction.user.id, "SOFTBAN", reason)
+            embed = create_mod_embed(
+                title="🧹 Member Softbanned",
+                description=f"Kicked **{user.mention}** (`{user.id}`) and purged 1 day of recent messages.\n**Case ID:** `#{case_id}`\n**Reason:** {reason}",
+                color=0xb91c1c
+            )
+            await interaction.response.send_message(embed=embed)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Softban failed: {e}", ephemeral=True)
 
     # --- Ban ---
     @tree.command(name="ban", description="Ban a member from the server 🔨")
@@ -272,12 +456,14 @@ def register_moderation_commands(tree: app_commands.CommandTree, bot: commands.B
         del_sec = min(7, max(0, delete_messages_days or 0)) * 86400
         try:
             await user.ban(delete_message_seconds=del_sec, reason=reason)
-            db.record_mod_action(str(interaction.guild_id), "BAN", str(user.id), str(interaction.user.id), reason)
+            case_id = db.create_case(interaction.guild.id, user.id, interaction.user.id, "BAN", reason)
+            db.record_mod_action(str(interaction.guild_id), "BAN", str(user.id), str(interaction.user.id), f"Case #{case_id}: {reason}")
             embed = create_mod_embed(
                 title="🔨 Member Banned",
                 description=f"**Member:** {user.mention} (`{user.id}`)\n"
                             f"**Moderator:** {interaction.user.mention}\n"
-                            f"**Reason:** {reason}"
+                            f"**Reason:** {reason}\n"
+                            f"**Case ID:** `#{case_id}`"
             )
             await interaction.response.send_message(embed=embed)
         except Exception as e:
@@ -294,17 +480,44 @@ def register_moderation_commands(tree: app_commands.CommandTree, bot: commands.B
         try:
             user = await bot.fetch_user(int(user_id.strip()))
             await interaction.guild.unban(user, reason=reason)
-            db.record_mod_action(str(interaction.guild_id), "UNBAN", str(user.id), str(interaction.user.id), reason)
+            case_id = db.create_case(interaction.guild.id, user.id, interaction.user.id, "UNBAN", reason)
+            db.record_mod_action(str(interaction.guild_id), "UNBAN", str(user.id), str(interaction.user.id), f"Case #{case_id}: {reason}")
             embed = create_mod_embed(
                 title="🕊️ Member Unbanned",
                 description=f"**User:** {user.mention} (`{user.id}`)\n"
                             f"**Moderator:** {interaction.user.mention}\n"
-                            f"**Reason:** {reason}",
+                            f"**Reason:** {reason}\n"
+                            f"**Case ID:** `#{case_id}`",
                 color=0x34d399
             )
             await interaction.response.send_message(embed=embed)
         except Exception as e:
             await interaction.response.send_message(f"❌ Failed to unban user ID {user_id}: {e}", ephemeral=True)
+
+    # --- Voice Kick ---
+    @tree.command(name="voicekick", description="Disconnect a member from their current voice channel 📞")
+    @app_commands.describe(user="The member to disconnect from voice", reason="Reason for voice kick")
+    async def slash_voicekick(interaction: discord.Interaction, user: discord.Member, reason: Optional[str] = "Voice disconnection"):
+        if not interaction.guild or not interaction.user.guild_permissions.move_members:
+            await interaction.response.send_message("❌ Move Members permission required.", ephemeral=True)
+            return
+
+        if not user.voice or not user.voice.channel:
+            await interaction.response.send_message(f"❌ {user.mention} is not currently in a voice channel.", ephemeral=True)
+            return
+
+        try:
+            v_channel = user.voice.channel
+            await user.move_to(None, reason=reason)
+            case_id = db.create_case(interaction.guild.id, user.id, interaction.user.id, "VOICEKICK", reason)
+            embed = create_mod_embed(
+                title="📞 Member Disconnected from Voice",
+                description=f"Disconnected **{user.mention}** from #{v_channel.name}.\n**Case ID:** `#{case_id}`\n**Reason:** {reason}",
+                color=0x3b82f6
+            )
+            await interaction.response.send_message(embed=embed)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Failed to disconnect member: {e}", ephemeral=True)
 
     # --- Clear (Purge Messages) ---
     @tree.command(name="clear", description="Bulk delete messages in this channel 🧹")

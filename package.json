@@ -1,0 +1,19 @@
+{
+  "name": "kazumi-companion",
+  "version": "1.0.0",
+  "description": "Kazumi Discord AI Companion and Web Telemetry Dashboard",
+  "main": "portfolio/server.js",
+  "scripts": {
+    "postinstall": "cd portfolio && npm install --omit=dev",
+    "build": "cd portfolio && npm install --omit=dev",
+    "start": "bash start.sh"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "dotenv": "^16.4.5",
+    "cors": "^2.8.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,17 +1,28 @@
 node_modules
+**/node_modules
 __pycache__
-*.pyc
+**/*.pyc
 .git
 .env
-portfolio/credentials.json
-# isa_memory/conversations.json
-# isa_memory/profile.json
+.venv
+venv
+ENV
+env
+scratch
+documents
+voices
+test_*.py
+.agent
 .gemini
 .idea
 .vscode
+portfolio/credentials.json
 portfolio_public.zip
 portfolio/backups/
 portfolio/logs/
 *.zip
 *.bak
+*.blend
+*.glb
+*.fbx
 

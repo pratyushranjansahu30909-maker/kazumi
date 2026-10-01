@@ -67,6 +67,10 @@ from .roast_engine import (
     RoastBattleView,
     register_roast_commands
 )
+from .case_system import CaseManager, ReportManager, AppealManager, register_case_commands
+from .security import AntiRaidEngine, AntiNukeEngine, StaffPermissionManager, register_security_commands
+from .game_engine import GameEngine, get_game_engine, register_game_commands
+from .human_interaction import HumanInteractionEngine, InteractionDecision
 
 logger = std_logging.getLogger("KazumiFeatures")
 
@@ -129,6 +133,22 @@ def setup_all_features(bot: commands.Bot, tree: app_commands.CommandTree) -> Dic
     roast_engine = RoastEngine(db)
     register_roast_commands(tree, bot, roast_engine, db)
 
+    # 13. Moderation Case Management, Reports & Appeals
+    case_manager = CaseManager(db)
+    register_case_commands(tree, bot, db)
+
+    # 14. Server Security, Anti-Raid & Anti-Nuke
+    anti_raid_engine = AntiRaidEngine(db)
+    anti_nuke_engine = AntiNukeEngine(db)
+    register_security_commands(tree, bot, db)
+
+    # 15. Game Engine & Arcade Suite
+    game_engine = get_game_engine(db)
+    register_game_commands(tree, bot, db)
+
+    # 16. Human Interaction Engine (Social decision layer)
+    human_interaction = HumanInteractionEngine(db, bot.user.id if bot.user else 0)
+
     # Register persistent views for button listeners across bot reboots
     try:
         bot.add_view(TicketLaunchView())
@@ -156,5 +176,10 @@ def setup_all_features(bot: commands.Bot, tree: app_commands.CommandTree) -> Dic
         "smart_silence": smart_silence,
         "reaction_picker": reaction_picker,
         "moments": moments_engine,
-        "roast_engine": roast_engine
+        "roast_engine": roast_engine,
+        "case_manager": case_manager,
+        "anti_raid": anti_raid_engine,
+        "anti_nuke": anti_nuke_engine,
+        "game_engine": game_engine,
+        "human_interaction": human_interaction
     }

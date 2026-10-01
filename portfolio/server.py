@@ -697,12 +697,114 @@ class VoiceCallPayload(BaseModel):
     prompt_text: Optional[str] = None
     session_id: Optional[str] = None
 
-@app.post("/api/kazumi/call/interact")
-async def post_voice_call_interact(body: VoiceCallPayload):
+# ----------------------------------------------------
+# 🌸 Companion & Discord Bot Dashboard Endpoints
+# ----------------------------------------------------
+@app.get("/api/companion/status")
+async def get_companion_status():
+    with KAZUMI_LOCK:
+        profile = kazumi_bot.memory.profile if kazumi_bot else {}
+        return {
+            "status": "online" if kazumi_bot else "offline",
+            "active_character": getattr(kazumi_bot, "active_character", "kazumi"),
+            "current_archetype": getattr(kazumi_bot, "current_archetype", "DEREDERE"),
+            "affection_level": profile.get("affection_level", 0),
+            "unhinged_level": profile.get("unhinged_level", 0),
+            "total_conversations": len(getattr(kazumi_bot.memory, "history", [])) if kazumi_bot else 0,
+            "environment": os.environ.get("SPACE_ID", "Local PC Host")
+        }
+
+@app.get("/api/bot/health")
+async def get_bot_health():
+    cases_file = os.path.join(ISA_MEMORY_DIR, "cases.json")
+    game_file = os.path.join(ISA_MEMORY_DIR, "game_stats.json")
+    reports_file = os.path.join(ISA_MEMORY_DIR, "reports.json")
+    
+    cases_count = 0
+    if os.path.exists(cases_file):
+        try:
+            with open(cases_file, "r", encoding="utf-8") as f:
+                c_data = json.load(f)
+                if isinstance(c_data, dict):
+                    for gid, g_cases in c_data.items():
+                        if isinstance(g_cases, dict):
+                            cases_count += len(g_cases)
+                        elif isinstance(g_cases, list):
+                            cases_count += len(g_cases)
+                elif isinstance(c_data, list):
+                    cases_count = len(c_data)
+        except Exception:
+            pass
+
+    players_count = 0
+    if os.path.exists(game_file):
+        try:
+            with open(game_file, "r", encoding="utf-8") as f:
+                g_data = json.load(f)
+                players_count = len(g_data.get("users") or g_data.get("profiles") or {})
+        except Exception:
+            pass
+
+    reports_count = 0
+    if os.path.exists(reports_file):
+        try:
+            with open(reports_file, "r", encoding="utf-8") as f:
+                r_data = json.load(f)
+                if isinstance(r_data, dict):
+                    for gid, reps in r_data.items():
+                        if isinstance(reps, dict):
+                            reports_count += sum(1 for r in reps.values() if isinstance(r, dict) and r.get("status") == "pending")
+        except Exception:
+            pass
+
     return {
-        "success": False,
-        "error": "Voice call system is currently disabled. Please use the Text Chat Bot interface."
+        "status": "healthy",
+        "timestamp": time.time(),
+        "total_cases": cases_count,
+        "arcade_players": players_count,
+        "pending_reports": reports_count,
+        "memory_dir": ISA_MEMORY_DIR
     }
+
+@app.get("/api/bot/cases")
+async def get_bot_cases(limit: int = 50):
+    cases_file = os.path.join(ISA_MEMORY_DIR, "cases.json")
+    if not os.path.exists(cases_file):
+        return {"cases": []}
+    try:
+        with open(cases_file, "r", encoding="utf-8") as f:
+            cases_data = json.load(f)
+        all_cases = []
+        if isinstance(cases_data, dict):
+            for gid, g_cases in cases_data.items():
+                if isinstance(g_cases, dict):
+                    all_cases.extend(g_cases.values())
+                elif isinstance(g_cases, list):
+                    all_cases.extend(g_cases)
+        elif isinstance(cases_data, list):
+            all_cases = cases_data
+
+        all_cases.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+        return {"cases": all_cases[:limit]}
+    except Exception as e:
+        return {"error": str(e), "cases": []}
+
+@app.get("/api/bot/arcade")
+async def get_bot_arcade():
+    game_file = os.path.join(ISA_MEMORY_DIR, "game_stats.json")
+    if not os.path.exists(game_file):
+        return {"profiles": {}, "leaderboard": []}
+    try:
+        with open(game_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        profiles = list((data.get("users") or data.get("profiles") or {}).values())
+        sorted_leaderboard = sorted(profiles, key=lambda x: (x.get("wins", 0), x.get("xp", 0)), reverse=True)[:10]
+        return {
+            "total_players": len(profiles),
+            "leaderboard": sorted_leaderboard
+        }
+    except Exception as e:
+        return {"error": str(e), "leaderboard": []}
 
 @app.on_event("startup")
 async def startup_event():

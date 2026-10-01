@@ -1,5 +1,5 @@
-# Use a lightweight base image containing both Node.js and Python
-FROM nikolaik/python-nodejs:python3.10-nodejs18-slim
+# Use a modern, supported base image containing both Node.js 20 LTS and Python 3.11
+FROM nikolaik/python-nodejs:python3.11-nodejs20-slim
 
 # Set working directory
 WORKDIR /app
@@ -8,8 +8,9 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Node dependencies
-COPY portfolio/package.json ./portfolio/
+# Install Node dependencies (root and portfolio)
+COPY package*.json ./
+COPY portfolio/package*.json ./portfolio/
 WORKDIR /app/portfolio
 RUN npm install --omit=dev
 
@@ -17,7 +18,7 @@ RUN npm install --omit=dev
 WORKDIR /app
 COPY . .
 
-# Set permissions recursively for app directories to ensure write access on Hugging Face (non-root user 1000)
+# Set permissions recursively for app directories to ensure write access across environments
 RUN mkdir -p /app/isa_memory /app/logs && chmod -R 777 /app && chmod +x /app/start.sh
 
 # Expose ports (7860 for Hugging Face Spaces, 10000 for Render)
@@ -26,7 +27,7 @@ EXPOSE 7860
 EXPOSE 10000
 
 # Set environment variables
-ENV PORT=7860
+ENV PORT=10000
 ENV NODE_ENV=production
 ENV PYTHONUNBUFFERED=1
 

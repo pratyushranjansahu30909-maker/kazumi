@@ -31,8 +31,15 @@ portfolio/version_track.json
 .venv/
 GPT-SoVITS/
 voices/
+scratch/
+documents/
 portfolio/gpt_manager_status.json
 portfolio/gpt_setup_status.json
 portfolio/public/temp/
 portfolio/public/audio/reference_voice.webm
+*.blend
+*.fbx
+*.glb
+*.gltf
+*.vrm
 

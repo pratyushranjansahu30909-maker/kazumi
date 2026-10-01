@@ -123,6 +123,7 @@ args, _ = parser.parse_known_args()
 DISCORD_BOT_TOKEN = (args.token or os.environ.get("DISCORD_BOT_TOKEN", "")).strip()
 DISCORD_CHANNEL_ID = (args.channel or os.environ.get("DISCORD_CHANNEL_ID", "")).strip()
 PREFIX = args.prefix or os.environ.get("DISCORD_PREFIX", "!k ")
+CREATOR_USER_IDS = set(x.strip() for x in os.environ.get("CREATOR_USER_IDS", "1203721997805424650").split(",") if x.strip())
 
 # Bot Intents
 intents = discord.Intents.default()
@@ -281,7 +282,7 @@ def detect_creator_relationship(user: discord.User | discord.Member) -> tuple[Op
     combined = f"{getattr(user, 'name', '')} {getattr(user, 'display_name', '')} {getattr(user, 'global_name', '')}".lower()
     
     # Check Shan
-    if uid_str == "1203721997805424650" or any(w in combined for w in ["shan2157", "sir shan", "shan d. first", "shan d first", "shan"]):
+    if uid_str in CREATOR_USER_IDS or any(w in combined for w in ["shan2157", "sir shan", "shan d. first", "shan d first", "shan"]):
         return ("Sir Shan D. First", "Sir Shan D. First (your creator and father)")
         
     # Check Aamir
@@ -480,16 +481,18 @@ async def on_message(message: discord.Message):
             if not is_staff:
                 violated, rule_name, evidence = kazumi_features["automod"].record_and_evaluate(message, automod_cfg)
                 if violated:
+                    case_id = db_inst.create_case(message.guild.id, message.author.id, bot.user.id if bot.user else 0, "AUTOMOD", rule_name, evidence=evidence)
                     try:
                         await message.delete()
                     except Exception:
                         pass
                     mod_embed = discord.Embed(
-                        title="🛡️ AutoMod Rule Enforced",
+                        title=f"🛡️ AutoMod Rule Enforced • Case #{case_id}",
                         description=(
                             f"**User:** {message.author.mention} (`{message.author.id}`)\n"
                             f"**Rule Violated:** `{rule_name}`\n"
                             f"**Evidence:** {evidence}\n"
+                            f"**Case ID:** `#{case_id}`\n"
                             f"**Channel:** {message.channel.mention}"
                         ),
                         color=0xf43f5e
@@ -498,7 +501,7 @@ async def on_message(message: discord.Message):
                     await kazumi_features["logging"].log_event(message.guild, mod_embed)
                     try:
                         await message.channel.send(
-                            f"⚠️ {message.author.mention}, your message violated server rules (**{rule_name}**) and was removed.",
+                            f"⚠️ {message.author.mention}, your message violated server rules (**{rule_name}** - Case `#{case_id}`) and was removed.",
                             delete_after=8
                         )
                     except Exception:
@@ -645,8 +648,37 @@ async def on_message(message: discord.Message):
         return
 
     # =========================================================================
-    # 🧠 RULE 2: CONVERSATIONAL INTELLIGENCE & WHEN TO REPLY (IN KAZUMI CHANNEL)
+    # 🧠 RULE 2: CONVERSATIONAL INTELLIGENCE & HUMAN INTERACTION DECISION LAYER
     # =========================================================================
+    rel_level = 1
+    if obs_manager and hasattr(obs_manager, "memory_mgr"):
+        try:
+            prof = obs_manager.memory_mgr.get_profile(author_id_str)
+            rel_level = prof.get("relationship_level", 1)
+        except Exception:
+            rel_level = 1
+
+    if "human_interaction" in kazumi_features:
+        hi_decision, hi_extra, hi_reason = kazumi_features["human_interaction"].evaluate(
+            message=message,
+            is_dm=is_dm,
+            is_dedicated_channel=in_kazumi_channel,
+            is_mentioned=is_mentioned,
+            is_reply_to_kazumi=is_reply_to_kazumi,
+            is_directly_addressed=is_directly_addressed,
+            is_prefix_called=is_prefix_called,
+            channel_mode=channel_mode,
+            relationship_level=rel_level
+        )
+        if hi_decision.value in ("IGNORE", "OBSERVE", "WAIT"):
+            return
+        elif hi_decision.value == "REACT" and hi_extra:
+            try:
+                await message.add_reaction(hi_extra)
+            except Exception:
+                pass
+            return
+
     session_key = (message.channel.id, message.author.id)
 
     # A. Check for STOP / SILENCE command
@@ -948,6 +980,24 @@ async def on_member_join(member: discord.Member):
             await kazumi_features["welcome"].on_member_join(member)
         if kazumi_features.get("autorole"):
             await kazumi_features["autorole"].assign_autoroles(member)
+
+        # Anti-Raid Evaluation
+        if kazumi_features.get("anti_raid"):
+            is_raid, raid_reason, raid_meta = kazumi_features["anti_raid"].record_join_and_evaluate(member)
+            if is_raid:
+                raid_embed = discord.Embed(
+                    title="🚨 SECURITY ALERT • RAID DETECTED",
+                    description=(
+                        f"**Threat:** {raid_reason}\n"
+                        f"**Trigger Member:** {member.mention} (`{member.id}`)\n"
+                        f"**Recent Joins:** `{raid_meta.get('join_count')}`\n"
+                        f"**Confidence:** `{raid_meta.get('confidence')}`"
+                    ),
+                    color=0xef4444
+                )
+                raid_embed.timestamp = datetime.now(timezone.utc)
+                await kazumi_features["logging"].log_event(member.guild, raid_embed)
+
         # Log event
         embed = discord.Embed(
             title="📥 Member Joined",
