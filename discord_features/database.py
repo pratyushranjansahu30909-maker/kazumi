@@ -51,6 +51,7 @@ class FeatureDatabase:
         self.appeals_path = os.path.join(self.persist_dir, "appeals.json")
         self.security_path = os.path.join(self.persist_dir, "security_settings.json")
         self.game_stats_path = os.path.join(self.persist_dir, "game_stats.json")
+        self.announcements_path = os.path.join(self.persist_dir, "announcements.json")
 
         # In-memory caches
         self.guild_settings: Dict[str, Dict[str, Any]] = {}
@@ -69,6 +70,7 @@ class FeatureDatabase:
         self.appeals: Dict[str, Dict[str, Any]] = {}
         self.security_settings: Dict[str, Dict[str, Any]] = {}
         self.game_stats: Dict[str, Any] = {"users": {}, "daily": {}}
+        self.announcements: Dict[str, Any] = {"history": [], "scheduled": {}, "templates": {}}
 
         self.load_all()
 
@@ -138,6 +140,7 @@ class FeatureDatabase:
             self.appeals = self._safe_read(self.appeals_path, {})
             self.security_settings = self._safe_read(self.security_path, {})
             self.game_stats = self._safe_read(self.game_stats_path, {"users": {}, "daily": {}})
+            self.announcements = self._safe_read(self.announcements_path, {"history": [], "scheduled": {}, "templates": {}})
 
     # --- Guild Settings ---
     def get_guild_settings(self, guild_id: str) -> Dict[str, Any]:
@@ -961,6 +964,76 @@ class FeatureDatabase:
             self.game_stats["users"][uid] = prof
             self._atomic_write(self.game_stats_path, self.game_stats)
             return True
+
+    # =========================================================================
+    # --- Announcements, Scheduling & Templates ---
+    # =========================================================================
+    def record_announcement(self, record: Dict[str, Any]) -> None:
+        with self._lock:
+            history = self.announcements.setdefault("history", [])
+            history.append(record)
+            if len(history) > 200:
+                self.announcements["history"] = history[-200:]
+            self._atomic_write(self.announcements_path, self.announcements)
+
+    def get_announcement_history(self, guild_id: str, limit: int = 25) -> List[Dict[str, Any]]:
+        gid = str(guild_id)
+        with self._lock:
+            history = self.announcements.get("history", [])
+            filtered = [r for r in history if str(r.get("guild_id")) == gid]
+            return filtered[-limit:]
+
+    def save_scheduled_announcement(self, item_id: str, data: Dict[str, Any]) -> None:
+        with self._lock:
+            scheduled = self.announcements.setdefault("scheduled", {})
+            scheduled[str(item_id)] = data
+            self._atomic_write(self.announcements_path, self.announcements)
+
+    def get_scheduled_announcements(self) -> List[Dict[str, Any]]:
+        with self._lock:
+            return list(self.announcements.get("scheduled", {}).values())
+
+    def delete_scheduled_announcement(self, item_id: str) -> bool:
+        iid = str(item_id)
+        with self._lock:
+            scheduled = self.announcements.setdefault("scheduled", {})
+            if iid in scheduled:
+                del scheduled[iid]
+                self._atomic_write(self.announcements_path, self.announcements)
+                return True
+            return False
+
+    def save_announcement_template(self, guild_id: str, name: str, data: Dict[str, Any]) -> None:
+        gid = str(guild_id)
+        tname = str(name).lower().strip()
+        with self._lock:
+            templates = self.announcements.setdefault("templates", {})
+            guild_tpls = templates.setdefault(gid, {})
+            guild_tpls[tname] = data
+            self._atomic_write(self.announcements_path, self.announcements)
+
+    def get_announcement_templates(self, guild_id: str) -> Dict[str, Any]:
+        gid = str(guild_id)
+        with self._lock:
+            return dict(self.announcements.get("templates", {}).get(gid, {}))
+
+    def get_announcement_template(self, guild_id: str, name: str) -> Optional[Dict[str, Any]]:
+        gid = str(guild_id)
+        tname = str(name).lower().strip()
+        with self._lock:
+            return self.announcements.get("templates", {}).get(gid, {}).get(tname)
+
+    def delete_announcement_template(self, guild_id: str, name: str) -> bool:
+        gid = str(guild_id)
+        tname = str(name).lower().strip()
+        with self._lock:
+            templates = self.announcements.setdefault("templates", {})
+            guild_tpls = templates.get(gid, {})
+            if tname in guild_tpls:
+                del guild_tpls[tname]
+                self._atomic_write(self.announcements_path, self.announcements)
+                return True
+            return False
 
 
 _global_feature_db = None

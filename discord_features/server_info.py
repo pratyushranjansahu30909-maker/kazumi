@@ -244,31 +244,6 @@ def register_info_and_utility_commands(tree: app_commands.CommandTree, bot: comm
 
         await interaction.response.send_message("✅ Poll created!", ephemeral=True)
 
-    # --- Announce ---
-    @tree.command(name="announce", description="Post a stylized server announcement embed 📢")
-    @app_commands.describe(
-        channel="The channel to post the announcement into",
-        title="Title of the announcement",
-        message="Announcement text content"
-    )
-    async def slash_announce(interaction: discord.Interaction, channel: discord.TextChannel, title: str, message: str):
-        if not interaction.guild or not interaction.user.guild_permissions.manage_messages:
-            await interaction.response.send_message("❌ You require **Manage Messages** permission to post announcements.", ephemeral=True)
-            return
-
-        embed = discord.Embed(
-            title=f"📢 {title}",
-            description=message,
-            color=0xf43f5e
-        )
-        embed.set_footer(text=f"Official Announcement • Posted by {interaction.user.display_name} 🌸")
-        embed.timestamp = datetime.now(timezone.utc)
-
-        try:
-            await channel.send(embed=embed)
-            await interaction.response.send_message(f"✅ Announcement posted in {channel.mention}!", ephemeral=True)
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Failed to post announcement: {e}", ephemeral=True)
 
     # --- Remind ---
     @tree.command(name="remind", description="Set a reminder for yourself ⏰")

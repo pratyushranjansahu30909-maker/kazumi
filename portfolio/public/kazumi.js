@@ -4475,6 +4475,394 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       }
 
+      // 4. Announcements & Stage Management
+      const PRESETS = {
+        embed: { color: '#8b5cf6', badge: 'rich embed', footer: 'Kazumi • Server Announcements' },
+        event: { color: '#f59e0b', badge: 'event announcement', footer: 'Kazumi Events • RSVP Now' },
+        update: { color: '#3b82f6', badge: 'server update', footer: 'Kazumi • Patch Notes & Updates' },
+        maintenance: { color: '#ef4444', badge: 'maintenance', footer: 'Kazumi • System Status' },
+        giveaway: { color: '#ec4899', badge: 'giveaway launch', footer: 'Kazumi • Good Luck Everyone!' },
+        rules: { color: '#6366f1', badge: 'rules & policies', footer: 'Kazumi • Community Guidelines' },
+        welcome: { color: '#10b981', badge: 'welcome', footer: 'Kazumi • Welcome to the Server!' },
+        simple: { color: '#94a3b8', badge: 'simple text', footer: '' },
+        custom: { color: '#8b5cf6', badge: 'custom embed', footer: 'Kazumi' }
+      };
+
+      const syncEmbedPreview = () => {
+        const title = document.getElementById('annTitleInput')?.value || '';
+        const msg = document.getElementById('annMessageInput')?.value || '';
+        const color = document.getElementById('annColorHex')?.value || '#8b5cf6';
+        const image = document.getElementById('annImageInput')?.value || '';
+        const footer = document.getElementById('annFooterInput')?.value || '';
+        const outside = document.getElementById('annOutsideInput')?.value || '';
+        const preset = document.getElementById('annPresetSelect')?.value || 'embed';
+
+        const pTitle = document.getElementById('previewTitle');
+        const pMsg = document.getElementById('previewMessage');
+        const pBox = document.getElementById('previewEmbedBox');
+        const pBadge = document.getElementById('previewLayoutBadge');
+        const pFooter = document.getElementById('previewFooter');
+        const pImgWrap = document.getElementById('previewImageWrapper');
+        const pImgEl = document.getElementById('previewImageEl');
+        const pOutside = document.getElementById('previewOutsideText');
+
+        if (pTitle) pTitle.textContent = title || 'Announcement Title';
+        if (pMsg) pMsg.textContent = msg || 'Message body...';
+        if (pBox) pBox.style.borderLeftColor = color;
+        if (pBadge) pBadge.textContent = PRESETS[preset]?.badge || preset;
+        if (pFooter) pFooter.textContent = footer;
+        if (pImgWrap && pImgEl) {
+          if (image) {
+            pImgEl.src = image;
+            pImgWrap.style.display = 'block';
+          } else {
+            pImgWrap.style.display = 'none';
+          }
+        }
+        if (pOutside) {
+          if (outside) {
+            pOutside.textContent = outside;
+            pOutside.style.display = 'block';
+          } else {
+            pOutside.style.display = 'none';
+          }
+        }
+      };
+
+      // Live sync bindings
+      ['annTitleInput', 'annMessageInput', 'annColorHex', 'annImageInput', 'annFooterInput', 'annOutsideInput'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', syncEmbedPreview);
+      });
+
+      const colorPicker = document.getElementById('annColorPicker');
+      const colorHex = document.getElementById('annColorHex');
+      if (colorPicker && colorHex) {
+        colorPicker.addEventListener('input', (e) => {
+          colorHex.value = e.target.value;
+          syncEmbedPreview();
+        });
+        colorHex.addEventListener('input', (e) => {
+          if (/^#[0-9A-Fa-f]{6}$/.test(e.target.value)) {
+            colorPicker.value = e.target.value;
+            syncEmbedPreview();
+          }
+        });
+      }
+
+      const presetSelect = document.getElementById('annPresetSelect');
+      if (presetSelect) {
+        presetSelect.addEventListener('change', (e) => {
+          const cfg = PRESETS[e.target.value];
+          if (cfg) {
+            if (colorHex) colorHex.value = cfg.color;
+            if (colorPicker) colorPicker.value = cfg.color;
+            const footerEl = document.getElementById('annFooterInput');
+            if (footerEl && cfg.footer) footerEl.value = cfg.footer;
+            syncEmbedPreview();
+          }
+        });
+      }
+
+      const loadAnnouncements = async () => {
+        try {
+          const guildId = document.getElementById('annGuildInput')?.value.trim() || 'default';
+          const res = await fetch(`/api/dashboard/announcements?guild_id=${encodeURIComponent(guildId)}`);
+          const data = await res.json();
+          if (!data.success) return;
+
+          // Scheduled container
+          const schContainer = document.getElementById('scheduledAnnContainer');
+          if (schContainer) {
+            if (!data.scheduled || data.scheduled.length === 0) {
+              schContainer.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem;">No scheduled announcements.</div>';
+            } else {
+              schContainer.innerHTML = data.scheduled.map(item => {
+                const dateStr = new Date(item.scheduled_at * 1000).toLocaleString();
+                return `<div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); padding: 0.6rem 0.8rem; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
+                  <div>
+                    <strong style="color: #60a5fa; font-size: 0.9rem;">${escapeHtml(item.title)}</strong>
+                    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.2rem;">
+                      <i class="fa-solid fa-clock"></i> ${dateStr} • Recurrence: <code>${item.recurrence || 'none'}</code>
+                    </div>
+                  </div>
+                  <button class="btn btn-zen cancel-sch-btn" data-id="${item.id}" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; color: #f87171; border-color: rgba(239,68,68,0.3);">
+                    <i class="fa-solid fa-xmark"></i> Cancel
+                  </button>
+                </div>`;
+              }).join('');
+
+              schContainer.querySelectorAll('.cancel-sch-btn').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                  const id = btn.getAttribute('data-id');
+                  if (confirm('Cancel this scheduled announcement?')) {
+                    await fetch(`/api/dashboard/announcements/schedule/${id}`, { method: 'DELETE' });
+                    loadAnnouncements();
+                  }
+                });
+              });
+            }
+          }
+
+          // History container
+          const histContainer = document.getElementById('annHistoryContainer');
+          if (histContainer) {
+            if (!data.history || data.history.length === 0) {
+              histContainer.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem;">No recent announcement records.</div>';
+            } else {
+              histContainer.innerHTML = data.history.slice(0, 15).map(h => {
+                const dStr = h.published_at ? new Date(h.published_at * 1000).toLocaleTimeString() : '-';
+                return `<div style="padding: 0.5rem 0.75rem; background: rgba(255,255,255,0.02); border-radius: 6px; font-size: 0.8rem;">
+                  <div style="display: flex; justify-content: space-between;">
+                    <strong style="color: var(--text-primary);">${escapeHtml(h.title)}</strong>
+                    <span style="color: var(--text-muted); font-size: 0.75rem;">${dStr}</span>
+                  </div>
+                  <div style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 0.2rem;">
+                    Channel: <code>${h.channel_id}</code> • Preset: <span class="dash-badge active">${h.layout}</span>
+                  </div>
+                </div>`;
+              }).join('');
+            }
+          }
+
+          // Templates chips
+          const tplContainer = document.getElementById('templateChipsContainer');
+          if (tplContainer) {
+            const tpls = Object.values(data.templates || {});
+            if (tpls.length === 0) {
+              tplContainer.innerHTML = '<span style="font-size: 0.75rem; color: var(--text-muted);">No saved templates yet.</span>';
+            } else {
+              tplContainer.innerHTML = tpls.map(t => `<button class="dash-badge apply-tpl-btn" data-tpl='${escapeHtml(JSON.stringify(t))}' style="cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;">
+                <i class="fa-solid fa-file-lines"></i> ${escapeHtml(t.name)}
+              </button>`).join('');
+
+              tplContainer.querySelectorAll('.apply-tpl-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                  try {
+                    const tpl = JSON.parse(btn.getAttribute('data-tpl'));
+                    if (document.getElementById('annTitleInput')) document.getElementById('annTitleInput').value = tpl.title || '';
+                    if (document.getElementById('annMessageInput')) document.getElementById('annMessageInput').value = tpl.message || '';
+                    if (document.getElementById('annFooterInput')) document.getElementById('annFooterInput').value = tpl.footer || '';
+                    if (document.getElementById('annImageInput')) document.getElementById('annImageInput').value = tpl.image_url || '';
+                    if (document.getElementById('annColorHex') && tpl.color) {
+                      const hex = '#' + Number(tpl.color).toString(16).padStart(6, '0');
+                      document.getElementById('annColorHex').value = hex;
+                      if (colorPicker) colorPicker.value = hex;
+                    }
+                    syncEmbedPreview();
+                  } catch (e) {}
+                });
+              });
+            }
+          }
+        } catch (err) {
+          console.warn('Failed to load announcements:', err);
+        }
+      };
+
+      const loadStageEvents = async () => {
+        try {
+          const res = await fetch('/api/dashboard/stage/events');
+          const data = await res.json();
+          const container = document.getElementById('stageEventsContainer');
+          if (!container) return;
+          if (!data.success || !data.events || data.events.length === 0) {
+            container.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem;">No upcoming stage events recorded.</div>';
+            return;
+          }
+          container.innerHTML = data.events.map(ev => {
+            const dStr = ev.published_at ? new Date(ev.published_at * 1000).toLocaleString() : 'Scheduled';
+            return `<div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 1rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                <strong style="color: #34d399; font-size: 0.95rem;"><i class="fa-solid fa-microphone"></i> ${escapeHtml(ev.title)}</strong>
+                <span class="dash-badge active">STAGE</span>
+              </div>
+              <p style="font-size: 0.8rem; color: var(--text-secondary); line-height: 1.4; margin-bottom: 0.5rem;">
+                ${escapeHtml(ev.message)}
+              </p>
+              <div style="font-size: 0.75rem; color: var(--text-muted);">
+                Channel: <code>${ev.channel_id}</code> • Created: ${dStr}
+              </div>
+            </div>`;
+          }).join('');
+        } catch (err) {
+          console.warn('Failed to load stage events:', err);
+        }
+      };
+
+      const refreshAnnBtn = document.getElementById('refreshAnnBtn');
+      if (refreshAnnBtn) refreshAnnBtn.addEventListener('click', loadAnnouncements);
+
+      const refreshStageEventsBtn = document.getElementById('refreshStageEventsBtn');
+      if (refreshStageEventsBtn) refreshStageEventsBtn.addEventListener('click', loadStageEvents);
+
+      // Publish Announcement Button
+      const publishAnnBtn = document.getElementById('publishAnnBtn');
+      if (publishAnnBtn) {
+        publishAnnBtn.addEventListener('click', async () => {
+          const title = document.getElementById('annTitleInput')?.value.trim();
+          const message = document.getElementById('annMessageInput')?.value.trim();
+          const channel = document.getElementById('annChannelInput')?.value.trim() || 'announcements';
+          const role = document.getElementById('annRoleInput')?.value.trim();
+          const color = document.getElementById('annColorHex')?.value.trim() || '#8b5cf6';
+          const image = document.getElementById('annImageInput')?.value.trim();
+          const footer = document.getElementById('annFooterInput')?.value.trim();
+          const outside = document.getElementById('annOutsideInput')?.value.trim();
+          const guildId = document.getElementById('annGuildInput')?.value.trim() || 'default';
+          const layout = document.getElementById('annPresetSelect')?.value || 'embed';
+
+          if (!title || !message) {
+            alert('Please provide both an announcement title and message content!');
+            return;
+          }
+
+          // Mention safeguard check
+          if ((message.includes('@everyone') || message.includes('@here') || (outside && (outside.includes('@everyone') || outside.includes('@here'))))) {
+            const confirmed = confirm('⚠️ WARNING: This announcement mentions @everyone or @here. Are you sure you want to broadcast this to the entire server?');
+            if (!confirmed) return;
+          }
+
+          try {
+            const res = await fetch('/api/dashboard/announcements/publish', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                guild_id: guildId,
+                channel_id: channel,
+                title,
+                message,
+                layout,
+                color,
+                image_url: image || null,
+                footer: footer || null,
+                role_id: role || null,
+                text_outside: outside || null
+              })
+            });
+            const data = await res.json();
+            if (data.success) {
+              alert('📢 Announcement recorded & published successfully! 🌸');
+              loadAnnouncements();
+            } else {
+              alert('Failed to publish announcement: ' + (data.error || ''));
+            }
+          } catch (e) {
+            alert('Network error while publishing announcement.');
+          }
+        });
+      }
+
+      // Schedule Announcement Button
+      const scheduleAnnBtn = document.getElementById('scheduleAnnBtn');
+      if (scheduleAnnBtn) {
+        scheduleAnnBtn.addEventListener('click', async () => {
+          const title = document.getElementById('annTitleInput')?.value.trim();
+          const message = document.getElementById('annMessageInput')?.value.trim();
+          const channel = document.getElementById('annChannelInput')?.value.trim() || 'general';
+          const role = document.getElementById('annRoleInput')?.value.trim();
+          const color = document.getElementById('annColorHex')?.value.trim() || '#8b5cf6';
+          const image = document.getElementById('annImageInput')?.value.trim();
+          const footer = document.getElementById('annFooterInput')?.value.trim();
+          const outside = document.getElementById('annOutsideInput')?.value.trim();
+          const guildId = document.getElementById('annGuildInput')?.value.trim() || 'default';
+          const layout = document.getElementById('annPresetSelect')?.value || 'embed';
+          const schedTimeVal = document.getElementById('annScheduleTime')?.value;
+          const recurrence = document.getElementById('annRecurrenceSelect')?.value || 'none';
+
+          if (!title || !message) {
+            alert('Please provide both an announcement title and message content!');
+            return;
+          }
+
+          let scheduledTimestamp = Math.floor(Date.now() / 1000) + 3600;
+          if (schedTimeVal) {
+            scheduledTimestamp = Math.floor(new Date(schedTimeVal).getTime() / 1000);
+            if (isNaN(scheduledTimestamp) || scheduledTimestamp <= Math.floor(Date.now() / 1000)) {
+              alert('Schedule time must be in the future!');
+              return;
+            }
+          }
+
+          try {
+            const res = await fetch('/api/dashboard/announcements/schedule', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                guild_id: guildId,
+                channel_id: channel,
+                scheduled_at: scheduledTimestamp,
+                timezone: 'UTC',
+                recurrence,
+                title,
+                message,
+                layout,
+                color,
+                image_url: image || null,
+                footer: footer || null,
+                role_id: role || null,
+                text_outside: outside || null
+              })
+            });
+            const data = await res.json();
+            if (data.success) {
+              alert('⏰ Announcement scheduled successfully!');
+              loadAnnouncements();
+            } else {
+              alert('Failed to schedule announcement: ' + (data.error || ''));
+            }
+          } catch (e) {
+            alert('Network error while scheduling announcement.');
+          }
+        });
+      }
+
+      // Save Template Button
+      const saveTemplateBtn = document.getElementById('saveTemplateBtn');
+      if (saveTemplateBtn) {
+        saveTemplateBtn.addEventListener('click', async () => {
+          const tname = prompt('Enter a name for this announcement template (e.g. weekly-update, maintenance):');
+          if (!tname) return;
+
+          const title = document.getElementById('annTitleInput')?.value.trim();
+          const message = document.getElementById('annMessageInput')?.value.trim();
+          const channel = document.getElementById('annChannelInput')?.value.trim();
+          const role = document.getElementById('annRoleInput')?.value.trim();
+          const color = document.getElementById('annColorHex')?.value.trim();
+          const image = document.getElementById('annImageInput')?.value.trim();
+          const footer = document.getElementById('annFooterInput')?.value.trim();
+          const guildId = document.getElementById('annGuildInput')?.value.trim() || 'default';
+          const layout = document.getElementById('annPresetSelect')?.value || 'embed';
+
+          try {
+            const res = await fetch('/api/dashboard/announcements/templates', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                guild_id: guildId,
+                name: tname,
+                title,
+                message,
+                layout,
+                color,
+                footer,
+                image_url: image,
+                channel_id: channel,
+                role_id: role
+              })
+            });
+            const data = await res.json();
+            if (data.success) {
+              alert(`💾 Template "${tname}" saved successfully!`);
+              loadAnnouncements();
+            } else {
+              alert('Failed to save template: ' + (data.error || ''));
+            }
+          } catch (e) {
+            alert('Network error while saving template.');
+          }
+        });
+      }
+
       // Load initial data on panel click
       menuItems.forEach(item => {
         item.addEventListener('click', () => {
@@ -4482,6 +4870,11 @@ document.addEventListener('DOMContentLoaded', () => {
           if (target === 'space-moderation') loadCases();
           if (target === 'space-giveaways') loadGiveaways();
           if (target === 'space-music') loadMusic();
+          if (target === 'space-announcements') {
+            loadAnnouncements();
+            loadStageEvents();
+            syncEmbedPreview();
+          }
         });
       });
     };

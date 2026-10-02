@@ -1103,6 +1103,181 @@ app.get('/api/dashboard/kazumi', (req, res) => {
   });
 });
 
+// 13. Announcements System & History
+app.get('/api/dashboard/announcements', (req, res) => {
+  const memDir = getIsaMemoryDir();
+  const annPath = path.join(memDir, 'announcements.json');
+  const annData = readJsonFile(annPath, { history: [], scheduled: {}, templates: {} });
+  const guildId = req.query.guild_id;
+
+  let history = annData.history || [];
+  let scheduled = Object.values(annData.scheduled || {});
+  let templates = annData.templates || {};
+
+  if (guildId) {
+    history = history.filter(h => String(h.guild_id) === String(guildId));
+    scheduled = scheduled.filter(s => String(s.guild_id) === String(guildId));
+    templates = templates[String(guild_id)] || {};
+  }
+
+  res.json({
+    success: true,
+    history: history.slice(-50).reverse(),
+    scheduled,
+    templates
+  });
+});
+
+// 14. Publish Announcement via Dashboard
+app.post('/api/dashboard/announcements/publish', authenticateDashboard, (req, res) => {
+  const { guild_id, channel_id, title, message, layout, color, image_url, footer, role_id, text_outside } = req.body;
+  if (!guild_id || !title || !message) {
+    return res.status(400).json({ success: false, error: 'guild_id, title, and message are required.' });
+  }
+
+  const memDir = getIsaMemoryDir();
+  const annPath = path.join(memDir, 'announcements.json');
+  const annData = readJsonFile(annPath, { history: [], scheduled: {}, templates: {} });
+
+  const record = {
+    id: 'ann_' + Date.now(),
+    guild_id: String(guild_id),
+    channel_id: String(channel_id || 'dashboard'),
+    author_id: 'dashboard_admin',
+    title: String(title),
+    message: String(message),
+    layout: String(layout || 'embed'),
+    color: color ? parseInt(String(color).replace('#', ''), 16) : 0x8b5cf6,
+    image_url: image_url || null,
+    footer: footer || null,
+    role_id: role_id || null,
+    text_outside: text_outside || null,
+    published_at: Math.floor(Date.now() / 1000)
+  };
+
+  annData.history = annData.history || [];
+  annData.history.push(record);
+  if (annData.history.length > 200) {
+    annData.history = annData.history.slice(-200);
+  }
+  writeJsonFile(annPath, annData);
+
+  res.json({ success: true, record });
+});
+
+// 15. Schedule Announcement via Dashboard
+app.post('/api/dashboard/announcements/schedule', authenticateDashboard, (req, res) => {
+  const { guild_id, channel_id, scheduled_at, timezone, recurrence, title, message, layout, color, image_url, footer, role_id, text_outside } = req.body;
+  if (!guild_id || !scheduled_at || !title || !message) {
+    return res.status(400).json({ success: false, error: 'guild_id, scheduled_at, title, and message are required.' });
+  }
+
+  const memDir = getIsaMemoryDir();
+  const annPath = path.join(memDir, 'announcements.json');
+  const annData = readJsonFile(annPath, { history: [], scheduled: {}, templates: {} });
+
+  const id = 'sch_' + Date.now();
+  const scheduledItem = {
+    id,
+    guild_id: String(guild_id),
+    channel_id: String(channel_id || 'general'),
+    author_id: 'dashboard_admin',
+    scheduled_at: Number(scheduled_at) || (Math.floor(Date.now() / 1000) + 3600),
+    timezone: timezone || 'UTC',
+    recurrence: recurrence || 'none',
+    title: String(title),
+    message: String(message),
+    layout: String(layout || 'embed'),
+    color: color ? parseInt(String(color).replace('#', ''), 16) : 0x8b5cf6,
+    image_url: image_url || null,
+    footer: footer || null,
+    role_id: role_id || null,
+    text_outside: text_outside || null,
+    created_at: Math.floor(Date.now() / 1000)
+  };
+
+  annData.scheduled = annData.scheduled || {};
+  annData.scheduled[id] = scheduledItem;
+  writeJsonFile(annPath, annData);
+
+  res.json({ success: true, item: scheduledItem });
+});
+
+// 16. Delete/Cancel Scheduled Announcement
+app.delete('/api/dashboard/announcements/schedule/:id', authenticateDashboard, (req, res) => {
+  const itemId = req.params.id;
+  const memDir = getIsaMemoryDir();
+  const annPath = path.join(memDir, 'announcements.json');
+  const annData = readJsonFile(annPath, { history: [], scheduled: {}, templates: {} });
+
+  if (annData.scheduled && annData.scheduled[itemId]) {
+    delete annData.scheduled[itemId];
+    writeJsonFile(annPath, annData);
+    return res.json({ success: true, message: `Scheduled announcement ${itemId} cancelled.` });
+  }
+  return res.status(404).json({ success: false, error: 'Scheduled item not found.' });
+});
+
+// 17. Save Reusable Announcement Template
+app.post('/api/dashboard/announcements/templates', authenticateDashboard, (req, res) => {
+  const { guild_id, name, title, message, layout, color, footer, image_url, channel_id, role_id } = req.body;
+  if (!guild_id || !name || !title) {
+    return res.status(400).json({ success: false, error: 'guild_id, name, and title are required.' });
+  }
+
+  const memDir = getIsaMemoryDir();
+  const annPath = path.join(memDir, 'announcements.json');
+  const annData = readJsonFile(annPath, { history: [], scheduled: {}, templates: {} });
+
+  const tname = String(name).toLowerCase().trim();
+  annData.templates = annData.templates || {};
+  annData.templates[String(guild_id)] = annData.templates[String(guild_id)] || {};
+  annData.templates[String(guild_id)][tname] = {
+    name: tname,
+    title: String(title),
+    message: String(message || ''),
+    layout: String(layout || 'embed'),
+    color: color ? parseInt(String(color).replace('#', ''), 16) : 0x8b5cf6,
+    footer: footer || null,
+    image_url: image_url || null,
+    channel_id: channel_id || null,
+    role_id: role_id || null,
+    created_at: Math.floor(Date.now() / 1000)
+  };
+  writeJsonFile(annPath, annData);
+
+  res.json({ success: true, template: annData.templates[String(guild_id)][tname] });
+});
+
+// 18. Delete Reusable Announcement Template
+app.delete('/api/dashboard/announcements/templates/:guild_id/:name', authenticateDashboard, (req, res) => {
+  const { guild_id, name } = req.params;
+  const memDir = getIsaMemoryDir();
+  const annPath = path.join(memDir, 'announcements.json');
+  const annData = readJsonFile(annPath, { history: [], scheduled: {}, templates: {} });
+
+  const tname = String(name).toLowerCase().trim();
+  if (annData.templates && annData.templates[String(guild_id)] && annData.templates[String(guild_id)][tname]) {
+    delete annData.templates[String(guild_id)][tname];
+    writeJsonFile(annPath, annData);
+    return res.json({ success: true, message: `Template ${tname} deleted.` });
+  }
+  return res.status(404).json({ success: false, error: 'Template not found.' });
+});
+
+// 19. Stage Events
+app.get('/api/dashboard/stage/events', (req, res) => {
+  const memDir = getIsaMemoryDir();
+  const annPath = path.join(memDir, 'announcements.json');
+  const annData = readJsonFile(annPath, { history: [], scheduled: {}, templates: {} });
+  const eventAnnouncements = (annData.history || []).filter(h => h.layout === 'event');
+  res.json({
+    success: true,
+    events: eventAnnouncements
+  });
+});
+
+
 app.listen(PORT, () => {
 
   console.log(`====================================================`);

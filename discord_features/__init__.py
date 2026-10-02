@@ -161,6 +161,11 @@ def setup_all_features(bot: commands.Bot, tree: app_commands.CommandTree) -> Dic
     from . import music
     from .permissions import PermissionService
     from .intent_router import NaturalIntentRouter
+    from .announcements import setup_announcement_commands
+    from .stage import setup_stage_commands
+
+    announcement_scheduler = setup_announcement_commands(tree, bot, db)
+    setup_stage_commands(tree, bot, db)
 
     intent_router = NaturalIntentRouter(bot, {
         "db": db,

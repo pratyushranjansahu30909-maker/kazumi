@@ -54,6 +54,9 @@
         <button class="menu-item" data-target="space-music">
           <span>Music 🎵</span>
         </button>
+        <button class="menu-item" data-target="space-announcements">
+          <span>Announce & Stage 📢</span>
+        </button>
       </nav>
 
       <!-- Theme Switcher -->
@@ -520,6 +523,198 @@
             <div id="musicQueueContainer" style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 280px; overflow-y: auto;">
               <div style="color: var(--text-muted); font-size: 0.85rem;">Queue is currently empty.</div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Space 9: Announcements & Stage Management -->
+      <section id="space-announcements" class="space-panel">
+        <div class="space-header">
+          <h1>Announcements & Stage Center</h1>
+          <p>Create rich announcements, schedule broadcasts, manage templates, and coordinate Discord Stage events</p>
+        </div>
+
+        <div class="dash-grid">
+          <!-- Announcement Composer -->
+          <div class="dash-card">
+            <div class="dash-card-header">
+              <h3><i class="fa-solid fa-bullhorn" style="color: #a855f7;"></i> Announcement Composer</h3>
+              <div style="display: flex; gap: 0.5rem;">
+                <select class="dash-input" id="annPresetSelect" style="padding: 0.2rem 0.5rem; font-size: 0.8rem; width: auto;">
+                  <option value="embed">Preset: Rich Embed</option>
+                  <option value="event">Preset: Event / Stage</option>
+                  <option value="update">Preset: Server Update</option>
+                  <option value="maintenance">Preset: Maintenance</option>
+                  <option value="giveaway">Preset: Giveaway</option>
+                  <option value="rules">Preset: Rules & Policy</option>
+                  <option value="welcome">Preset: Welcome</option>
+                  <option value="simple">Preset: Simple Text</option>
+                  <option value="custom">Preset: Custom</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="dash-form-group">
+              <label>Announcement Title</label>
+              <input type="text" class="dash-input" id="annTitleInput" placeholder="e.g. Major Server Update v2.0" value="Server Announcement">
+            </div>
+
+            <div class="dash-form-group">
+              <label>Main Content / Description</label>
+              <textarea class="dash-input" id="annMessageInput" rows="4" placeholder="Write your announcement details here...">We have just rolled out new community features and stage channel tools! Check out all details below.</textarea>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+              <div class="dash-form-group">
+                <label>Target Channel ID</label>
+                <input type="text" class="dash-input" id="annChannelInput" placeholder="e.g. 123456789012345678">
+              </div>
+              <div class="dash-form-group">
+                <label>Mention Role ID / Tag (Optional)</label>
+                <input type="text" class="dash-input" id="annRoleInput" placeholder="e.g. 987654321098765432">
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+              <div class="dash-form-group">
+                <label>Embed Color</label>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                  <input type="color" id="annColorPicker" value="#8b5cf6" style="width: 40px; height: 36px; border: none; border-radius: 6px; cursor: pointer; background: transparent;">
+                  <input type="text" class="dash-input" id="annColorHex" value="#8b5cf6" style="flex: 1;">
+                </div>
+              </div>
+              <div class="dash-form-group">
+                <label>Guild ID</label>
+                <input type="text" class="dash-input" id="annGuildInput" placeholder="e.g. default" value="default">
+              </div>
+            </div>
+
+            <div class="dash-form-group">
+              <label>Image or Banner URL (Optional)</label>
+              <input type="text" class="dash-input" id="annImageInput" placeholder="https://example.com/banner.png">
+            </div>
+
+            <div class="dash-form-group">
+              <label>Footer Text (Optional)</label>
+              <input type="text" class="dash-input" id="annFooterInput" placeholder="Kazumi • Community Announcements" value="Kazumi • Server Announcements">
+            </div>
+
+            <div class="dash-form-group">
+              <label>Outside Embed Text (Mentions / Pings)</label>
+              <input type="text" class="dash-input" id="annOutsideInput" placeholder="Optional text sent outside the embed box (e.g. @Announcements)">
+            </div>
+
+            <!-- Schedule & Recurrence Settings -->
+            <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); padding: 0.75rem; border-radius: 8px; margin-bottom: 1rem;">
+              <span style="font-size: 0.8rem; font-weight: 600; color: #c084fc; display: block; margin-bottom: 0.5rem;"><i class="fa-solid fa-clock"></i> Scheduling & Recurrence (Optional)</span>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                <div>
+                  <label style="font-size: 0.75rem; color: var(--text-secondary);">Schedule Time</label>
+                  <input type="datetime-local" class="dash-input" id="annScheduleTime" style="font-size: 0.8rem;">
+                </div>
+                <div>
+                  <label style="font-size: 0.75rem; color: var(--text-secondary);">Recurrence</label>
+                  <select class="dash-input" id="annRecurrenceSelect" style="font-size: 0.8rem;">
+                    <option value="none">One-time post</option>
+                    <option value="daily">Daily repeat</option>
+                    <option value="weekly">Weekly repeat</option>
+                    <option value="monthly">Monthly repeat</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+              <button class="btn btn-zen" id="publishAnnBtn" style="flex: 1; min-width: 140px; background: rgba(168, 85, 247, 0.2); border-color: rgba(168, 85, 247, 0.4); color: #f3e8ff;">
+                <i class="fa-solid fa-paper-plane"></i> Publish Now
+              </button>
+              <button class="btn btn-zen" id="scheduleAnnBtn" style="flex: 1; min-width: 140px; background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.4); color: #dbeafe;">
+                <i class="fa-solid fa-calendar-plus"></i> Schedule
+              </button>
+              <button class="btn btn-zen" id="saveTemplateBtn" style="padding: 0.5rem 1rem;" title="Save as Reusable Template">
+                <i class="fa-solid fa-floppy-disk"></i> Template
+              </button>
+            </div>
+          </div>
+
+          <!-- Live Discord Embed Preview -->
+          <div class="dash-card">
+            <div class="dash-card-header">
+              <h3><i class="fa-solid fa-eye" style="color: #38bdf8;"></i> Live Embed Preview</h3>
+              <span class="dash-badge active" id="previewLayoutBadge">rich embed</span>
+            </div>
+            
+            <div id="discordPreviewContainer" style="background: #2b2d31; border-radius: 8px; padding: 1rem; border: 1px solid rgba(255,255,255,0.06); font-family: 'Inter', sans-serif;">
+              <div id="previewOutsideText" style="color: #dbdee1; font-size: 0.9rem; margin-bottom: 0.5rem; min-height: 18px; display: none;"></div>
+              
+              <!-- Embed Box -->
+              <div id="previewEmbedBox" style="border-left: 4px solid #8b5cf6; background: #232428; border-radius: 4px; padding: 0.75rem 1rem; display: flex; flex-direction: column; gap: 0.5rem;">
+                <div style="font-size: 0.75rem; color: #949ba4; font-weight: 600;" id="previewAuthor">Kazumi Server</div>
+                <div style="font-size: 1rem; font-weight: 700; color: #ffffff;" id="previewTitle">Server Announcement</div>
+                <div style="font-size: 0.85rem; color: #dbdee1; line-height: 1.4; white-space: pre-wrap;" id="previewMessage">We have just rolled out new community features and stage channel tools! Check out all details below.</div>
+                
+                <div id="previewImageWrapper" style="display: none; margin-top: 0.5rem;">
+                  <img id="previewImageEl" src="" alt="Banner" style="max-width: 100%; border-radius: 4px; max-height: 200px; object-fit: cover;">
+                </div>
+
+                <div style="font-size: 0.75rem; color: #949ba4; margin-top: 0.25rem; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 0.4rem; display: flex; justify-content: space-between;" id="previewFooterWrapper">
+                  <span id="previewFooter">Kazumi • Server Announcements</span>
+                  <span id="previewTimestamp">Today at 12:00 PM</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Preview Actions & Safeguards Note -->
+            <div style="margin-top: 1rem; padding: 0.75rem; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 6px; font-size: 0.8rem; color: #bfdbfe;">
+              <i class="fa-solid fa-shield-halved"></i> <strong>Safety Note:</strong> Broadcasts mentioning <code>@everyone</code> or <code>@here</code> require native Discord <em>Mention Everyone</em> permission and require confirmation.
+            </div>
+
+            <!-- Quick Template Selector -->
+            <div style="margin-top: 1rem;">
+              <h4 style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.5rem;">Quick Templates</h4>
+              <div id="templateChipsContainer" style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
+                <span style="font-size: 0.75rem; color: var(--text-muted);">No saved templates yet.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Lower Grid: Scheduled Posts, Templates & Stage Events -->
+        <div class="dash-grid" style="margin-top: 1.5rem;">
+          <!-- Scheduled Announcements Card -->
+          <div class="dash-card">
+            <div class="dash-card-header">
+              <h3><i class="fa-solid fa-calendar-days" style="color: #60a5fa;"></i> Scheduled Broadcasts</h3>
+              <button class="btn btn-zen" id="refreshAnnBtn" style="padding: 0.3rem 0.75rem; font-size: 0.8rem;">
+                <i class="fa-solid fa-rotate"></i>
+              </button>
+            </div>
+            <div id="scheduledAnnContainer" style="display: flex; flex-direction: column; gap: 0.75rem; max-height: 300px; overflow-y: auto;">
+              <div style="color: var(--text-muted); font-size: 0.85rem;">No scheduled announcements.</div>
+            </div>
+          </div>
+
+          <!-- Published History Card -->
+          <div class="dash-card">
+            <div class="dash-card-header">
+              <h3><i class="fa-solid fa-clock-rotate-left" style="color: #a78bfa;"></i> Announcement History</h3>
+            </div>
+            <div id="annHistoryContainer" style="display: flex; flex-direction: column; gap: 0.6rem; max-height: 300px; overflow-y: auto;">
+              <div style="color: var(--text-muted); font-size: 0.85rem;">No recent announcement records.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stage Events & Channels Status -->
+        <div class="dash-card" style="margin-top: 1.5rem;">
+          <div class="dash-card-header">
+            <h3><i class="fa-solid fa-microphone-lines" style="color: #34d399;"></i> Discord Stage Events & Status</h3>
+            <button class="btn btn-zen" id="refreshStageEventsBtn" style="padding: 0.3rem 0.75rem; font-size: 0.8rem;">
+              <i class="fa-solid fa-rotate"></i> Refresh
+            </button>
+          </div>
+          <div id="stageEventsContainer" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem;">
+            <div style="color: var(--text-muted); font-size: 0.85rem;">Loading stage events...</div>
           </div>
         </div>
       </section>

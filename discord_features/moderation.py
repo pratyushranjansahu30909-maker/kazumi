@@ -494,30 +494,6 @@ def register_moderation_commands(tree: app_commands.CommandTree, bot: commands.B
         except Exception as e:
             await interaction.response.send_message(f"❌ Failed to unban user ID {user_id}: {e}", ephemeral=True)
 
-    # --- Voice Kick ---
-    @tree.command(name="voicekick", description="Disconnect a member from their current voice channel 📞")
-    @app_commands.describe(user="The member to disconnect from voice", reason="Reason for voice kick")
-    async def slash_voicekick(interaction: discord.Interaction, user: discord.Member, reason: Optional[str] = "Voice disconnection"):
-        if not interaction.guild or not interaction.user.guild_permissions.move_members:
-            await interaction.response.send_message("❌ Move Members permission required.", ephemeral=True)
-            return
-
-        if not user.voice or not user.voice.channel:
-            await interaction.response.send_message(f"❌ {user.mention} is not currently in a voice channel.", ephemeral=True)
-            return
-
-        try:
-            v_channel = user.voice.channel
-            await user.move_to(None, reason=reason)
-            case_id = db.create_case(interaction.guild.id, user.id, interaction.user.id, "VOICEKICK", reason)
-            embed = create_mod_embed(
-                title="📞 Member Disconnected from Voice",
-                description=f"Disconnected **{user.mention}** from #{v_channel.name}.\n**Case ID:** `#{case_id}`\n**Reason:** {reason}",
-                color=0x3b82f6
-            )
-            await interaction.response.send_message(embed=embed)
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Failed to disconnect member: {e}", ephemeral=True)
 
 
     # --- Clear (Purge Messages) ---
