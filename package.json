@@ -5,7 +5,7 @@
   "main": "portfolio/server.js",
   "scripts": {
     "postinstall": "cd portfolio && npm install --omit=dev",
-    "build": "cd portfolio && npm install --omit=dev",
+    "build": "(python3 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || python -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true) && cd portfolio && npm install --omit=dev",
     "start": "bash start.sh"
   },
   "dependencies": {

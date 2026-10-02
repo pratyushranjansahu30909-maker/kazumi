@@ -23,6 +23,8 @@ portfolio/backups/
 portfolio/proposed_config.json
 portfolio/stress_test_log.json
 portfolio/version_track.json
+portfolio/active_voice.json
+portfolio/dataset_quality_report.json
 
 # Allow specific assets
 !portfolio/public/isa_avatar.png
