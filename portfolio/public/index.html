@@ -45,8 +45,15 @@
         <button class="menu-item" data-target="space-model">
           <span>3D Space</span>
         </button>
-
-
+        <button class="menu-item" data-target="space-moderation">
+          <span>Moderation 🛡️</span>
+        </button>
+        <button class="menu-item" data-target="space-giveaways">
+          <span>Giveaways 🎁</span>
+        </button>
+        <button class="menu-item" data-target="space-music">
+          <span>Music 🎵</span>
+        </button>
       </nav>
 
       <!-- Theme Switcher -->
@@ -332,8 +339,190 @@
         </div>
       </section>
 
-      
+      <!-- Space 6: Moderation (Dyno Console) -->
+      <section id="space-moderation" class="space-panel">
+        <div class="space-header">
+          <h1>Server Moderation & AutoMod</h1>
+          <p>Dyno-inspired server management, rule enforcement, and moderation logs</p>
+        </div>
 
+        <div class="dash-grid">
+          <!-- AutoMod Configuration Card -->
+          <div class="dash-card">
+            <div class="dash-card-header">
+              <h3><i class="fa-solid fa-shield-halved" style="color: #c084fc;"></i> AutoMod Rules</h3>
+              <span class="dash-badge active" id="automodStatusBadge">Active</span>
+            </div>
+            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
+              Automated heuristics protection for invites, spam patterns, and raid joins.
+            </p>
+            <div class="dash-form-group">
+              <label><input type="checkbox" id="automodSpamToggle" checked> Anti-Spam & Message Flooding</label>
+            </div>
+            <div class="dash-form-group">
+              <label><input type="checkbox" id="automodInvitesToggle" checked> Block Discord Invites</label>
+            </div>
+            <div class="dash-form-group">
+              <label><input type="checkbox" id="automodMentionsToggle" checked> Anti-Mass Mentions (&gt; 5)</label>
+            </div>
+            <div class="dash-form-group">
+              <label>Log Channel ID</label>
+              <input type="text" class="dash-input" id="modLogChannelInput" placeholder="e.g. 123456789012345678">
+            </div>
+            <button class="btn btn-zen" id="saveModConfigBtn" style="width: 100%; margin-top: 0.5rem;">
+              <i class="fa-solid fa-floppy-disk"></i> Save Moderation Settings
+            </button>
+          </div>
+
+          <!-- Raid Protection Card -->
+          <div class="dash-card">
+            <div class="dash-card-header">
+              <h3><i class="fa-solid fa-biohazard" style="color: #f43f5e;"></i> Raid & Nuke Defense</h3>
+              <span class="dash-badge active">Monitored</span>
+            </div>
+            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
+              Join-rate monitoring and channel mass-deletion circuit breakers.
+            </p>
+            <div class="dash-form-group">
+              <label>Join Burst Threshold</label>
+              <input type="number" class="dash-input" id="raidJoinThreshold" value="5" min="2" max="50">
+            </div>
+            <div class="dash-form-group">
+              <label>Mass Action Window (seconds)</label>
+              <input type="number" class="dash-input" id="raidWindowSec" value="10" min="3" max="60">
+            </div>
+            <div style="margin-top: 1rem;">
+              <button class="btn btn-zen" id="emergencyLockdownBtn" style="width: 100%; background: rgba(239, 68, 68, 0.15); border-color: rgba(239, 68, 68, 0.3); color: #fca5a5;">
+                <i class="fa-solid fa-lock"></i> Toggle Emergency Server Lockdown
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Moderation Cases Table Card -->
+        <div class="dash-card" style="margin-top: 1.5rem;">
+          <div class="dash-card-header">
+            <h3><i class="fa-solid fa-list-check" style="color: #60a5fa;"></i> Recent Infraction Cases</h3>
+            <button class="btn btn-zen" id="refreshCasesBtn" style="padding: 0.3rem 0.75rem; font-size: 0.8rem;">
+              <i class="fa-solid fa-rotate"></i> Refresh
+            </button>
+          </div>
+          <div class="dash-table-wrapper">
+            <table class="dash-table">
+              <thead>
+                <tr>
+                  <th>Case #</th>
+                  <th>Action</th>
+                  <th>User ID</th>
+                  <th>Moderator</th>
+                  <th>Reason</th>
+                  <th>Timestamp</th>
+                </tr>
+              </thead>
+              <tbody id="casesTableBody">
+                <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Loading cases...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- Space 7: Giveaways (GiveawayBot Center) -->
+      <section id="space-giveaways" class="space-panel">
+        <div class="space-header">
+          <h1>Giveaways Engine</h1>
+          <p>Create, manage, and audit provably fair community giveaways</p>
+        </div>
+
+        <div class="dash-grid">
+          <!-- Create Giveaway Card -->
+          <div class="dash-card">
+            <div class="dash-card-header">
+              <h3><i class="fa-solid fa-gift" style="color: #ec4899;"></i> Create New Giveaway</h3>
+            </div>
+            <div class="dash-form-group">
+              <label>Prize Name</label>
+              <input type="text" class="dash-input" id="gaPrizeInput" placeholder="e.g. Discord Nitro (1 Month)">
+            </div>
+            <div class="dash-form-group">
+              <label>Duration (seconds or formatted)</label>
+              <input type="text" class="dash-input" id="gaDurationInput" placeholder="e.g. 3600 (1 hour) or 86400 (24h)">
+            </div>
+            <div class="dash-form-group">
+              <label>Number of Winners</label>
+              <input type="number" class="dash-input" id="gaWinnersInput" value="1" min="1" max="20">
+            </div>
+            <div class="dash-form-group">
+              <label>Guild ID</label>
+              <input type="text" class="dash-input" id="gaGuildIdInput" placeholder="e.g. 123456789012345678">
+            </div>
+            <button class="btn btn-zen" id="createGiveawayBtn" style="width: 100%; margin-top: 0.5rem; background: rgba(236, 72, 153, 0.2); border-color: rgba(236, 72, 153, 0.4); color: #fbcfe8;">
+              <i class="fa-solid fa-sparkles"></i> Launch Giveaway
+            </button>
+          </div>
+
+          <!-- Active Giveaways Card -->
+          <div class="dash-card">
+            <div class="dash-card-header">
+              <h3><i class="fa-solid fa-clock" style="color: #34d399;"></i> Active Giveaways</h3>
+              <button class="btn btn-zen" id="refreshGiveawaysBtn" style="padding: 0.3rem 0.75rem; font-size: 0.8rem;">
+                <i class="fa-solid fa-rotate"></i>
+              </button>
+            </div>
+            <div id="activeGiveawaysContainer" style="display: flex; flex-direction: column; gap: 0.75rem;">
+              <div style="color: var(--text-muted); font-size: 0.85rem;">Loading active giveaways...</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Space 8: Music (Jockie Music Console) -->
+      <section id="space-music" class="space-panel">
+        <div class="space-header">
+          <h1>Jockie-Style Music Center</h1>
+          <p>Voice channel playback, real-time queues, and audio controls</p>
+        </div>
+
+        <div class="dash-grid">
+          <!-- Player Controls Card -->
+          <div class="dash-card music-player-panel">
+            <div class="music-album-art">
+              <i class="fa-solid fa-music"></i>
+            </div>
+            <h3 id="musicTrackTitle" style="color: var(--text-primary); margin-bottom: 0.25rem;">No Active Track</h3>
+            <p id="musicTrackArtist" style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">Connect to voice to start playing</p>
+            
+            <div class="music-controls-row">
+              <button class="music-btn" id="musicShuffleBtn" title="Shuffle Queue"><i class="fa-solid fa-shuffle"></i></button>
+              <button class="music-btn" id="musicPrevBtn" title="Previous Track"><i class="fa-solid fa-backward-step"></i></button>
+              <button class="music-btn btn-play-main" id="musicPlayPauseBtn" title="Play/Pause"><i class="fa-solid fa-play"></i></button>
+              <button class="music-btn" id="musicSkipBtn" title="Skip Track"><i class="fa-solid fa-forward-step"></i></button>
+              <button class="music-btn" id="musicLoopBtn" title="Toggle Loop"><i class="fa-solid fa-repeat"></i></button>
+            </div>
+
+            <div style="width: 100%; max-width: 240px; margin-top: 0.5rem;">
+              <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.25rem;">
+                <span>Volume</span>
+                <span id="volumeValueLabel">100%</span>
+              </div>
+              <input type="range" id="musicVolumeSlider" min="1" max="100" value="100" style="width: 100%;">
+            </div>
+          </div>
+
+          <!-- Queue Card -->
+          <div class="dash-card">
+            <div class="dash-card-header">
+              <h3><i class="fa-solid fa-list-ol" style="color: #c084fc;"></i> Upcoming Queue</h3>
+              <button class="btn btn-zen" id="refreshQueueBtn" style="padding: 0.3rem 0.75rem; font-size: 0.8rem;">
+                <i class="fa-solid fa-rotate"></i>
+              </button>
+            </div>
+            <div id="musicQueueContainer" style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 280px; overflow-y: auto;">
+              <div style="color: var(--text-muted); font-size: 0.85rem;">Queue is currently empty.</div>
+            </div>
+          </div>
+        </div>
+      </section>
 
     </main>
   </div>

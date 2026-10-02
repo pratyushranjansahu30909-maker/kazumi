@@ -815,8 +815,21 @@ async def on_message(message: discord.Message):
         author_name = getattr(message.author, "display_name", "") or getattr(message.author, "name", "")
         creator_title, creator_ctx = detect_creator_relationship(message.author)
         display_author = creator_title if creator_title else author_name
-        if creator_title:
-            logger.info(f"👑 Creator interaction detected! Author: {message.author} -> {creator_title}")
+        # =========================================================================
+        # 🧠 NATURAL LANGUAGE INTENT DISPATCHER (Dyno, Giveaways, Jockie Music)
+        # =========================================================================
+        intent_router = kazumi_features.get("intent_router")
+        if intent_router:
+            detected_intent = intent_router.detect_intent(clean_text, message)
+            if detected_intent:
+                handled, reply_text, reply_embed = await intent_router.execute_intent(detected_intent, message)
+                if handled:
+                    active_conversations[session_key] = time.time()
+                    if reply_embed:
+                        await message.reply(embed=reply_embed, mention_author=False)
+                    elif reply_text:
+                        await message.reply(reply_text, mention_author=False)
+                    return
 
         # Check Unhinged Comeback Engine (Sections 11, 12, 13)
         roast_engine = kazumi_features.get("roast_engine")
@@ -1412,11 +1425,6 @@ async def slash_recognize_text(interaction: discord.Interaction, image: discord.
         logger.error(f"Error in slash_recognize_text: {e}", exc_info=True)
         await interaction.followup.send(f"I had a little trouble reading that image: {e} 🌸")
 
-
-@bot.tree.command(name="ocr", description="Quick shortcut to extract text from an image or screenshot 🔍")
-@app_commands.describe(image="Image to extract text from", question="Optional question about the text")
-async def slash_ocr(interaction: discord.Interaction, image: discord.Attachment, question: Optional[str] = None):
-    await slash_recognize_text(interaction, image, question)
 
 
 @bot.tree.command(name="emotion", description="Check Kazumi's current human girl emotion and feelings 💕")

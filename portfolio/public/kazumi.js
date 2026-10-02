@@ -4294,7 +4294,201 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
     }
+
+    // ----------------------------------------------------
+    // 🛡️ KAZUMI ALL-IN-ONE EXPANSION (MODERATION, GIVEAWAYS, MUSIC)
+    // ----------------------------------------------------
+    const initExpansionModules = () => {
+      // 1. Moderation Cases
+      const loadCases = async () => {
+        try {
+          const res = await fetch('/api/dashboard/cases');
+          const data = await res.json();
+          const tbody = document.getElementById('casesTableBody');
+          if (!tbody) return;
+          if (!data.success || !data.cases || data.cases.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">No infraction cases recorded yet.</td></tr>';
+            return;
+          }
+          tbody.innerHTML = data.cases.slice(0, 20).map(c => {
+            const actionClass = (c.action || 'warn').toLowerCase();
+            const dStr = c.timestamp ? new Date(c.timestamp * 1000).toLocaleString() : '-';
+            return `<tr>
+              <td><strong>#${c.case_id}</strong></td>
+              <td><span class="dash-badge ${actionClass}">${c.action}</span></td>
+              <td><code>${c.user_id}</code></td>
+              <td><code>${c.moderator_id}</code></td>
+              <td>${escapeHtml(c.reason || 'No reason')}</td>
+              <td style="color: var(--text-secondary); font-size: 0.8rem;">${dStr}</td>
+            </tr>`;
+          }).join('');
+        } catch (err) {
+          console.warn('Failed to load moderation cases:', err);
+        }
+      };
+
+      const refreshCasesBtn = document.getElementById('refreshCasesBtn');
+      if (refreshCasesBtn) refreshCasesBtn.addEventListener('click', loadCases);
+
+      // Save AutoMod Config
+      const saveModConfigBtn = document.getElementById('saveModConfigBtn');
+      if (saveModConfigBtn) {
+        saveModConfigBtn.addEventListener('click', async () => {
+          const logChannel = document.getElementById('modLogChannelInput')?.value.trim();
+          const spam = document.getElementById('automodSpamToggle')?.checked;
+          const invites = document.getElementById('automodInvitesToggle')?.checked;
+          const mentions = document.getElementById('automodMentionsToggle')?.checked;
+          try {
+            const res = await fetch('/api/dashboard/moderation/config', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                guild_id: 'default',
+                automod: { enabled: true, anti_spam: spam, block_invites: invites, anti_mentions: mentions },
+                log_channel_id: logChannel || null
+              })
+            });
+            const result = await res.json();
+            if (result.success) {
+              alert('Moderation settings saved successfully! 🌸');
+            } else {
+              alert('Error saving settings: ' + (result.error || 'Unknown error'));
+            }
+          } catch (e) {
+            alert('Network error while saving moderation settings.');
+          }
+        });
+      }
+
+      // 2. Giveaways
+      const loadGiveaways = async () => {
+        try {
+          const res = await fetch('/api/dashboard/giveaways');
+          const data = await res.json();
+          const container = document.getElementById('activeGiveawaysContainer');
+          if (!container) return;
+          if (!data.success || !data.giveaways || data.giveaways.length === 0) {
+            container.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem;">No active giveaways right now.</div>';
+            return;
+          }
+          container.innerHTML = data.giveaways.filter(g => !g.ended).map(g => {
+            const remaining = Math.max(0, Math.round(g.end_time - Date.now() / 1000));
+            const mins = Math.floor(remaining / 60);
+            return `<div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); padding: 0.75rem 1rem; border-radius: 8px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <strong style="color: #ec4899;">🎁 ${escapeHtml(g.prize)}</strong>
+                <span class="dash-badge active">${g.entries ? g.entries.length : 0} Entries</span>
+              </div>
+              <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                Winners: ${g.winners_count || 1} • Ends in ~${mins}m • Host: <code>${g.host_id}</code>
+              </div>
+            </div>`;
+          }).join('') || '<div style="color: var(--text-muted); font-size: 0.85rem;">All giveaways concluded.</div>';
+        } catch (err) {
+          console.warn('Failed to load giveaways:', err);
+        }
+      };
+
+      const refreshGiveawaysBtn = document.getElementById('refreshGiveawaysBtn');
+      if (refreshGiveawaysBtn) refreshGiveawaysBtn.addEventListener('click', loadGiveaways);
+
+      const createGiveawayBtn = document.getElementById('createGiveawayBtn');
+      if (createGiveawayBtn) {
+        createGiveawayBtn.addEventListener('click', async () => {
+          const prize = document.getElementById('gaPrizeInput')?.value.trim();
+          const dur = document.getElementById('gaDurationInput')?.value.trim();
+          const winners = document.getElementById('gaWinnersInput')?.value.trim();
+          const guildId = document.getElementById('gaGuildIdInput')?.value.trim() || 'default';
+          if (!prize || !dur) {
+            alert('Please specify both prize name and duration!');
+            return;
+          }
+          let seconds = parseInt(dur, 10);
+          if (isNaN(seconds) || seconds < 10) seconds = 3600;
+          try {
+            const res = await fetch('/api/dashboard/giveaways/create', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                guild_id: guildId,
+                prize,
+                duration_seconds: seconds,
+                winners_count: parseInt(winners, 10) || 1
+              })
+            });
+            const d = await res.json();
+            if (d.success) {
+              alert('🎉 Giveaway launched successfully!');
+              loadGiveaways();
+            } else {
+              alert('Failed to create giveaway: ' + (d.error || ''));
+            }
+          } catch (e) {
+            alert('Failed to launch giveaway.');
+          }
+        });
+      }
+
+      // 3. Music Controls
+      const loadMusic = async () => {
+        try {
+          const res = await fetch('/api/dashboard/music');
+          const data = await res.json();
+          const titleEl = document.getElementById('musicTrackTitle');
+          const artistEl = document.getElementById('musicTrackArtist');
+          const qContainer = document.getElementById('musicQueueContainer');
+          if (!data.success || !data.sessions) return;
+          const sessions = Object.values(data.sessions);
+          if (sessions.length > 0) {
+            const s = sessions[0];
+            if (s.current_track) {
+              if (titleEl) titleEl.textContent = s.current_track.title || 'Playing Track';
+              if (artistEl) artistEl.textContent = `State: ${s.playback_state.toUpperCase()} • Vol: ${s.volume}%`;
+            }
+            if (qContainer) {
+              if (s.queue && s.queue.length > 0) {
+                qContainer.innerHTML = s.queue.map((t, idx) => `<div style="font-size: 0.85rem; padding: 0.4rem 0.6rem; background: rgba(255,255,255,0.02); border-radius: 4px;">
+                  ${idx + 1}. <strong>${escapeHtml(t.title || 'Track')}</strong>
+                </div>`).join('');
+              } else {
+                qContainer.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem;">Queue is empty.</div>';
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('Failed to load music sessions:', err);
+        }
+      };
+
+      const refreshQueueBtn = document.getElementById('refreshQueueBtn');
+      if (refreshQueueBtn) refreshQueueBtn.addEventListener('click', loadMusic);
+
+      const musicPlayPauseBtn = document.getElementById('musicPlayPauseBtn');
+      if (musicPlayPauseBtn) {
+        musicPlayPauseBtn.addEventListener('click', async () => {
+          await fetch('/api/dashboard/music/control', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ guild_id: 'default', action: 'resume' })
+          });
+          loadMusic();
+        });
+      }
+
+      // Load initial data on panel click
+      menuItems.forEach(item => {
+        item.addEventListener('click', () => {
+          const target = item.getAttribute('data-target');
+          if (target === 'space-moderation') loadCases();
+          if (target === 'space-giveaways') loadGiveaways();
+          if (target === 'space-music') loadMusic();
+        });
+      });
+    };
+
+    initExpansionModules();
   };
 
   init();
 });
+

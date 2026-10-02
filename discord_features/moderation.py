@@ -519,6 +519,7 @@ def register_moderation_commands(tree: app_commands.CommandTree, bot: commands.B
         except Exception as e:
             await interaction.response.send_message(f"❌ Failed to disconnect member: {e}", ephemeral=True)
 
+
     # --- Clear (Purge Messages) ---
     @tree.command(name="clear", description="Bulk delete messages in this channel 🧹")
     @app_commands.describe(amount="Number of messages to delete (1 to 100)")
@@ -538,6 +539,149 @@ def register_moderation_commands(tree: app_commands.CommandTree, bot: commands.B
             await interaction.followup.send(f"🧹 Successfully cleared **{len(deleted)}** message(s)!", ephemeral=True)
         except Exception as e:
             await interaction.followup.send(f"❌ Purge error: {e}", ephemeral=True)
+
+    @tree.command(name="purge", description="Purge messages with optional user, bot, or text filters 🧹")
+    @app_commands.describe(
+        amount="Number of messages to scan and delete (1 to 100)",
+        user="Only delete messages from this specific user (optional)",
+        bots_only="Only delete messages sent by bots (optional)",
+        contains="Only delete messages containing this phrase (optional)"
+    )
+    async def slash_purge(
+        interaction: discord.Interaction,
+        amount: int,
+        user: Optional[discord.Member] = None,
+        bots_only: Optional[bool] = False,
+        contains: Optional[str] = None
+    ):
+        if not interaction.guild or not interaction.channel.permissions_for(interaction.user).manage_messages:
+            await interaction.response.send_message("❌ You require **Manage Messages** permission to purge messages.", ephemeral=True)
+            return
+
+        if amount < 1 or amount > 100:
+            await interaction.response.send_message("❌ Amount must be between 1 and 100.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        def purge_filter(msg: discord.Message) -> bool:
+            if user and msg.author.id != user.id:
+                return False
+            if bots_only and not msg.author.bot:
+                return False
+            if contains and contains.lower() not in (msg.content or "").lower():
+                return False
+            return True
+
+        try:
+            deleted = await interaction.channel.purge(limit=amount, check=purge_filter)
+            filter_desc = []
+            if user:
+                filter_desc.append(f"from {user.mention}")
+            if bots_only:
+                filter_desc.append("from bots")
+            if contains:
+                filter_desc.append(f"containing '{contains}'")
+            filter_text = f" ({', '.join(filter_desc)})" if filter_desc else ""
+
+            db.record_mod_action(
+                str(interaction.guild_id),
+                "PURGE",
+                str(interaction.channel_id),
+                str(interaction.user.id),
+                f"Purged {len(deleted)} messages{filter_text}"
+            )
+            await interaction.followup.send(f"🧹 Successfully purged **{len(deleted)}** message(s){filter_text}!", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"❌ Purge failed: {e}", ephemeral=True)
+
+    # --- Nickname Management ---
+    @tree.command(name="nick", description="Change or reset a member's server nickname 🏷️")
+    @app_commands.describe(
+        user="The member whose nickname to change",
+        nickname="New nickname (leave blank to reset to username)"
+    )
+    async def slash_nick(interaction: discord.Interaction, user: discord.Member, nickname: Optional[str] = None):
+        if not interaction.guild:
+            await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+            return
+
+        if not interaction.user.guild_permissions.manage_nicknames:
+            await interaction.response.send_message("❌ You require **Manage Nicknames** permission.", ephemeral=True)
+            return
+
+        if user.id != interaction.user.id and not check_hierarchy(interaction.user, user):
+            await interaction.response.send_message("❌ You cannot change the nickname of a member with equal or higher roles.", ephemeral=True)
+            return
+
+        bot_member = interaction.guild.me
+        if bot_member and user.top_role >= bot_member.top_role and user.id != bot_member.id:
+            await interaction.response.send_message("❌ I cannot change the nickname of a member whose role is equal to or higher than mine.", ephemeral=True)
+            return
+
+        new_nick = nickname.strip() if nickname and nickname.strip() else None
+        if new_nick and len(new_nick) > 32:
+            await interaction.response.send_message("❌ Nicknames must be 32 characters or fewer.", ephemeral=True)
+            return
+
+        old_name = user.display_name
+        try:
+            await user.edit(nick=new_nick, reason=f"Changed by moderator {interaction.user} ({interaction.user.id})")
+            db.record_mod_action(
+                str(interaction.guild_id),
+                "NICK",
+                str(user.id),
+                str(interaction.user.id),
+                f"Changed nick '{old_name}' -> '{new_nick or user.name}'"
+            )
+            embed = create_mod_embed(
+                title="🏷️ Nickname Updated",
+                description=f"**Member:** {user.mention}\n**Old Display:** `{old_name}`\n**New Display:** `{new_nick or user.name}`\n**Moderator:** {interaction.user.mention}",
+                color=0x38bdf8
+            )
+            await interaction.response.send_message(embed=embed)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Failed to change nickname: {e}", ephemeral=True)
+
+    # --- Modlogs Lookup ---
+    @tree.command(name="modlogs", description="View recent server moderation actions 📜")
+    @app_commands.describe(
+        user="Filter moderation logs by specific member (optional)",
+        limit="Number of log entries to retrieve (default: 10, max: 25)"
+    )
+    async def slash_modlogs(interaction: discord.Interaction, user: Optional[discord.User] = None, limit: Optional[int] = 10):
+        if not interaction.guild or not interaction.user.guild_permissions.manage_messages:
+            await interaction.response.send_message("❌ You require **Manage Messages** permission to view moderation logs.", ephemeral=True)
+            return
+
+        max_limit = max(1, min(25, limit or 10))
+        gid = str(interaction.guild_id)
+
+        if user:
+            cases = db.get_user_cases(gid, user.id)[:max_limit]
+            title = f"📜 Moderation Logs • {user.display_name}"
+            if not cases:
+                await interaction.response.send_message(f"✅ No moderation records found for **{user.display_name}**.", ephemeral=True)
+                return
+            lines = []
+            for c in cases:
+                t_str = f"<t:{int(c.get('timestamp', 0))}:R>"
+                lines.append(f"• `#{c.get('id', '?')}` **{c.get('action')}** | Reason: *{c.get('reason')}* ({t_str})")
+            desc = "\n".join(lines)
+        else:
+            logs = db.get_mod_logs(gid, limit=max_limit)
+            title = f"📜 Recent Moderation Activity • {interaction.guild.name}"
+            if not logs:
+                await interaction.response.send_message("✅ No recent moderation activity recorded for this server.", ephemeral=True)
+                return
+            lines = []
+            for entry in logs:
+                t_str = f"<t:{int(entry.get('timestamp', 0))}:R>"
+                lines.append(f"• **{entry.get('action')}** on <@{entry.get('target_id')}> by <@{entry.get('moderator_id')}> — *{entry.get('reason')}* ({t_str})")
+            desc = "\n".join(lines)
+
+        embed = create_mod_embed(title=title, description=desc, color=0x38bdf8)
+        await interaction.response.send_message(embed=embed)
 
     # --- Slowmode ---
     @tree.command(name="slowmode", description="Set channel slowmode delay in seconds ⏱️")

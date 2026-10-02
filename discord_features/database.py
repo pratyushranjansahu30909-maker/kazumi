@@ -76,7 +76,10 @@ class FeatureDatabase:
         """Atomically saves data with .bak backup and fsync."""
         try:
             if os.path.exists(file_path):
-                shutil.copy2(file_path, file_path + ".bak")
+                try:
+                    shutil.copy2(file_path, file_path + ".bak")
+                except Exception:
+                    pass
 
             tmp_path = file_path + ".tmp"
             with open(tmp_path, "w", encoding="utf-8") as f:
@@ -84,7 +87,16 @@ class FeatureDatabase:
                 f.flush()
                 os.fsync(f.fileno())
 
-            os.replace(tmp_path, file_path)
+            # Retry on Windows if file is momentarily held
+            for attempt in range(4):
+                try:
+                    os.replace(tmp_path, file_path)
+                    return True
+                except (PermissionError, OSError):
+                    if attempt < 3:
+                        time.sleep(0.05 * (attempt + 1))
+                    else:
+                        raise
             return True
         except Exception as e:
             logger.error(f"Failed atomic write to {file_path}: {e}")
@@ -216,6 +228,12 @@ class FeatureDatabase:
                 self.moderation["actions"] = actions[-500:]
             self._atomic_write(self.moderation_path, self.moderation)
 
+    def get_mod_logs(self, guild_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+        with self._lock:
+            actions = [a for a in self.moderation.get("actions", []) if str(a.get("guild_id")) == str(guild_id)]
+            actions.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+            return actions[:limit]
+
     # --- Tickets ---
     def save_ticket(self, channel_id: str, ticket_data: Dict[str, Any]) -> None:
         cid = str(channel_id)
@@ -243,6 +261,8 @@ class FeatureDatabase:
             self.giveaways[mid] = giveaway_data
             self._atomic_write(self.giveaways_path, self.giveaways)
 
+    set_giveaway = save_giveaway
+
     def get_giveaway(self, message_id: str) -> Optional[Dict[str, Any]]:
         mid = str(message_id)
         with self._lock:
@@ -251,6 +271,10 @@ class FeatureDatabase:
     def get_active_giveaways(self) -> List[Dict[str, Any]]:
         with self._lock:
             return [g for g in self.giveaways.values() if not g.get("ended", False)]
+
+    def get_guild_giveaways(self, guild_id: str) -> List[Dict[str, Any]]:
+        with self._lock:
+            return [g for g in self.giveaways.values() if str(g.get("guild_id")) == str(guild_id)]
 
     # --- Custom Commands ---
     def add_custom_command(self, guild_id: str, name: str, response: str, creator_id: str) -> None:
@@ -465,10 +489,17 @@ class FeatureDatabase:
             self._atomic_write(self.cases_path, self.cases)
             return case_id
 
-    def get_case(self, guild_id: Any, case_id: int) -> Optional[Dict[str, Any]]:
-        gid = str(guild_id)
-        cid = str(case_id)
+    def get_case(self, guild_id: Any, case_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
         with self._lock:
+            if case_id is None:
+                # Single argument passed as case_id
+                target_cid = str(guild_id)
+                for g_cases in self.cases.values():
+                    if target_cid in g_cases:
+                        return g_cases[target_cid]
+                return None
+            gid = str(guild_id)
+            cid = str(case_id)
             return self.cases.get(gid, {}).get(cid)
 
     def get_user_cases(self, guild_id: Any, user_id: Any) -> List[Dict[str, Any]]:

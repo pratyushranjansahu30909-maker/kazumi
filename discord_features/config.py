@@ -22,14 +22,17 @@ except ImportError:
 logger = logging.getLogger("KazumiConfig")
 
 # Sensitive data redaction regex patterns
-TOKEN_RE = re.compile(r"([a-zA-Z0-9_-]{24,28}\.[a-zA-Z0-9_-]{6}\.[a-zA-Z0-9_-]{27,38}|sk-[a-zA-Z0-9]{20,})")
+TOKEN_RE = re.compile(r"([a-zA-Z0-9_-]{24,32}\.[a-zA-Z0-9_-]{6,12}\.[a-zA-Z0-9_-]{10,45}|sk-[a-zA-Z0-9_-]{20,})")
+WEBHOOK_RE = re.compile(r"https://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/\d+/[a-zA-Z0-9_-]+")
 
 
 def sanitize_secrets(text: str) -> str:
-    """Masks API keys and bot tokens from any text or log output."""
+    """Masks API keys, bot tokens, and webhook URLs from any text or log output."""
     if not text:
         return text
-    return TOKEN_RE.sub("[REDACTED_SECRET]", str(text))
+    clean = WEBHOOK_RE.sub("[REDACTED_WEBHOOK_URL]", str(text))
+    clean = TOKEN_RE.sub("[REDACTED_SECRET]", clean)
+    return clean
 
 
 class SanitizedLogFormatter(logging.Formatter):

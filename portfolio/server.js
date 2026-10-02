@@ -931,6 +931,178 @@ app.get('/api/dashboard/social-graph', (req, res) => {
   });
 });
 
+// Safe atomic JSON file writer
+const writeJsonFile = (filePath, data) => {
+  try {
+    const tmpPath = filePath + '.tmp';
+    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf8');
+    fs.renameSync(tmpPath, filePath);
+    return true;
+  } catch (err) {
+    console.error(`Error writing ${filePath}:`, err.message);
+    return false;
+  }
+};
+
+// Server-side dashboard authorization middleware
+const authenticateDashboard = (req, res, next) => {
+  const secretKey = process.env.DASHBOARD_SECRET || process.env.DISCORD_BOT_TOKEN || 'kazumi-companion-secure-key';
+  const authHeader = req.headers['authorization'] || req.headers['x-dashboard-key'] || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+
+  const isLocalhost = req.ip === '127.0.0.1' || req.ip === '::1' || req.ip === '::ffff:127.0.0.1';
+  if (token && (token === secretKey || token === (process.env.DASHBOARD_SECRET || ''))) {
+    return next();
+  }
+  if (!process.env.DASHBOARD_SECRET && isLocalhost) {
+    return next();
+  }
+  return res.status(401).json({ success: false, error: 'Unauthorized: Valid dashboard authentication token required.' });
+};
+
+// 7. Moderation Cases History
+app.get('/api/dashboard/cases', (req, res) => {
+  const memDir = getIsaMemoryDir();
+  const casesData = readJsonFile(path.join(memDir, 'cases.json'), {});
+  const guildId = req.query.guild_id;
+  let casesList = Object.values(casesData);
+  if (guildId) {
+    casesList = casesList.filter(c => String(c.guild_id) === String(guildId));
+  }
+  res.json({
+    success: true,
+    cases: casesList.reverse()
+  });
+});
+
+// 8. Update Moderation / AutoMod / Raid Configuration
+app.post('/api/dashboard/moderation/config', authenticateDashboard, (req, res) => {
+  const { guild_id, automod, log_channel_id, trusted_roles, raid_protection } = req.body;
+  if (!guild_id) {
+    return res.status(400).json({ success: false, error: 'Missing guild_id.' });
+  }
+
+  const memDir = getIsaMemoryDir();
+  const settingsPath = path.join(memDir, 'guild_settings.json');
+  const allSettings = readJsonFile(settingsPath, {});
+
+  const guildConfig = allSettings[String(guild_id)] || {};
+  if (automod !== undefined) guildConfig.automod = automod;
+  if (log_channel_id !== undefined) guildConfig.log_channel_id = log_channel_id;
+  if (trusted_roles !== undefined) guildConfig.trusted_roles = trusted_roles;
+  if (raid_protection !== undefined) guildConfig.raid_protection = raid_protection;
+
+  allSettings[String(guild_id)] = guildConfig;
+  writeJsonFile(settingsPath, allSettings);
+
+  res.json({ success: true, message: 'Guild moderation configuration updated successfully.', config: guildConfig });
+});
+
+// 9. Music Sessions & Queue Status
+app.get('/api/dashboard/music', (req, res) => {
+  const memDir = getIsaMemoryDir();
+  const musicData = readJsonFile(path.join(memDir, 'music_sessions.json'), { sessions: {} });
+  res.json({
+    success: true,
+    sessions: musicData.sessions || {},
+    active_count: Object.keys(musicData.sessions || {}).length
+  });
+});
+
+// 10. Dashboard Music Controls (Play, Pause, Resume, Skip, Shuffle, Volume)
+app.post('/api/dashboard/music/control', authenticateDashboard, (req, res) => {
+  const { guild_id, action, volume } = req.body;
+  if (!guild_id || !action) {
+    return res.status(400).json({ success: false, error: 'guild_id and action are required.' });
+  }
+
+  const memDir = getIsaMemoryDir();
+  const musicPath = path.join(memDir, 'music_sessions.json');
+  const musicData = readJsonFile(musicPath, { sessions: {} });
+
+  if (!musicData.sessions[String(guild_id)]) {
+    musicData.sessions[String(guild_id)] = {
+      guild_id: String(guild_id),
+      playback_state: 'idle',
+      volume: 100,
+      loop_mode: false,
+      queue: [],
+      current_track: null
+    };
+  }
+
+  const session = musicData.sessions[String(guild_id)];
+  if (action === 'pause') session.playback_state = 'paused';
+  else if (action === 'resume') session.playback_state = 'playing';
+  else if (action === 'stop') {
+    session.playback_state = 'stopped';
+    session.queue = [];
+    session.current_track = null;
+  } else if (action === 'volume' && typeof volume === 'number') {
+    session.volume = Math.max(1, Math.min(100, volume));
+  } else if (action === 'loop') {
+    session.loop_mode = !session.loop_mode;
+  }
+
+  writeJsonFile(musicPath, musicData);
+  res.json({ success: true, action, session });
+});
+
+// 11. Create Giveaway via Dashboard
+app.post('/api/dashboard/giveaways/create', authenticateDashboard, (req, res) => {
+  const { guild_id, channel_id, prize, duration_seconds, winners_count, host_id } = req.body;
+  if (!guild_id || !prize || !duration_seconds) {
+    return res.status(400).json({ success: false, error: 'guild_id, prize, and duration_seconds are required.' });
+  }
+
+  const memDir = getIsaMemoryDir();
+  const gaPath = path.join(memDir, 'giveaways.json');
+  const giveaways = readJsonFile(gaPath, {});
+
+  const newId = 'dash_' + Date.now();
+  const endTime = (Date.now() / 1000) + Number(duration_seconds);
+
+  giveaways[newId] = {
+    message_id: newId,
+    channel_id: channel_id || 'dashboard',
+    guild_id: String(guild_id),
+    host_id: host_id || 'dashboard_admin',
+    prize: String(prize),
+    winners_count: Number(winners_count) || 1,
+    end_time: endTime,
+    required_role_id: null,
+    min_account_days: 0,
+    min_server_days: 0,
+    entries: [],
+    ended: false,
+    paused: false,
+    winners: []
+  };
+
+  writeJsonFile(gaPath, giveaways);
+  res.json({ success: true, giveaway: giveaways[newId] });
+});
+
+// 12. Kazumi AI Persona & Memory Overview
+app.get('/api/dashboard/kazumi', (req, res) => {
+  const memDir = getIsaMemoryDir();
+  const profile = readJsonFile(path.join(memDir, 'profile.json'), { affection_level: 50, cozy_points: 0 });
+  const conversations = readJsonFile(path.join(memDir, 'conversations.json'), []);
+  const personProfiles = readJsonFile(path.join(memDir, 'person_profiles.json'), {});
+
+  res.json({
+    success: true,
+    profile: {
+      affection_level: profile.affection_level || 50,
+      cozy_points: profile.cozy_points || 0,
+      personality_archetype: profile.personality_archetype || 'DEREDERE',
+      roast_mode: profile.roast_mode || false,
+      total_conversations: Array.isArray(conversations) ? conversations.length : 0,
+      recognized_members: Object.keys(personProfiles).length
+    }
+  });
+});
+
 app.listen(PORT, () => {
 
   console.log(`====================================================`);

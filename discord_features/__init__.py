@@ -158,6 +158,20 @@ def setup_all_features(bot: commands.Bot, tree: app_commands.CommandTree) -> Dic
     except Exception as e:
         logger.debug(f"Note on initial persistent view registration: {e}")
 
+    from . import music
+    from .permissions import PermissionService
+    from .intent_router import NaturalIntentRouter
+
+    intent_router = NaturalIntentRouter(bot, {
+        "db": db,
+        "automod": automod_tracker,
+        "logging": server_logging,
+        "giveaways": giveaway_manager,
+        "music": music,
+        "roast_engine": roast_engine,
+        "case_manager": case_manager
+    })
+
     logger.info("All Kazumi feature modules loaded and command handlers registered.")
 
     return {
@@ -181,5 +195,8 @@ def setup_all_features(bot: commands.Bot, tree: app_commands.CommandTree) -> Dic
         "anti_raid": anti_raid_engine,
         "anti_nuke": anti_nuke_engine,
         "game_engine": game_engine,
-        "human_interaction": human_interaction
+        "human_interaction": human_interaction,
+        "music": music,
+        "permissions": PermissionService,
+        "intent_router": intent_router
     }
