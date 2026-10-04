@@ -16,13 +16,8 @@ test_*.py
 .gemini
 .idea
 .vscode
-portfolio/credentials.json
-portfolio_public.zip
-portfolio/backups/
-portfolio/logs/
 *.zip
 *.bak
 *.blend
 *.glb
 *.fbx
-

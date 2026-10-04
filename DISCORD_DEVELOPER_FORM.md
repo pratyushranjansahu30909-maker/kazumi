@@ -9,7 +9,7 @@ This document provides **pre-filled, copy-paste ready answers** for every sectio
 | Field | Value to Enter |
 | :--- | :--- |
 | **App Name** | `Kazumi` |
-| **App Icon** | Upload `portfolio/public/favicon.ico` or any Kazumi avatar portrait. |
+| **App Icon** | Upload any Kazumi avatar portrait or image. |
 | **Tags** | `ai`, `companion`, `roleplay`, `social`, `entertainment` |
 
 ### **Description / About Me** *(Copy & Paste)*:

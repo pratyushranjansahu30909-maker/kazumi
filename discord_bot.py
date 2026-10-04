@@ -182,6 +182,53 @@ bot = commands.Bot(
 )
 bot.kazumi_core = kazumi_core
 
+# ---------------------------------------------------------------------------
+# Lightweight HTTP Health Check Server (Render / Cloud Deployment)
+# ---------------------------------------------------------------------------
+_health_runner = None
+
+async def setup_health_server():
+    global _health_runner
+    if _health_runner is not None:
+        return
+    port_str = os.environ.get("PORT", "10000").strip()
+    try:
+        port = int(port_str)
+    except ValueError:
+        port = 10000
+
+    from aiohttp import web
+
+    async def health_handler(request):
+        is_conn = bot.is_ready()
+        status_str = "online" if is_conn else ("starting" if DISCORD_BOT_TOKEN else "configuration_required")
+        latency = round(bot.latency * 1000, 1) if (is_conn and bot.latency) else 0.0
+        return web.json_response({
+            "status": status_str,
+            "connected": is_conn,
+            "bot": "Kazumi Discord AI Companion",
+            "bot_user": str(bot.user) if bot.user else None,
+            "guilds": len(bot.guilds) if is_conn else 0,
+            "latency_ms": latency,
+            "uptime_seconds": round(time.time() - BOT_START_TIME, 1)
+        })
+
+    app = web.Application()
+    app.router.add_get("/", health_handler)
+    app.router.add_get("/health", health_handler)
+    app.router.add_get("/api/health", health_handler)
+
+    _health_runner = web.AppRunner(app)
+    await _health_runner.setup()
+    site = web.TCPSite(_health_runner, "0.0.0.0", port)
+    try:
+        await site.start()
+        logger.info(f"[HEALTH] Lightweight HTTP health check server listening on 0.0.0.0:{port}")
+    except Exception as e:
+        logger.warning(f"[HEALTH] Could not bind HTTP health check server on port {port}: {e}")
+
+bot.setup_hook = setup_health_server
+
 # Initialize Kazumi Advanced Feature Suite (Moderation, Logging, Tickets, Giveaways, Music, etc.)
 import discord_features
 kazumi_features = discord_features.setup_all_features(bot, bot.tree)
@@ -1750,12 +1797,32 @@ def respawn_process():
 
 
 def main():
+    global DISCORD_BOT_TOKEN
     logger.info(f"[HOST] Runtime Host: {DEPLOY_ENV['name']} (Remote: {DEPLOY_ENV['is_remote']})")
     logger.info(f"[STARTUP] Kazumi Discord Bot process started. DISCORD_BOT_TOKEN configured: {bool(DISCORD_BOT_TOKEN)}")
     if not DISCORD_BOT_TOKEN or DISCORD_BOT_TOKEN == "your_discord_bot_token_here":
         logger.error("❌ DISCORD_BOT_TOKEN is missing or empty! Bot cannot connect to Discord.")
         print_discord_setup_guide()
-        sys.exit(1)
+        if DEPLOY_ENV["is_remote"]:
+            logger.info("🌸 Running on remote cloud host. Starting HTTP health server and waiting for DISCORD_BOT_TOKEN...")
+            async def wait_for_token_loop():
+                global DISCORD_BOT_TOKEN
+                await setup_health_server()
+                while not DISCORD_BOT_TOKEN or DISCORD_BOT_TOKEN == "your_discord_bot_token_here":
+                    await asyncio.sleep(5)
+                    try:
+                        from dotenv import load_dotenv
+                        load_dotenv(override=True)
+                    except Exception:
+                        pass
+                    DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
+            try:
+                asyncio.run(wait_for_token_loop())
+                logger.info("🔑 DISCORD_BOT_TOKEN detected! Proceeding with Discord connection...")
+            except (KeyboardInterrupt, SystemExit):
+                sys.exit(0)
+        else:
+            sys.exit(1)
 
     if not acquire_single_instance_lock(timeout=5.0):
         logger.warning("🌸 Another instance of Kazumi Discord Bot is already running on this machine. Exiting cleanly to avoid duplicate gateway conflicts.")

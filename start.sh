@@ -26,40 +26,29 @@ elif command -v python &>/dev/null; then
     PYTHON_CMD="python"
 fi
 
-echo "🌸 Starting Kazumi Discord Bot supervisor in background using $PYTHON_CMD..."
-(
-  while true; do
-    echo "[$(date)] 🌸 Launching Kazumi Discord Bot..." >> "$SCRIPT_DIR/logs/discord_bot.log"
-    $PYTHON_CMD -u discord_bot.py >> "$SCRIPT_DIR/logs/discord_bot.log" 2>&1
-    EXIT_CODE=$?
-    if [ $EXIT_CODE -eq 42 ]; then
-      echo "[$(date)] ⚠️ Kazumi Discord Bot exited with code 42 (Configuration Error / Missing Token). Pausing 60s..." >> "$SCRIPT_DIR/logs/discord_bot.log"
-      sleep 60
-    elif [ $EXIT_CODE -eq 0 ]; then
-      echo "[$(date)] 🌸 Kazumi Discord Bot stopped cleanly with code 0." >> "$SCRIPT_DIR/logs/discord_bot.log"
-      sleep 5
-    else
-      echo "[$(date)] ⚠️ Kazumi Discord Bot process exited with code $EXIT_CODE. Restarting in 5 seconds..." >> "$SCRIPT_DIR/logs/discord_bot.log"
-      sleep 5
-    fi
-  done
-) &
-SUPERVISOR_PID=$!
+echo "🌸 Starting Kazumi Standalone Discord AI Companion using $PYTHON_CMD..."
 
 # Trap signals for graceful shutdown
 cleanup() {
-    echo "🌸 Received termination signal. Gracefully shutting down Kazumi services..."
-    kill -TERM "$SUPERVISOR_PID" 2>/dev/null || true
+    echo "🌸 Received termination signal. Gracefully shutting down Kazumi Discord Bot..."
     pkill -TERM -f "discord_bot.py" 2>/dev/null || true
-    pkill -TERM -f "node.*server.js" 2>/dev/null || true
     exit 0
 }
 trap cleanup SIGTERM SIGINT
 
-# Start Kazumi Web Portfolio in foreground
-PORT="${PORT:-10000}"
-echo "🌐 Starting Kazumi Web Interface on port $PORT..."
-cd "$SCRIPT_DIR/portfolio"
-exec npm start
-
-
+# Run discord_bot.py with supervisor loop in foreground
+while true; do
+    echo "[$(date)] 🌸 Launching Kazumi Discord Bot..."
+    $PYTHON_CMD -u discord_bot.py
+    EXIT_CODE=$?
+    if [ $EXIT_CODE -eq 42 ]; then
+        echo "[$(date)] ⚠️ Kazumi Discord Bot exited with code 42 (Configuration Error / Missing Token). Pausing 60s..."
+        sleep 60
+    elif [ $EXIT_CODE -eq 0 ]; then
+        echo "[$(date)] 🌸 Kazumi Discord Bot stopped cleanly with code 0. Exiting supervisor."
+        exit 0
+    else
+        echo "[$(date)] ⚠️ Kazumi Discord Bot process exited with code $EXIT_CODE. Restarting in 5 seconds..."
+        sleep 5
+    fi
+done

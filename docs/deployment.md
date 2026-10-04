@@ -58,9 +58,10 @@ For 24/7 continuous operation independent of any personal computer:
    sudo systemctl start kazumi
    ```
 
-### 1.3 Container Deployment (Docker / Hugging Face Spaces)
-- The project includes a root `Dockerfile` and `supervisord` configuration running both the Express.js telemetry dashboard on port `7860` and the Python Discord bot daemon.
-- Persistent volume storage mounts `/data/isa_memory` automatically when running inside Hugging Face Spaces.
+### 1.3 Container Deployment (Docker / Render / Cloud)
+- The project includes a clean `Dockerfile` based on `python:3.11-slim` running the standalone Kazumi Discord bot supervisor (`start.sh`).
+- An embedded `aiohttp.web` HTTP health check listener runs on `PORT` (defaults to `10000` or `7860`), providing `/health` endpoints for Render/cloud uptime checks.
+- Persistent volume storage can mount `/app/isa_memory` for long-term user memories and settings.
 
 ---
 
@@ -73,7 +74,7 @@ For 24/7 continuous operation independent of any personal computer:
 | `PREFIX` | Optional | Prefix command trigger (defaults to `!k `). |
 | `OPENAI_API_KEY` | Recommended | Primary API key for LLM cognitive chat completions. |
 | `ANTHROPIC_API_KEY`| Optional | Fallback LLM provider key. |
-| `PORT` | Optional | Dashboard HTTP port (defaults to `7860`). |
+| `PORT` | Optional | Health check HTTP listening port for cloud monitors (defaults to `10000` or `7860`). |
 
 ---
 

@@ -1,138 +1,177 @@
----
-title: Kazumi Companion
-emoji: 🌸
-colorFrom: purple
-colorTo: indigo
-sdk: docker
-app_port: 7860
-pinned: false
----
+# 🌸 Kazumi AI Companion & Discord Bot
 
-# 🌸 Kazumi AI Companion & Calm Space
+[![Discord](https://img.shields.io/badge/Discord-Bot-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.com)
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
-Kazumi is a sweet, highly empathetic conversational AI companion designed for desktop interactions, paired with a web-based mindfulness dashboard named **Kazumi Space**. The project blends local conversational AI intelligence, secure credential storage, and cozy ambient exercises to create a soothing digital environment.
+**Kazumi (和美)** is an emotionally intelligent, warm, and highly capable anime girl Discord companion bot. Built entirely in Python, Kazumi combines advanced conversational AI, realistic emotional expressions, persistent relationship memory, full server moderation, interactive music playback, and community engagement features into a single, standalone Discord bot.
+
+> **Zero Website Dependencies**: Kazumi operates 100% autonomously as a Discord bot. No external web server, frontend dashboard, or Node.js runtime is required.
 
 ---
 
-## 🚀 Core Features
+## ✨ Core Capabilities
 
-### 1. Empathetic Python AI Core (`kazumi.py`)
-- **Conversational Intelligence**: Empathetic, supportive, and context-aware responses utilizing OpenAI API backend integrations.
-- **Dynamic Mood & Human Girl Emotion Engine (`kazumi_emotions.py`)**: Spontaneously expresses realistic human girl emotions and physical micro-expressions (blushing when flustered `😳`, playful teasing `😏`, deep affection `🥰`, dramatic cute pouting `😤`, starry-eyed excitement `✨`, cozy sleepy yawns `🥱`, gentle comfort `🌸`), making interactions feel warm, alive, and genuine.
-- **Precision Text Recognition & Vision OCR System (`text_recognition.py`)**: Seamlessly reads, transcribes, and discusses text extracted from user images, screenshots, handwritten notes, memes, documents, and code files via Discord chat or slash commands (`/recognize_text`, `/ocr`).
-- **Pure-Python Semantic Memory (`ChromaMemory`)**: Local persistent JSON memory system tracking conversation history, affection levels, cozy points, and user preferences.
-- **Cozy Games & Astrological Logs**: Supports custom zodiac horoscope readings, text adventures, and warm mini-games.
+### 1. 🌸 Empathetic AI Companion Core
+- **Conversational Intelligence**: Empathetic, supportive, and context-aware responses powered by OpenAI API backend integrations.
+- **Dynamic Mood & Emotion Engine (`kazumi_emotions.py`)**: Spontaneously expresses realistic emotional states and physical micro-expressions (blushing when flustered `😳`, playful teasing `😏`, deep affection `🥰`, dramatic cute pouting `😤`, starry-eyed excitement `✨`, cozy sleepy yawns `🥱`, gentle comfort `🌸`).
+- **Archetype Switching**: Seamlessly toggle between personality modes with `/persona`: *Deredere* (Loving), *Teasing*, *Kuudere*, *Tsundere*, and *Unhinged / Savage Roast* mode.
+- **Persistent Bond & Affection Progression**: Tracks friendship intimacy, affection level (0–100%), Cozy Points, and daily milestones (`/status`, `/quests`).
+- **Daily Diaries & Horoscopes**: Kazumi writes daily personal reflections (`/diary`) and provides custom celestial readings with lucky gifts (`/horoscope`).
+- **Precision OCR & Document Vision (`text_recognition.py`)**: Reads, transcribes, and discusses text extracted from user images, screenshots, handwritten notes, memes, documents, and code files via Discord chat or slash commands (`/recognize_text`, `/ocr`).
 
-### 2. Kazumi Space Mindfulness Dashboard (`portfolio/public/`)
-A warm, human-designed lavender and pastel themed frontend workspace:
-- **Overview Area**: Displays live companion metrics—Affection Level progress bars, Cozy Points badges, dominant emotional vibe gauges, and an interactive Valence Slider.
-- **Calm Space Garden**:
-  - **Procedural Wind Chimes**: Uses the Web Audio API to generate randomized pentatonic wind chime melodies in real-time, complete with wind speed/frequency settings.
-  - **Zen Breathing Guide**: A responsive, pulsing breathing ring displaying visual inhale, hold, and exhale cues to help users center their thoughts.
-- **Kazumi's Journal (Diary Space)**: Displays her personal journal timeline reflections dynamically written by the companion core.
-- **Dialogue Console (Chat Space)**: Client interface to view active chats, review history, and chat with your companion.
+### 2. 🛡️ Server Moderation & AutoMod Suite
+- **Complete Moderation Commands**: `/warn`, `/warnings`, `/clearwarnings`, `/timeout`, `/kick`, `/ban`, `/unban`, `/clear`, `/slowmode`, `/lock`, `/unlock`.
+- **Real-Time AutoMod Protection**: Automatically mitigates message floods, duplicate spam, mass mentions, unauthorized invite links, arbitrary links, and prohibited word lists.
+- **Comprehensive Audit Logging (`/logging`)**: Formatted embed logging for member joins, leaves, message edits, message deletions, bans, unbans, and role updates.
 
-### 3. Double-Backed Secure Servers (`portfolio/`)
-- Runs identically on both **Node.js (Express)** via `server.js` or **Python 3** via `server.py`.
-- **Zero-Plaintext Vault**: Features a secure settings panel that encrypts and stores GitHub/LinkedIn developer credentials locally using AES-256-CBC and SHA-256 keystream ciphers, proxying API calls dynamically to avoid key leaks.
+### 3. 🎵 High-Fidelity Music System
+- **Voice Channel Playback**: Stream audio directly from YouTube, Soundcloud, and direct media URLs via `yt-dlp` and `FFmpeg`.
+- **Interactive Playback Controls**: Dedicated Discord button UI for play/pause, skip, stop, loop, queue navigation, and volume control (`/play`, `/pause`, `/resume`, `/skip`, `/queue`, `/nowplaying`, `/volume`, `/loop`, `/stop`).
+
+### 4. 🤝 Community Engagement & Utility
+- **Customizable Welcome & Goodbye**: Card templates and greeting channels (`/welcome`, `/goodbye`).
+- **Role Management**: Automated join roles (`/autorole`) and interactive button role assignment panels (`/reactionrole`).
+- **Support Ticket System**: Private member-staff ticket channels with one-click closing and automated text transcripts (`/ticket`).
+- **Giveaway Engine**: Interactive button-entry giveaways with background timer workers (`/giveaway`).
+- **Community Tools**: `/poll`, `/announce`, `/remind`, `/time`, custom command management (`/customcommand`, `!<tag>`), and interactive mini-games (Connect 4, Tic-Tac-Toe, Trivia).
+
+### 5. 🧠 Persistent Memory & Privacy
+- **Atomic Local Persistence (`isa_memory/`)**: User profiles, affection levels, moderation cases, and server settings are stored in atomic, thread-safe JSON files with `.bak` rollback safety and buffer syncing (`os.fsync`).
+- **Privacy First**: Complete user data autonomy with `/reset` to immediately wipe conversational session memory.
 
 ---
 
 ## 🛠️ Technology Stack
-- **Frontend**: Vanilla HTML5, CSS3 (lavender design tokens, responsive CSS grids, CSS custom variables), Vanilla JavaScript (Web Audio API, localStorage caches).
-- **Backend Servers**: Node.js Express, Python `ThreadingHTTPServer`.
-- **AI Core**: Python 3, `openai` library, custom persistent JSON structures.
+
+- **Runtime**: Python 3.11+
+- **Bot Framework**: `discord.py` (v2.3+)
+- **AI Backend**: `openai` (v1.0+)
+- **Voice & Media**: `yt-dlp`, `PyNaCl`, `FFmpeg`
+- **Vision & Imaging**: `Pillow`, `pytesseract`
+- **Cloud Telemetry**: Native `aiohttp.web` micro-service providing `/health` checks on `$PORT`
 
 ---
 
-## 🏁 How to Run Locally
+## 🚀 Getting Started
 
-### 1. Python Interactive Console Chat
-To chat with Kazumi directly in your system command line:
+### 1. Prerequisites
+- Python 3.11 or higher
+- FFmpeg installed and available on system `PATH` (for voice/music playback)
+- A Discord Bot Token ([Discord Developer Portal](https://discord.com/developers/applications))
+
+### 2. Installation
 ```bash
-# Install required dependencies
+# Clone the repository
+git clone https://github.com/pratyushranjansahu30909-maker/kazumi.git
+cd kazumi
+
+# Create and activate a virtual environment
+python -m venv venv
+# Linux / macOS:
+source venv/bin/activate
+# Windows:
+.\venv\Scripts\activate
+
+# Install dependencies
 pip install -r requirements.txt
-
-# Run the interactive bot
-python kazumi.py
 ```
 
-### 2. Launching the Web Dashboard
-You can run the web server using either Python or Node.js.
-
-#### Option A: Running with Python
-```bash
-# Start the HTTP server
-python portfolio/server.py
-```
-Open `http://localhost:3000/` in your browser.
-
-#### Option B: Running with Node.js
-```bash
-cd portfolio
-npm install
-npm start
-```
-Open `http://localhost:3000/` in your browser.
-
-### 3. Launching as a Discord Server Bot 🌸
-You can add Kazumi to any Discord server as an interactive AI companion!
-
-#### Step 1: Create a Discord Application
-1. Visit the [Discord Developer Portal](https://discord.com/developers/applications).
-2. Click **New Application**, name it **Kazumi**, and save.
-3. In the left menu, select **Bot** -> click **Add Bot**.
-4. Scroll down to **Privileged Gateway Intents** and enable:
-   - ✅ **Message Content Intent** *(Required for Kazumi to read chat messages)*
-5. Click **Reset Token** and copy the secret Bot Token.
-
-#### Step 2: Configure Environment
-Open your `.env` file and paste your token:
+### 3. Configuration
+Copy `.env.example` to `.env` (or create `.env`) and configure your tokens:
 ```env
-DISCORD_BOT_TOKEN=your_token_here
-DISCORD_CHANNEL_ID=   # Optional: set a specific channel ID if you want an exclusive chat room
+# Required Discord credentials
+DISCORD_BOT_TOKEN=your_discord_bot_token_here
+
+# Required for AI chat capabilities
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Optional configuration
+PREFIX=!k 
+DISCORD_CHANNEL_ID=
+PORT=10000
 ```
 
-#### Step 3: Invite Kazumi to Your Server
-1. In the Developer Portal, navigate to **OAuth2** -> **URL Generator**.
-2. Select scopes:
-   - `bot`
-   - `applications.commands`
-3. Under **Bot Permissions**, select:
-   - Send Messages
-   - Read Message History
-   - Embed Links
-   - Attach Files
-   - Use Slash Commands
-4. Copy the generated invite link and open it in your browser to add Kazumi to your server.
+> [!IMPORTANT]
+> In the [Discord Developer Portal](https://discord.com/developers/applications), under **Bot** -> **Privileged Gateway Intents**, enable:
+> 1. ✅ **Server Members Intent** (For welcome cards and role automation)
+> 2. ✅ **Message Content Intent** (For chat conversations and mentions)
 
-#### Step 4: Run the Bot & Keep Her Always Online 🌸
+---
 
-Kazumi includes a 24/7 background supervisor and Windows auto-start system so she stays perpetually online:
+## 💻 Running Kazumi
 
-- **Automatic Windows Boot Auto-Start (Recommended):**
-  Double-click `install_kazumi_autostart.bat`. This registers Kazumi in your Windows Startup so she launches silently whenever you power on or log in to your PC.
-- **Silent Background Run:**
-  Double-click `launch_kazumi_silent.vbs` to start her silently with zero popup windows.
-- **Check Status Anytime:**
-  Double-click `status_kazumi.bat` to verify if Kazumi is online, view memory usage, PID, and supervisor status.
-- **Interactive Console Mode:**
-  Double-click `run_kazumi_bot.bat` to see real-time console messages with auto-recovery.
-- **Stop Her Anytime:**
-  Double-click `stop_kazumi.bat` to cleanly terminate Kazumi and her supervisor.
+### Option A: Direct Python Execution
+```bash
+python -u discord_bot.py
+```
 
+### Option B: Windows 24/7 Supervisors
+Kazumi includes pre-configured Windows scripts for hands-off 24/7 operation:
+- `install_kazumi_autostart.bat`: Registers Kazumi in Windows Startup so she launches automatically upon PC boot.
+- `launch_kazumi_silent.vbs`: Starts Kazumi silently in the background with zero popup command windows.
+- `run_kazumi_bot.bat`: Launches Kazumi in an interactive console window with automatic crash restart.
+- `status_kazumi.bat`: Checks if Kazumi is running, showing PID, memory, and uptime.
+- `stop_kazumi.bat`: Cleanly terminates all running Kazumi bot processes and supervisors.
 
-#### Interacting on Discord
-- **Mention her:** `@Kazumi hello!` in any channel.
-- **Direct Messages:** DM Kazumi directly for private 1-on-1 conversations.
-- **Slash Commands:**
-  - `/chat <message>` — Send a cozy message
-  - `/roast [target]` — Deliver an unapologetically savage roast or comeback 💀🔥
-  - `/unhinged [True/False]` — Toggle savage unhinged mode 💀🔥
-  - `/persona [archetype]` — Switch personality (Deredere, Teasing, Kuudere, Tsundere, Unhinged)
-  - `/status` — View companion affection level, cozy points, and persona
-  - `/diary` — Read what Kazumi wrote in her journal today
-  - `/quests` — View active companion quests
-  - `/horoscope [sign]` — Receive your daily cosmic horoscope reading
-  - `/reset` — Clear conversation history for a fresh start
-  - `/help` — Display full command list and tips
+### Option C: Docker Deployment
+Build and run Kazumi in a clean Python 3.11 container:
+```bash
+# Build the Docker image
+docker build -t kazumi .
+
+# Run the container
+docker run -d --name kazumi-bot --env-file .env -p 10000:10000 kazumi
+```
+
+### Option D: Render Cloud Deployment
+Kazumi is fully prepared for one-click deployment to **Render** as a Docker Web Service:
+1. Connect your GitHub repository to Render.
+2. Select **Web Service** with **Docker** runtime (or use `render.yaml`).
+3. Set the Health Check path to `/health`.
+4. Add your secret environment variables (`DISCORD_BOT_TOKEN`, `OPENAI_API_KEY`).
+5. Render will automatically build the `Dockerfile`, pass the `/health` check on port `10000`, and keep Kazumi running 24/7.
+
+---
+
+## 🎮 Slash Command Catalog
+
+| Category | Command | Description |
+| :--- | :--- | :--- |
+| **AI Companion** | `/chat <message>` | Send a cozy message to Kazumi |
+| | `/roast [target]` | Deliver an unapologetically savage roast or comeback 💀🔥 |
+| | `/unhinged [True/False]` | Toggle savage unhinged mode 💀🔥 |
+| | `/persona <archetype>` | Switch personality (Deredere, Teasing, Kuudere, Tsundere, Unhinged) |
+| | `/status` | View affection level, Cozy Points, and current archetype |
+| | `/diary` | Read Kazumi's personal daily journal reflections |
+| | `/quests` | View daily companion bonding quests |
+| | `/horoscope <sign>` | Receive daily celestial astrological reading and lucky gifts |
+| | `/reset` | Clear your conversational history for a fresh start |
+| **Vision & OCR** | `/recognize_text [image]` | Extract and discuss text from an attached image or screenshot |
+| **Music & Voice** | `/play <query_or_url>` | Play audio in your active voice channel |
+| | `/pause` / `/resume` | Pause or resume current playback |
+| | `/skip` | Skip the current track |
+| | `/queue` | Display currently queued tracks |
+| | `/nowplaying` | Show detailed track embed with interactive button controls |
+| | `/volume <1-100>` | Adjust playback volume |
+| | `/stop` | Clear queue and disconnect from voice |
+| **Moderation** | `/warn <user> <reason>` | Issue a formal warning to a member |
+| | `/warnings <user>` | View warning history for a member |
+| | `/timeout <user> <duration>` | Mute a member for a specified duration |
+| | `/kick <user> [reason]` | Kick a member from the server |
+| | `/ban <user> [reason]` | Ban a member from the server |
+| | `/automod <rule> <enabled>` | Configure real-time server protection rules |
+| | `/logging <channel>` | Configure server audit event logging channel |
+| **Community** | `/ticket` | Open an interactive private support ticket |
+| | `/giveaway <prize> <time>` | Launch a community giveaway with countdown and winner selection |
+| | `/poll <question> <options>` | Create an interactive community reaction poll |
+| | `/remind <time> <message>` | Schedule a personal or channel reminder |
+| | `/welcome` / `/goodbye` | Setup custom arrival/departure messages |
+| | `/autorole <role>` | Configure automatic role assignment for new members |
+| | `/help` | Interactive catalog of all commands and server features |
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License.

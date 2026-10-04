@@ -35,9 +35,8 @@ graph TD
         PersonObs <--> PersonDB[(Person Behavioral Profiles JSON)]
     end
 
-    subgraph WebDashboard [Management & Telemetry: portfolio/server.js]
-        WebServer[Express.js Web Server] <--> DB
-        WebServer <--> WebUI[Web Interface: portfolio/public/]
+    subgraph CloudHealth [Cloud Health Service: discord_bot.py]
+        HealthServer[aiohttp.web HTTP Listener: /health on PORT]
     end
 ```
 
@@ -49,11 +48,9 @@ graph TD
 - **Primary Discord Gateway Daemon**: [`discord_bot.py`](file:///c:/Users/Lenovo/kazumi%20(gravity)/discord_bot.py)
   - Initializes single-instance concurrency lock (Named Mutex on Windows + Port 49281 TCP lock).
   - Configures Discord Gateway connector with IPv4 forced resolution (`aiohttp.TCPConnector(family=socket.AF_INET)`).
-  - Starts asynchronous listeners and periodic background workers.
+  - Starts asynchronous listeners, background supervisor, and embedded `/health` HTTP listener for cloud uptime monitors (Render, Docker).
 - **Cognitive Chat Core**: [`kazumi.py`](file:///c:/Users/Lenovo/kazumi%20(gravity)/kazumi.py)
   - Encapsulates multi-turn memory, profile affection metrics (0–100%), emotional valence, and LLM query orchestration.
-- **Web Dashboard**: [`portfolio/server.js`](file:///c:/Users/Lenovo/kazumi%20%28gravity%29/portfolio/server.js)
-  - Express.js HTTP daemon serving web interface and REST telemetry endpoints for bot status, moderation records, tickets, and giveaways.
 
 ---
 

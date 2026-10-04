@@ -1,41 +1,37 @@
-# Use a modern, supported base image containing both Node.js 20 LTS and Python 3.11
-FROM nikolaik/python-nodejs:python3.11-nodejs20-slim
+# 🌸 Kazumi Discord AI Companion — Standalone Dockerfile
+FROM python:3.11-slim
 
-# Set working directory
+# Prevent Python from writing .pyc files and enable unbuffered output
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PORT=10000
+
 WORKDIR /app
+
+# Install system dependencies (ca-certificates, ffmpeg for voice/music playback)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Node dependencies (root and portfolio)
-COPY package*.json ./
-RUN npm install --omit=dev
-
-COPY portfolio/package*.json ./portfolio/
-WORKDIR /app/portfolio
-RUN npm install --omit=dev
-
-# Copy all codebase files
-WORKDIR /app
+# Copy application files
 COPY . .
 
-# Set permissions recursively for app directories and sanitize script line endings
+# Sanitize start.sh line endings, grant execution permissions, and set up storage directories
 RUN sed -i 's/\r$//' /app/start.sh && \
     chmod +x /app/start.sh && \
     mkdir -p /app/isa_memory /app/logs && \
-    chmod -R 777 /app
+    chmod -R 777 /app/isa_memory /app/logs
 
-# Expose ports (7860 for Hugging Face Spaces, 10000 for Render)
+# Persistent storage volume for memory database
 VOLUME /app/isa_memory
-EXPOSE 7860
+
+# Expose HTTP port for cloud health monitoring (Render / HF Spaces)
 EXPOSE 10000
+EXPOSE 7860
 
-# Set environment variables
-ENV PORT=10000
-ENV NODE_ENV=production
-ENV PYTHONUNBUFFERED=1
-
-# Run start script that launches both Discord bot & Web Portfolio
-WORKDIR /app
 CMD ["bash", "start.sh"]

@@ -38,7 +38,7 @@ This document outlines the master 26-phase engineering roadmap for transforming 
 | **18** | **Custom Commands** | `/customcommand` manager and `!<tag>` prefix dispatcher | **PASS** |
 | **19** | **Kazumi Unique Features** | 8-state mood engine, spontaneous Kazumi Moments, adaptive help | **PASS** |
 | **20** | **Music System** | Voice streaming, queue, interactive UI buttons (`yt-dlp` + `FFmpeg`) | **PASS** |
-| **21** | **Dashboard Expansion** | REST telemetry endpoints (`/api/dashboard/*`) in `portfolio/server.js` | **PASS** |
+| **21** | **Cloud Health Telemetry** | Embedded `/health` endpoint in `discord_bot.py` for cloud uptime monitors | **PASS** |
 | **22** | **Performance Optimization** | Rule filtering before LLM calls, rate limiting, atomic flush | **PASS** |
 | **23** | **Kazumi Anti-Spam** | Self-throttling, response cooldowns, duplicate reply prevention | **PASS** |
 | **24** | **Security Hardening** | Server-side permission checks, hierarchy validation, token masking | **PASS** |

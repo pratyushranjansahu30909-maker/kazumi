@@ -39,7 +39,7 @@ API_KEY = (os.environ.get("API_KEY") or os.environ.get("OPENAI_API_KEY", "")).st
 
 # Load from local .env files if not set in environment
 if not API_KEY:
-    for env_path in [".env", "portfolio/.env", "../.env"]:
+    for env_path in [".env", "../.env"]:
         if os.path.exists(env_path):
             try:
                 with open(env_path, "r", encoding="utf-8") as f:

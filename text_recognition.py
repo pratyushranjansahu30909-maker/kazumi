@@ -15,9 +15,9 @@ from typing import Optional, Union, Dict, Any
 logger = logging.getLogger("TextRecognition")
 
 # Try to load API_KEY from environment or .env
-API_KEY = os.environ.get("API_KEY", "")
+API_KEY = (os.environ.get("API_KEY") or os.environ.get("OPENAI_API_KEY", "")).strip()
 if not API_KEY:
-    for env_path in [".env", "portfolio/.env", "../.env"]:
+    for env_path in [".env", "../.env"]:
         if os.path.exists(env_path):
             try:
                 with open(env_path, "r", encoding="utf-8") as f:

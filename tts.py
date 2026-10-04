@@ -11,12 +11,8 @@ from typing import Optional
 logger = logging.getLogger("TTS_Engine")
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-PORTFOLIO_DIR = os.path.join(ROOT_DIR, "portfolio")
 VOICES_DIR = os.path.join(ROOT_DIR, "voices")
 os.makedirs(VOICES_DIR, exist_ok=True)
-
-if PORTFOLIO_DIR not in sys.path:
-    sys.path.append(PORTFOLIO_DIR)
 
 DEFAULT_VOICE_DESIGN_PROMPT = (
     "A cute young adult female anime-inspired AI companion with a soft, bright, warm, and slightly high-pitched voice. "

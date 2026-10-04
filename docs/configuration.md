@@ -12,7 +12,7 @@ Detailed reference for configuring Kazumi's modules, feature flags, permissions,
 | `DISCORD_CHANNEL_ID` | integer | `None` | Dedicated channel ID for primary chatter. |
 | `PREFIX` | string | `!k ` | Fallback prefix for text-based triggers. |
 | `OPENAI_API_KEY` | string | `None` | Primary API key for LLM cognitive chat completions. |
-| `PORT` | integer | `7860` | Express.js Web Dashboard HTTP listening port. |
+| `PORT` | integer | `10000` | Health check HTTP listening port for cloud monitors (Render / Docker). |
 
 ---
 

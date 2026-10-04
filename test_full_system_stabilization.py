@@ -359,7 +359,7 @@ class FullSystemStabilizationTests(unittest.TestCase):
         # Add 1 report
         self.reports.submit_report(1, 100, 200, 10, "Spam")
 
-        # Read JSON structures directly like portfolio/server.py does
+        # Read JSON structures directly from disk
         cases_file = os.path.join(self.test_dir, "cases.json")
         game_file = os.path.join(self.test_dir, "game_stats.json")
         reports_file = os.path.join(self.test_dir, "reports.json")
