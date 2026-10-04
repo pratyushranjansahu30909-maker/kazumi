@@ -49,9 +49,9 @@ class KazumiConfig:
     DISCORD_BOT_TOKEN: str = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
     DISCORD_CHANNEL_ID: Optional[str] = os.environ.get("DISCORD_CHANNEL_ID")
     PREFIX: str = os.environ.get("PREFIX", "!k ").strip()
-    OPENAI_API_KEY: str = os.environ.get("OPENAI_API_KEY", "").strip()
+    OPENAI_API_KEY: str = (os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY", "")).strip()
     ANTHROPIC_API_KEY: str = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    PORT: int = int(os.environ.get("PORT", "7860"))
+    PORT: int = int(os.environ.get("PORT", "10000"))
 
     # Feature Flags
     FEATURE_FLAGS: Dict[str, bool] = {

@@ -35,7 +35,7 @@ if hasattr(sys.stderr, 'reconfigure'):
     sys.stderr.reconfigure(encoding='utf-8')
 
 # 🔑 API Configuration & Constants
-API_KEY = os.environ.get("API_KEY", "")
+API_KEY = (os.environ.get("API_KEY") or os.environ.get("OPENAI_API_KEY", "")).strip()
 
 # Load from local .env files if not set in environment
 if not API_KEY:

@@ -236,7 +236,8 @@ def run_stress_tests():
             worker_bot = Kazumi()
             worker_bot.memory.persist_path = bot.memory.persist_path
             worker_bot.memory.profile_path = bot.memory.profile_path
-            worker_bot.reply(f"Hello from worker {worker_id}! Let's bake matcha treats.", session_id=sess_id)
+            worker_sess_id = f"{sess_id}_{worker_id}"
+            worker_bot.reply(f"Hello from worker {worker_id}! Let's bake matcha treats.", session_id=worker_sess_id)
         except Exception as e:
             traceback.print_exc()
             failures.append({

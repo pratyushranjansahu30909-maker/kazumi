@@ -83,6 +83,41 @@ ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 if ROOT_DIR not in sys.path:
     sys.path.append(ROOT_DIR)
 
+# Persistent storage directory resolution
+ISA_MEMORY_DIR = os.environ.get("ISA_MEMORY_DIR") or os.environ.get("DATA_DIR") or os.path.join(ROOT_DIR, "isa_memory")
+HEALTH_STATUS_FILE = os.path.join(ISA_MEMORY_DIR, "bot_health.json")
+BOT_START_TIME = time.time()
+_tree_synced = False
+_background_feature_task: Optional[asyncio.Task] = None
+
+def write_health_status(status: str, connected: bool = False, extra: Optional[dict] = None):
+    """Atomically records bot health telemetry for HTTP monitoring endpoints."""
+    try:
+        os.makedirs(ISA_MEMORY_DIR, exist_ok=True)
+        payload = {
+            "status": status,
+            "connected": connected,
+            "last_heartbeat": time.time(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "environment": DEPLOY_ENV.get("name", "Unknown"),
+            "pid": os.getpid(),
+            "uptime_seconds": round(time.time() - BOT_START_TIME, 1)
+        }
+        if extra:
+            payload.update(extra)
+        tmp_file = f"{HEALTH_STATUS_FILE}.tmp"
+        with open(tmp_file, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+        if os.path.exists(tmp_file):
+            if hasattr(os, "replace"):
+                os.replace(tmp_file, HEALTH_STATUS_FILE)
+            else:
+                if os.path.exists(HEALTH_STATUS_FILE):
+                    os.remove(HEALTH_STATUS_FILE)
+                os.rename(tmp_file, HEALTH_STATUS_FILE)
+    except Exception as e:
+        logger.warning(f"Failed to write bot health telemetry: {e}")
+
 from discord_features.config import SanitizedLogFormatter
 log_handler.setFormatter(SanitizedLogFormatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
 
@@ -391,6 +426,7 @@ def create_kazumi_embed(title: str, description: str, color: int = 0xc084fc) -> 
 
 @bot.event
 async def on_ready():
+    global _tree_synced, _background_feature_task
     logger.info(f"[CONNECTION] Discord Gateway connected as {bot.user.name}#{bot.user.discriminator} (ID: {bot.user.id})")
     logger.info(f"[CONNECTION] Connected to {len(bot.guilds)} server(s).")
     
@@ -401,15 +437,29 @@ async def on_ready():
     )
     await bot.change_presence(status=discord.Status.online, activity=activity)
 
-    # Sync Slash Application Commands
-    try:
-        synced = await bot.tree.sync()
-        logger.info(f"[STARTUP] Synced {len(synced)} slash command(s).")
-    except Exception as e:
-        logger.warning(f"Slash command sync failed: {e}")
+    # Sync Slash Application Commands (only once on startup to prevent Discord rate limits)
+    if not _tree_synced:
+        try:
+            synced = await bot.tree.sync()
+            logger.info(f"[STARTUP] Synced {len(synced)} slash command(s).")
+            _tree_synced = True
+        except Exception as e:
+            logger.warning(f"Slash command sync failed: {e}")
 
-    # Launch Kazumi background feature task (Giveaways, Reminders, Server Moments)
-    bot.loop.create_task(kazumi_background_feature_loop())
+    # Launch Kazumi background feature task (Giveaways, Reminders, Server Moments) - singleton guard
+    if _background_feature_task is None or _background_feature_task.done():
+        _background_feature_task = bot.loop.create_task(kazumi_background_feature_loop())
+
+    write_health_status(
+        "online",
+        connected=True,
+        extra={
+            "bot_user": str(bot.user),
+            "guilds": len(bot.guilds),
+            "latency_ms": round(bot.latency * 1000, 1) if bot.latency else 0.0,
+            "prefix": PREFIX
+        }
+    )
 
     print("\n" + "=" * 60)
     print("🌸 KAZUMI DISCORD BOT IS READY AND LISTENING!")
@@ -419,32 +469,56 @@ async def on_ready():
     print("=" * 60 + "\n")
 
 
-
 @bot.event
 async def on_disconnect():
     logger.warning("[RECONNECT] Discord Gateway connection dropped. Retrying automatically...")
+    write_health_status("disconnected", connected=False, extra={"warning": "Gateway connection dropped"})
 
 
 @bot.event
 async def on_resumed():
     logger.info("[RECOVERY] Discord Gateway session successfully resumed! Kazumi is back listening.")
+    write_health_status(
+        "online",
+        connected=True,
+        extra={
+            "latency_ms": round(bot.latency * 1000, 1) if bot.latency else 0.0,
+            "resumed": True
+        }
+    )
 
 
 @bot.event
 async def on_message_delete(message: discord.Message):
-    """Observational Roasting: Catch quick message deletes (Section 5)."""
+    """Unified Message Deletion Handler: Observational Roasting & Server Audit Logging."""
     if not message or not message.author or message.author.bot:
         return
+
+    # 1. Observational Roasting: Catch quick message deletes (Section 5)
     send_time = recent_messages_for_delete_observation.pop(message.id, None)
     if send_time and (time.time() - send_time <= 12.0):
         if is_kazumi_channel(message.channel) or isinstance(message.channel, discord.DMChannel):
-            db_inst = kazumi_features.get("db")
+            db_inst = kazumi_features.get("db") if kazumi_features else None
             if db_inst and not db_inst.is_user_roast_opted_out(message.author.id):
                 if random.random() < 0.40:
                     try:
                         await message.channel.send("too late. the digital crime scene has been secured. 📸💀")
                     except Exception:
                         pass
+
+    # 2. Server Audit Logging
+    if message.guild and kazumi_features and kazumi_features.get("logging"):
+        try:
+            embed = discord.Embed(
+                title="🗑️ Message Deleted",
+                description=f"**Author:** {message.author.mention} (`{message.author.id}`)\n**Channel:** {message.channel.mention}\n\n**Content:**\n{message.content or '*No text content*'}",
+                color=0xef4444
+            )
+            embed.timestamp = datetime.now(timezone.utc)
+            await kazumi_features["logging"].log_event(message.guild, embed)
+        except Exception as e:
+            logger.warning(f"Error in on_message_delete logging: {e}")
+
 
 
 @bot.event
@@ -1059,21 +1133,6 @@ async def on_member_remove(member: discord.Member):
     except Exception as e:
         logger.warning(f"Error in on_member_remove handler: {e}")
 
-
-@bot.event
-async def on_message_delete(message: discord.Message):
-    if not message.guild or message.author.bot:
-        return
-    try:
-        embed = discord.Embed(
-            title="🗑️ Message Deleted",
-            description=f"**Author:** {message.author.mention} (`{message.author.id}`)\n**Channel:** {message.channel.mention}\n\n**Content:**\n{message.content or '*No text content*'}",
-            color=0xef4444
-        )
-        embed.timestamp = datetime.now(timezone.utc)
-        await kazumi_features["logging"].log_event(message.guild, embed)
-    except Exception as e:
-        logger.warning(f"Error in on_message_delete logging: {e}")
 
 
 @bot.event

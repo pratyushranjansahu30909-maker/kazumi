@@ -10,6 +10,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Install Node dependencies (root and portfolio)
 COPY package*.json ./
+RUN npm install --omit=dev
+
 COPY portfolio/package*.json ./portfolio/
 WORKDIR /app/portfolio
 RUN npm install --omit=dev
@@ -18,8 +20,11 @@ RUN npm install --omit=dev
 WORKDIR /app
 COPY . .
 
-# Set permissions recursively for app directories to ensure write access across environments
-RUN mkdir -p /app/isa_memory /app/logs && chmod -R 777 /app && chmod +x /app/start.sh
+# Set permissions recursively for app directories and sanitize script line endings
+RUN sed -i 's/\r$//' /app/start.sh && \
+    chmod +x /app/start.sh && \
+    mkdir -p /app/isa_memory /app/logs && \
+    chmod -R 777 /app
 
 # Expose ports (7860 for Hugging Face Spaces, 10000 for Render)
 VOLUME /app/isa_memory

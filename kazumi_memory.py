@@ -1,7 +1,9 @@
 import os
 import logging
-# pyrefly: ignore [missing-import]
-import logging_config
+try:
+    import logging_config
+except ImportError:
+    pass
 logger = logging.getLogger("kazumi_memory")
 import re
 import time

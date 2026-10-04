@@ -2102,7 +2102,8 @@ document.addEventListener('DOMContentLoaded', () => {
             </button>
             <p style="color: #fca5a5; font-size: 0.72rem; margin-top: 0.5rem; text-align: center;">Error: ${data.error || 'Setup failed.'}</p>
           `;
-          document.getElementById('triggerDownloadBtn').addEventListener('click', startAutoDownload);
+          const retryBtn = document.getElementById('triggerDownloadBtn');
+          if (retryBtn) retryBtn.addEventListener('click', startAutoDownload);
         }
       }
     } catch (e) {

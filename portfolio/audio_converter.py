@@ -1,30 +1,40 @@
 import os
-import av
+try:
+    import av
+except ImportError:
+    av = None
 import wave
 
 def convert_to_wav(src_path, dest_path, sample_rate=32000):
     try:
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-        container = av.open(src_path)
-        stream = container.streams.audio[0]
-        
-        resampler = av.AudioResampler(
-            format='s16',
-            layout='mono',
-            rate=sample_rate,
-        )
-        
-        audio_data = []
-        for frame in container.decode(stream):
-            resampled_frames = resampler.resample(frame)
-            for rf in resampled_frames:
-                audio_data.append(rf.to_ndarray().tobytes())
-                
-        with wave.open(dest_path, "wb") as wav_file:
-            wav_file.setnchannels(1)
-            wav_file.setsampwidth(2) # 16-bit s16
-            wav_file.setframerate(sample_rate)
-            wav_file.writeframes(b"".join(audio_data))
+        if av is not None:
+            container = av.open(src_path)
+            stream = container.streams.audio[0]
+            
+            resampler = av.AudioResampler(
+                format='s16',
+                layout='mono',
+                rate=sample_rate,
+            )
+            
+            audio_data = []
+            for frame in container.decode(stream):
+                resampled_frames = resampler.resample(frame)
+                for rf in resampled_frames:
+                    audio_data.append(rf.to_ndarray().tobytes())
+                    
+            with wave.open(dest_path, "wb") as wav_file:
+                wav_file.setnchannels(1)
+                wav_file.setsampwidth(2) # 16-bit s16
+                wav_file.setframerate(sample_rate)
+                wav_file.writeframes(b"".join(audio_data))
+        else:
+            # Fallback to soundfile / librosa
+            import soundfile as sf
+            import librosa
+            audio, sr = librosa.load(src_path, sr=sample_rate, mono=True)
+            sf.write(dest_path, audio, sample_rate, subtype='PCM_16')
             
         print(f"Successfully converted {src_path} to {dest_path}")
         return True

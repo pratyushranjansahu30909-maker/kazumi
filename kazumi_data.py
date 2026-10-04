@@ -57,7 +57,7 @@ LEXICON = {
     # --- Confusion / Doubt ---
     "confused": -0.3, "confusion": -0.3, "doubt": -0.3, "doubtful": -0.4, "hesitant": -0.3,
     "uncertain": -0.3, "uncertainty": -0.3, "perplexed": -0.3, "baffled": -0.3, "clueless": -0.4,
-    "lost": -0.6, "dilemma": -0.4, "stuck": -0.4, "misunderstanding": -0.4, "misunderstood": -0.5,
+    "dilemma": -0.4, "stuck": -0.4, "misunderstanding": -0.4, "misunderstood": -0.5,
 
     # --- Tiredness / Sleepiness ---
     "tired": -0.4, "sleepy": -0.3, "exhausted": -0.6, "fatigue": -0.5, "fatigued": -0.5, "weary": -0.5,
@@ -68,13 +68,13 @@ LEXICON = {
     "guilty": -0.7, "guilt": -0.6, "ashamed": -0.8, "shame": -0.7, "shameful": -0.7, "embarrassed": -0.5,
     "embarrassment": -0.5, "regret": -0.6, "regretful": -0.6, "remorse": -0.7, "sorry": -0.4,
     "forgive": 0.5, "forgiveness": 0.6, "pardon": 0.4, "apologize": 0.4, "apology": 0.4,
-    "proud": 0.8, "pride": 0.7, "humiliated": -0.8, "humiliation": -0.7, "worthless": -0.9,
+    "pride": 0.7, "humiliated": -0.8, "humiliation": -0.7, "worthless": -0.9,
     "useless": -0.7, "failure": -0.8, "failed": -0.7, "mistake": -0.4, "erred": -0.4,
 
     # --- Inspiration / Energy ---
-    "hope": 0.6, "hopeful": 0.7, "inspired": 0.8, "inspiration": 0.7, "creative": 0.7, "creativity": 0.7,
+    "hope": 0.6, "inspired": 0.8, "inspiration": 0.7, "creative": 0.7, "creativity": 0.7,
     "motivated": 0.7, "motivation": 0.7, "determined": 0.7, "determination": 0.7, "ambitious": 0.6,
-    "passion": 0.8, "passionate": 0.8, "energy": 0.6, "energetic": 0.7, "lively": 0.7, "vibrant": 0.8,
+    "energy": 0.6, "energetic": 0.7, "lively": 0.7, "vibrant": 0.8,
     "strong": 0.7, "powerful": 0.7, "brave": 0.8, "courage": 0.8, "courageous": 0.8
 }
 
