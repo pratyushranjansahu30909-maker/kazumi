@@ -851,7 +851,7 @@ Every message should have clean grammar, proper capitalization, smooth transitio
                 if count >= 3:
                     score -= (count - 2) * 3.0
 
-            # Penalize emotional support or redirection phrases when a roast/joke is requested
+            current_archetype = getattr(self, "current_archetype", None) or (self.profile.get("archetype") if hasattr(self, "profile") and isinstance(self.profile, dict) else None)
             if situation in ("ROAST", "SAVAGE") or current_archetype == "UNHINGED":
                 support_phrases = ["here for you", "always here", "dont worry", "don't worry", "take a deep breath", "it's okay", "it's ok", "everything will be okay", "sweetie", "darling", "honey", "my love", "take care"]
                 for sp in support_phrases:

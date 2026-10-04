@@ -1,47 +1,47 @@
-node_modules
-__pycache__
-*.pyc
-.git
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Environment and secrets
 .env
-portfolio/credentials.json
+.env.*
+!.env.example
+
+# Local databases and runtime state
 isa_memory/
 logs/
-portfolio/logs/
-portfolio/backups/
+*.log
 *.tmp
 *.bak
 *.corrupted.*
-.gemini
-.idea
-.vscode
-.system_generated
-*.webp
-*.png
-*.zip
 
+# IDE, OS, and tool state
+.idea/
+.vscode/
+.gemini/
 .agent/
-portfolio/proposed_config.json
-portfolio/stress_test_log.json
-portfolio/version_track.json
-portfolio/active_voice.json
-portfolio/dataset_quality_report.json
+.system_generated/
+*.DS_Store
+Thumbs.db
 
-# Allow specific assets
-!portfolio/public/isa_avatar.png
-
-# Local environment and model directories
-.venv/
-GPT-SoVITS/
-voices/
-scratch/
-documents/
-portfolio/gpt_manager_status.json
-portfolio/gpt_setup_status.json
-portfolio/public/temp/
-portfolio/public/audio/reference_voice.webm
+# Media, 3D and local artifacts
 *.blend
 *.fbx
 *.glb
 *.gltf
 *.vrm
-
+*.webp
+*.png
+*.zip
+scratch/
+documents/
+voices/
