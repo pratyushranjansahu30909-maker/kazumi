@@ -168,19 +168,22 @@ intents = discord.Intents.default()
 intents.message_content = True  # Required to read message content for chat
 intents.members = True          # Required for on_member_join, welcome poems, and autorole
 
-# Robust IPv4 TCP Connector for Discord Gateway
-def create_discord_connector():
-    try:
-        return aiohttp.TCPConnector(family=socket.AF_INET, ssl=True)
-    except Exception:
-        return None
+# Enforce IPv4 preference for Discord gateway and external cloud APIs
+try:
+    import socket
+    _orig_getaddrinfo = socket.getaddrinfo
+    def _prefer_ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+        if family == 0 or family == socket.AF_UNSPEC:
+            family = socket.AF_INET
+        return _orig_getaddrinfo(host, port, family, type, proto, flags)
+    socket.getaddrinfo = _prefer_ipv4_getaddrinfo
+except Exception:
+    pass
 
-bot_connector = create_discord_connector()
 bot = commands.Bot(
     command_prefix=commands.when_mentioned_or(PREFIX),
     intents=intents,
-    help_command=None,
-    connector=bot_connector
+    help_command=None
 )
 bot.kazumi_core = kazumi_core
 
@@ -196,43 +199,53 @@ except Exception:
     pass
 
 # ---------------------------------------------------------------------------
-# Lightweight HTTP Health Check Server (Render / Cloud Deployment)
+# Cloud Deployment Health Check Server (Hugging Face Spaces / Render / VPS)
 # ---------------------------------------------------------------------------
-_health_runner = None
+import http.server
+import threading
+import json
 
-async def setup_health_server():
-    global _health_runner
-    if _health_runner is not None:
-        return
+class CloudHealthCheckHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        is_conn = False
+        bot_user_str = None
+        latency = 0.0
+        guilds_count = 0
+        try:
+            if "bot" in globals() and bot and bot.is_ready():
+                is_conn = True
+                bot_user_str = str(bot.user) if bot.user else None
+                latency = round(bot.latency * 1000, 1) if bot.latency else 0.0
+                guilds_count = len(bot.guilds)
+        except Exception:
+            pass
+
+        status_str = "online" if is_conn else ("starting" if DISCORD_BOT_TOKEN else "configuration_required")
+        payload = {
+            "status": status_str,
+            "connected": is_conn,
+            "bot": "Kazumi Discord AI Companion",
+            "bot_user": bot_user_str,
+            "guilds": guilds_count,
+            "latency_ms": latency,
+            "uptime_seconds": round(time.time() - BOT_START_TIME, 1)
+        }
+        self.wfile.write(json.dumps(payload).encode("utf-8"))
+
+    def log_message(self, format, *args):
+        # Suppress routine health check polling noise from cloud probes
+        pass
+
+def start_cloud_health_servers():
     port_str = os.environ.get("PORT", "7860").strip()
     try:
         primary_port = int(port_str)
     except ValueError:
         primary_port = 7860
-
-    from aiohttp import web
-
-    async def health_handler(request):
-        is_conn = bot.is_ready()
-        status_str = "online" if is_conn else ("starting" if DISCORD_BOT_TOKEN else "configuration_required")
-        latency = round(bot.latency * 1000, 1) if (is_conn and bot.latency) else 0.0
-        return web.json_response({
-            "status": status_str,
-            "connected": is_conn,
-            "bot": "Kazumi Discord AI Companion",
-            "bot_user": str(bot.user) if bot.user else None,
-            "guilds": len(bot.guilds) if is_conn else 0,
-            "latency_ms": latency,
-            "uptime_seconds": round(time.time() - BOT_START_TIME, 1)
-        })
-
-    app = web.Application()
-    app.router.add_get("/", health_handler)
-    app.router.add_get("/health", health_handler)
-    app.router.add_get("/api/health", health_handler)
-
-    _health_runner = web.AppRunner(app)
-    await _health_runner.setup()
 
     ports_to_bind = [primary_port]
     for p in (7860, 10000):
@@ -241,11 +254,18 @@ async def setup_health_server():
 
     for p in ports_to_bind:
         try:
-            site = web.TCPSite(_health_runner, "0.0.0.0", p)
-            await site.start()
-            logger.info(f"[HEALTH] Lightweight HTTP health check server listening on 0.0.0.0:{p}")
+            server = http.server.ThreadingHTTPServer(("0.0.0.0", p), CloudHealthCheckHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True, name=f"HealthCheck-{p}")
+            thread.start()
+            logger.info(f"[HEALTH] Multi-cloud HTTP health server active on 0.0.0.0:{p}")
         except Exception as e:
-            logger.warning(f"[HEALTH] Port {p} unavailable or already bound: {e}")
+            logger.warning(f"[HEALTH] Port {p} could not be bound (may already be in use): {e}")
+
+start_cloud_health_servers()
+
+async def setup_health_server():
+    """Compatibility hook for discord.py setup_hook and remote startup loop."""
+    pass
 
 bot.setup_hook = setup_health_server
 
