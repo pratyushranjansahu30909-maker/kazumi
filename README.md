@@ -1,3 +1,13 @@
+---
+title: Kazumi Companion
+emoji: 🌸
+colorFrom: pink
+colorTo: purple
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # 🌸 Kazumi AI Companion & Discord Bot
 
 [![Discord](https://img.shields.io/badge/Discord-Bot-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.com)

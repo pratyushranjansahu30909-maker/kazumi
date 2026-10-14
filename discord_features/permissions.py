@@ -97,6 +97,16 @@ class PermissionService:
         return True, "Hierarchy check passed"
 
     @classmethod
+    def can_moderate(
+        cls,
+        executor: discord.Member,
+        target: discord.Member,
+        bot_member: Optional[discord.Member] = None
+    ) -> Tuple[bool, str]:
+        """Convenience validation verifying hierarchy and owner protection for moderation actions."""
+        return cls.check_hierarchy(executor, target, bot_member=bot_member)
+
+    @classmethod
     def check_bot_permissions(
         cls,
         bot_member: discord.Member,

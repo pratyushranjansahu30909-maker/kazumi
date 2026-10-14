@@ -1,0 +1,1031 @@
+[
+  {
+    "id": "1554904182874443821",
+    "name": "announce",
+    "description": "Create, schedule, and manage server announcements 📢",
+    "options": [
+      "template",
+      "post",
+      "preview",
+      "schedule",
+      "repeat",
+      "list",
+      "cancel",
+      "edit",
+      "delete",
+      "history"
+    ],
+    "subcommands": [
+      [
+        "template create",
+        "Save a reusable announcement template 💾"
+      ],
+      [
+        "template list",
+        "List available announcement templates in this server 📜"
+      ],
+      [
+        "template delete",
+        "Delete a saved announcement template 🗑"
+      ],
+      [
+        "template use",
+        "Publish an announcement using a saved template 🚀"
+      ],
+      [
+        "post",
+        "Create and publish an announcement 📢"
+      ],
+      [
+        "preview",
+        "Preview an announcement without publishing 🔍"
+      ],
+      [
+        "schedule",
+        "Schedule an announcement for future publication ⏰"
+      ],
+      [
+        "repeat",
+        "Schedule a recurring announcement (daily, weekly, monthly) 🔁"
+      ],
+      [
+        "list",
+        "List upcoming scheduled announcements for this server 📋"
+      ],
+      [
+        "cancel",
+        "Cancel a scheduled announcement 🚫"
+      ],
+      [
+        "edit",
+        "Edit an existing announcement message posted by Kazumi ✏"
+      ],
+      [
+        "delete",
+        "Delete an announcement message posted by Kazumi 🗑"
+      ],
+      [
+        "history",
+        "View recent published announcement history 📜"
+      ]
+    ]
+  },
+  {
+    "id": "1555266529124286539",
+    "name": "appeal",
+    "description": "Submit an appeal against a moderation punishment ⚖",
+    "options": [
+      "case_id",
+      "reason"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555266531368374286",
+    "name": "arcade",
+    "description": "Explore the complete Kazumi Arcade & Minigames Hub 🌸🎮",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1555266530764398714",
+    "name": "arena",
+    "description": "Challenge a friend to a tactical Kazumi RPG Arena Duel ⚔",
+    "options": [
+      "opponent",
+      "your_class"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182451085426",
+    "name": "automod",
+    "description": "Configure Kazumi's AutoMod protection settings 🛡",
+    "options": [
+      "enabled",
+      "anti_spam",
+      "anti_invites",
+      "anti_links",
+      "anti_mentions"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182451085430",
+    "name": "autorole",
+    "description": "Configure automatic roles assigned to new members 🎭",
+    "options": [
+      "action",
+      "role"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182668918863",
+    "name": "avatar",
+    "description": "Display the full-resolution avatar of a user 🖼",
+    "options": [
+      "user"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182287372364",
+    "name": "ban",
+    "description": "Ban a member from the server 🔨",
+    "options": [
+      "user",
+      "delete_messages_days",
+      "reason"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182668918860",
+    "name": "botinfo",
+    "description": "View technical information and statistics about Kazumi 🌸",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1555266528495145022",
+    "name": "case",
+    "description": "Look up details of a moderation case ID 📋",
+    "options": [
+      "case_id"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555266528495145023",
+    "name": "cases",
+    "description": "View all moderation cases recorded for a member 📋",
+    "options": [
+      "user"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1558498061368688710",
+    "name": "channel_policy",
+    "description": "View and configure channel policy modes and boundaries 🛡",
+    "options": [
+      "status",
+      "set",
+      "list"
+    ],
+    "subcommands": [
+      [
+        "status",
+        "Inspect active policy and allowed features for a channel 📋"
+      ],
+      [
+        "set",
+        "Assign an explicit policy override to a channel (Staff only) ⚙"
+      ],
+      [
+        "list",
+        "List all known channel policies for this server 📜"
+      ]
+    ]
+  },
+  {
+    "id": "1554904182874443818",
+    "name": "channelinfo",
+    "description": "View information about a channel 💬",
+    "options": [
+      "channel"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1549869464701378600",
+    "name": "chat",
+    "description": "Have a cozy conversation with Kazumi 🌸",
+    "options": [
+      "message"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182287372367",
+    "name": "clear",
+    "description": "Bulk delete messages in this channel 🧹",
+    "options": [
+      "amount"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555548026733596808",
+    "name": "clearqueue",
+    "description": "Clear all upcoming songs from the queue 🧹",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182287372360",
+    "name": "clearwarnings",
+    "description": "Clear all warnings for a member 🌿",
+    "options": [
+      "user"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555266529904435238",
+    "name": "connect4",
+    "description": "Challenge a friend to an interactive Connect Four match 🔴🔵",
+    "options": [
+      "opponent"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182668918855",
+    "name": "customcommand",
+    "description": "Create or manage custom server commands ⚙",
+    "options": [
+      "action",
+      "name",
+      "response"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555266531368374284",
+    "name": "dailyanswer",
+    "description": "Submit your answer to today's daily brain puzzle 🎯",
+    "options": [
+      "answer"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555266531368374283",
+    "name": "dailygame",
+    "description": "Solve today's universal Kazumi brain puzzle and maintain your daily streak 🌟",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1549869464701378602",
+    "name": "diary",
+    "description": "Read what Kazumi wrote in her diary today 📖",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1555548026896908368",
+    "name": "disconnect",
+    "description": "Disconnect Kazumi from the voice channel 🚪",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1554078214438260809",
+    "name": "emotion",
+    "description": "Check Kazumi's current human girl emotion and feelings 💕",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1555266531368374285",
+    "name": "game",
+    "description": "View arcade profiles, stats, and server leaderboards 🏆",
+    "options": [
+      "action",
+      "user"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182451085432",
+    "name": "giveaway",
+    "description": "Create and manage server giveaways 🎉",
+    "options": [
+      "action",
+      "duration",
+      "prize",
+      "winners",
+      "channel",
+      "required_role",
+      "min_account_days",
+      "min_server_days",
+      "message_id"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182451085429",
+    "name": "goodbye",
+    "description": "Configure member leave / goodbye messages 🍃",
+    "options": [
+      "action",
+      "channel",
+      "enabled"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555266530764398719",
+    "name": "hangman",
+    "description": "Play a solo round of word-guessing Hangman 🧩",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1549869464827330681",
+    "name": "help",
+    "description": "How to interact with Kazumi in your server 🌸",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1549869464701378607",
+    "name": "horoscope",
+    "description": "Receive a personalized daily cosmic horoscope from Kazumi ✨",
+    "options": [
+      "sign"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182287372363",
+    "name": "kick",
+    "description": "Kick a member from the server 👢",
+    "options": [
+      "user",
+      "reason"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182451085424",
+    "name": "lock",
+    "description": "Lock the current channel to prevent members from sending messages 🔒",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182451085427",
+    "name": "logging",
+    "description": "Configure server audit & moderation logging channel 📜",
+    "options": [
+      "action",
+      "channel"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904183067512887",
+    "name": "loop",
+    "description": "Toggle loop mode for the current track.",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1555548026733596811",
+    "name": "lyrics",
+    "description": "View lyrics for the currently playing track 📜",
+    "options": [
+      "query"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555266529124286537",
+    "name": "modhistory",
+    "description": "Comprehensive breakdown of member moderation history 🛡",
+    "options": [
+      "user"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555548026733596805",
+    "name": "modlogs",
+    "description": "View recent server moderation actions 📜",
+    "options": [
+      "user",
+      "limit"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555266529124286534",
+    "name": "modnote",
+    "description": "Add a private staff note to a user profile 📝",
+    "options": [
+      "user",
+      "content"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555266529124286536",
+    "name": "modnotes",
+    "description": "View all private staff notes for a user 📝",
+    "options": [
+      "user"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555266529904435230",
+    "name": "modqueue",
+    "description": "Inspect pending reports and appeals in the moderation queue 📥",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1555548026733596804",
+    "name": "nick",
+    "description": "Change or reset a member's server nickname 🏷",
+    "options": [
+      "user",
+      "nickname"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904183067512885",
+    "name": "nowplaying",
+    "description": "Show detailed information about the currently playing song.",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182874443825",
+    "name": "pause",
+    "description": "Pause current music playback.",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182874443819",
+    "name": "permissions",
+    "description": "View key permissions for a member in this channel 🔑",
+    "options": [
+      "user"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1549869464701378608",
+    "name": "persona",
+    "description": "Check or switch Kazumi's personality archetype 🎭",
+    "options": [
+      "archetype"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182668918858",
+    "name": "ping",
+    "description": "Check Kazumi's latency and gateway heartbeat 🏓",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182874443824",
+    "name": "play",
+    "description": "Play audio or search YouTube/Soundcloud for a track.",
+    "options": [
+      "query"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182874443820",
+    "name": "poll",
+    "description": "Create an interactive reaction poll 📊",
+    "options": [
+      "question",
+      "option1",
+      "option2",
+      "option3",
+      "option4",
+      "option5"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555548026733596809",
+    "name": "previous",
+    "description": "Replay the previously played track ⏪",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1555548026733596803",
+    "name": "purge",
+    "description": "Purge messages with optional user, bot, or text filters 🧹",
+    "options": [
+      "amount",
+      "user",
+      "bots_only",
+      "contains"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555266529904435232",
+    "name": "quarantine",
+    "description": "Isolate a suspicious member to quarantine role 🚫",
+    "options": [
+      "user",
+      "reason"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1549869464701378606",
+    "name": "quests",
+    "description": "View your active cozy quests and achievements 🌟",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1554904183067512884",
+    "name": "queue",
+    "description": "Display current music queue.",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1555266529904435235",
+    "name": "raidmode",
+    "description": "Toggle emergency server raid lockdown mode 🛡",
+    "options": [
+      "status"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555266530764398717",
+    "name": "reactionrace",
+    "description": "Test who has the fastest reaction reflexes in the server ⚡",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182668918854",
+    "name": "reactionrole",
+    "description": "Create an interactive role selection panel with buttons 🌸",
+    "options": [
+      "title",
+      "description",
+      "role1",
+      "role2",
+      "role3",
+      "role4",
+      "role5"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554078214438260807",
+    "name": "recognize_text",
+    "description": "Extract and read text from an image, document, or screenshot 🔍",
+    "options": [
+      "image",
+      "query"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182874443822",
+    "name": "remind",
+    "description": "Set a reminder for yourself ⏰",
+    "options": [
+      "duration",
+      "text"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555548026733596807",
+    "name": "remove",
+    "description": "Remove a specific song from the queue by its number 🗑",
+    "options": [
+      "index"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555266527216013345",
+    "name": "removewarn",
+    "description": "Remove a specific warning ID for a member 🌿",
+    "options": [
+      "user",
+      "warning_id"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555266529124286538",
+    "name": "report",
+    "description": "Report a member or message violating server rules 🚩",
+    "options": [
+      "user",
+      "reason",
+      "details"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1549869464701378609",
+    "name": "reset",
+    "description": "Clear your conversation history with Kazumi for a fresh start 🌿",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1554893838059835481",
+    "name": "reset_person",
+    "description": "Reset learned behavior profile (Privacy & Safety)",
+    "options": [
+      "user"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182874443826",
+    "name": "resume",
+    "description": "Resume paused music playback.",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1553438415842709504",
+    "name": "roast",
+    "description": "Deliver a context-aware, savage, or unhinged roast 💀🔥",
+    "options": [
+      "target",
+      "intensity",
+      "style",
+      "random"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554914801140895922",
+    "name": "roastbattle",
+    "description": "Challenge another user to a hilarious 2-round comedic roast battle ⚔",
+    "options": [
+      "opponent"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554914801140895920",
+    "name": "roastlevel",
+    "description": "Set your personal preferred maximum roast intensity (1-5)",
+    "options": [
+      "level"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554914801140895919",
+    "name": "roastmode",
+    "description": "Configure or toggle server-wide / user roast mode 💀🔥",
+    "options": [
+      "enabled"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554914801140895921",
+    "name": "roastoptout",
+    "description": "Toggle diplomatic immunity: opt in or out of being roasted by Kazumi",
+    "options": [
+      "opt_out"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182874443817",
+    "name": "roleinfo",
+    "description": "View information about a server role 🎭",
+    "options": [
+      "role"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555266529904435236",
+    "name": "security",
+    "description": "Configure anti-raid, anti-nuke, and quarantine settings ⚙",
+    "options": [
+      "anti_raid",
+      "anti_nuke",
+      "quarantine_role"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555548026733596810",
+    "name": "seek",
+    "description": "Seek to a specific timestamp in the current song ⏩",
+    "options": [
+      "seconds"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182668918861",
+    "name": "serverinfo",
+    "description": "View detailed server information and statistics 🏰",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1555548026733596806",
+    "name": "shuffle",
+    "description": "Shuffle the current music queue 🔀",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1554904183067512883",
+    "name": "skip",
+    "description": "Skip to the next song in the queue.",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182451085423",
+    "name": "slowmode",
+    "description": "Set channel slowmode delay in seconds ⏱",
+    "options": [
+      "seconds"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555266527216013349",
+    "name": "softban",
+    "description": "Ban and immediately unban a member to purge their messages 🧹",
+    "options": [
+      "user",
+      "reason"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555548026896908369",
+    "name": "stage",
+    "description": "Manage Discord Stage channels, speakers, and events 🎙",
+    "options": [
+      "speaker",
+      "event",
+      "create",
+      "start",
+      "topic",
+      "invite",
+      "audience",
+      "end"
+    ],
+    "subcommands": [
+      [
+        "speaker add",
+        "Promote a listener to speaker status 🎤"
+      ],
+      [
+        "speaker remove",
+        "Move a speaker back to audience/listener status 👥"
+      ],
+      [
+        "event create",
+        "Schedule a Discord event on a Stage channel 📅"
+      ],
+      [
+        "event list",
+        "List upcoming scheduled events in this server 📋"
+      ],
+      [
+        "event cancel",
+        "Cancel a scheduled Discord event 🚫"
+      ],
+      [
+        "create",
+        "Create a new Discord Stage channel 🎙"
+      ],
+      [
+        "start",
+        "Start an active Stage instance on a stage channel 🚀"
+      ],
+      [
+        "topic",
+        "Update the topic of an active Stage instance 📝"
+      ],
+      [
+        "invite",
+        "Invite a member to speak on Stage 💌"
+      ],
+      [
+        "audience",
+        "View current audience statistics and speaker roster 📊"
+      ],
+      [
+        "end",
+        "End the active Stage instance ⏹"
+      ]
+    ]
+  },
+  {
+    "id": "1549869464701378601",
+    "name": "status",
+    "description": "Check Kazumi's affection level, mood, and cozy points 💕",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1554904183067512888",
+    "name": "stop",
+    "description": "Stop music, clear queue, and leave voice channel.",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182668918857",
+    "name": "tag",
+    "description": "Invoke a custom server tag/command 🏷",
+    "options": [
+      "name"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182451085431",
+    "name": "ticket",
+    "description": "Manage Kazumi's support ticket system 📩",
+    "options": [
+      "action",
+      "category",
+      "support_role",
+      "user"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555266530764398713",
+    "name": "tictactoe",
+    "description": "Play Tic-Tac-Toe against a friend or against Kazumi AI ❌⭕",
+    "options": [
+      "opponent",
+      "difficulty"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182874443823",
+    "name": "time",
+    "description": "Check current UTC and global server time 🌍",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182287372362",
+    "name": "timeout",
+    "description": "Temporarily timeout / mute a member ⏳",
+    "options": [
+      "user",
+      "minutes",
+      "reason"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555266530764398716",
+    "name": "trivia",
+    "description": "Test your knowledge with an interactive 4-choice trivia question 🧠",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182287372366",
+    "name": "unban",
+    "description": "Unban a previously banned user by ID 🕊",
+    "options": [
+      "user_id",
+      "reason"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1553438415842709505",
+    "name": "unhinged",
+    "description": "Toggle or activate savage Unhinged Roast Mode 💀🔥",
+    "options": [
+      "mode"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182451085425",
+    "name": "unlock",
+    "description": "Unlock the current channel 🔓",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1555266529904435234",
+    "name": "unquarantine",
+    "description": "Restore a quarantined member's access 🕊",
+    "options": [
+      "user"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555266527216013348",
+    "name": "untimeout",
+    "description": "Remove timeout from a member 🕊",
+    "options": [
+      "user",
+      "reason"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182668918859",
+    "name": "uptime",
+    "description": "Check how long Kazumi has been continuously online ⏱",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182668918862",
+    "name": "userinfo",
+    "description": "View profile details, roles, and join dates for a member 👤",
+    "options": [
+      "user"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554893838059835482",
+    "name": "vibe",
+    "description": "Check your conversational vibe and familiarity with Kazumi 🌸",
+    "options": [],
+    "subcommands": []
+  },
+  {
+    "id": "1554904183067512886",
+    "name": "volume",
+    "description": "Adjust playback volume (1-100%).",
+    "options": [
+      "level"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182287372358",
+    "name": "warn",
+    "description": "Issue a formal warning to a server member ⚠",
+    "options": [
+      "user",
+      "reason"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182287372359",
+    "name": "warnings",
+    "description": "View warnings for a member 📋",
+    "options": [
+      "user"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1554904182451085428",
+    "name": "welcome",
+    "description": "Configure or test member welcome greeting and poems 🌸",
+    "options": [
+      "action",
+      "channel",
+      "enabled"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555266531368374282",
+    "name": "wordchain",
+    "description": "Challenge a friend to a 2-player turn-based Word Chain duel 🔤",
+    "options": [
+      "opponent"
+    ],
+    "subcommands": []
+  },
+  {
+    "id": "1555266530764398718",
+    "name": "wouldyourather",
+    "description": "Generate a compelling Would You Rather dilemma with live votes 🤔",
+    "options": [],
+    "subcommands": []
+  }
+]

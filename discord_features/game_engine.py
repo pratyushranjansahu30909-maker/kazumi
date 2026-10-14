@@ -110,6 +110,10 @@ class GameSession:
         self.configuration: Dict[str, Any] = {}
         self.state: Dict[str, Any] = {}
 
+    @property
+    def session_id(self) -> str:
+        return self.game_id
+
 
 class GameEngine:
     """
@@ -124,10 +128,27 @@ class GameEngine:
         # User rate limit tracking for anti-farming: user_id -> list of completion timestamps
         self._user_game_completions: Dict[int, List[float]] = {}
 
-    def create_session(self, game_type: str, creator_id: int, guild_id: int, channel_id: int) -> GameSession:
+    def create_session(
+        self,
+        game_type: str = "",
+        creator_id: Optional[int] = None,
+        guild_id: Optional[int] = None,
+        channel_id: Optional[int] = None,
+        players: Optional[List[int]] = None,
+        host_user_id: Optional[int] = None,
+        **kwargs
+    ) -> GameSession:
         import uuid
+        cid = creator_id if creator_id is not None else host_user_id
+        if cid is None and players:
+            cid = players[0]
+        cid = cid or 0
         gid = f"{game_type}_{uuid.uuid4().hex[:8]}"
-        session = GameSession(gid, game_type, creator_id, guild_id, channel_id)
+        session = GameSession(gid, game_type, cid, guild_id or 0, channel_id or 0)
+        if players:
+            session.players = list(players)
+            if len(players) > 1:
+                session.status = "active"
         self.sessions[gid] = session
         return session
 
@@ -138,9 +159,14 @@ class GameEngine:
         self.sessions.pop(game_id, None)
 
     def can_user_play(self, guild_id: int, user_id: int) -> Tuple[bool, str]:
-        """Anti-Abuse & Moderation Check: blocks banned, quarantined, or spamming members."""
+        """Anti-Abuse & Moderation Check: blocks banned, quarantined, or spamming members, and prevents concurrent session overwrite."""
         if self.db.is_user_quarantined(guild_id, user_id):
             return False, "You are currently quarantined and cannot join multiplayer games."
+
+        # Active session collision guard: user cannot start another active game while in progress
+        for s in self.sessions.values():
+            if s.guild_id == guild_id and user_id in s.players and s.status == "active":
+                return False, "You already have an active game session in progress. Finish or cancel it first!"
 
         # Anti-farming: max 12 completed games in 5 minutes
         now = time.time()
@@ -182,6 +208,23 @@ class GameEngine:
 
         return results
 
+    def reward_game_completion(
+        self,
+        guild_id: int,
+        user_id: int,
+        game_type: str,
+        is_win: bool = True,
+        score: int = 10,
+        xp_earned: Optional[int] = None
+    ) -> Tuple[int, int, List[str]]:
+        """Awards XP, advances level, unlocks achievements once, and returns (xp, level, new_achievements)."""
+        if xp_earned is None:
+            xp_earned = 35 if is_win else 15
+        outcome = "win" if is_win else "loss"
+        prof = self.db.record_game_outcome(user_id, game_type, outcome, score=score, xp_earned=xp_earned)
+        new_achs = self.check_achievements(user_id, game_type, prof)
+        return prof.get("xp", 0), prof.get("level", 1), new_achs
+
     def check_achievements(self, user_id: int, game_type: str, profile: Dict[str, Any]) -> List[str]:
         unlocked = []
         wins = profile.get("wins", 0)
@@ -189,24 +232,24 @@ class GameEngine:
 
         if wins >= 1:
             if self.db.unlock_achievement(user_id, "first_victory", *ACHIEVEMENTS_CATALOG["first_victory"]):
-                unlocked.append(ACHIEVEMENTS_CATALOG["first_victory"][0])
+                unlocked.append("first_victory")
 
         g_wins = profile.get("per_game", {}).get(game_type, {}).get("wins", 0)
         if game_type == GameType.CONNECT4 and g_wins >= 5:
             if self.db.unlock_achievement(user_id, "connect4_master", *ACHIEVEMENTS_CATALOG["connect4_master"]):
-                unlocked.append(ACHIEVEMENTS_CATALOG["connect4_master"][0])
+                unlocked.append("connect4_master")
 
         if game_type == GameType.ARENA and g_wins >= 1:
             if self.db.unlock_achievement(user_id, "arena_champion", *ACHIEVEMENTS_CATALOG["arena_champion"]):
-                unlocked.append(ACHIEVEMENTS_CATALOG["arena_champion"][0])
+                unlocked.append("arena_champion")
 
         if game_type == GameType.DUNGEON and g_wins >= 1:
             if self.db.unlock_achievement(user_id, "dungeon_survivor", *ACHIEVEMENTS_CATALOG["dungeon_survivor"]):
-                unlocked.append(ACHIEVEMENTS_CATALOG["dungeon_survivor"][0])
+                unlocked.append("dungeon_survivor")
 
         if xp >= 1000:
             if self.db.unlock_achievement(user_id, "arcade_legend", *ACHIEVEMENTS_CATALOG["arcade_legend"]):
-                unlocked.append(ACHIEVEMENTS_CATALOG["arcade_legend"][0])
+                unlocked.append("arcade_legend")
 
         return unlocked
 

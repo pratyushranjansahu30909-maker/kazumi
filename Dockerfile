@@ -1,17 +1,20 @@
-# 🌸 Kazumi Discord AI Companion — Standalone Dockerfile
+# 🌸 Kazumi Discord AI Companion — Cloud Production Dockerfile
+# Fully compatible with Hugging Face Spaces (24/7 Free CPU), Render, Koyeb, and Cloud VPS
 FROM python:3.11-slim
 
-# Prevent Python from writing .pyc files and enable unbuffered output
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ENV PORT=10000
+ENV PORT=7860
 
 WORKDIR /app
 
-# Install system dependencies (ca-certificates, ffmpeg for voice/music playback)
+# Install system dependencies (ffmpeg for audio, libopus for voice encoding, ca-certificates, git)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    libopus-dev \
+    libopus0 \
     ca-certificates \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -30,8 +33,8 @@ RUN sed -i 's/\r$//' /app/start.sh && \
 # Persistent storage volume for memory database
 VOLUME /app/isa_memory
 
-# Expose HTTP port for cloud health monitoring (Render / HF Spaces)
-EXPOSE 10000
+# Expose HTTP ports for cloud health monitoring (7860 for Hugging Face Spaces, 10000 for Render)
 EXPOSE 7860
+EXPOSE 10000
 
 CMD ["bash", "start.sh"]

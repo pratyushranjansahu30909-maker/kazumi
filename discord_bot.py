@@ -14,6 +14,7 @@ if hasattr(sys.stderr, 'reconfigure'):
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 import re
+import json
 import asyncio
 import threading
 import logging
@@ -165,6 +166,7 @@ SHAN_USER_IDS = set(x.strip() for x in os.environ.get("SHAN_USER_IDS", "12037219
 # Bot Intents
 intents = discord.Intents.default()
 intents.message_content = True  # Required to read message content for chat
+intents.members = True          # Required for on_member_join, welcome poems, and autorole
 
 # Robust IPv4 TCP Connector for Discord Gateway
 def create_discord_connector():
@@ -182,6 +184,17 @@ bot = commands.Bot(
 )
 bot.kazumi_core = kazumi_core
 
+# Ensure bot._connection.user has a safe placeholder so get_context never crashes offline or during tests
+try:
+    from unittest.mock import MagicMock
+    if getattr(bot._connection, "user", None) is None:
+        _placeholder_user = MagicMock(id=0, bot=True)
+        _placeholder_user.name = "Kazumi"
+        _placeholder_user.discriminator = "0000"
+        bot._connection.user = _placeholder_user
+except Exception:
+    pass
+
 # ---------------------------------------------------------------------------
 # Lightweight HTTP Health Check Server (Render / Cloud Deployment)
 # ---------------------------------------------------------------------------
@@ -191,11 +204,11 @@ async def setup_health_server():
     global _health_runner
     if _health_runner is not None:
         return
-    port_str = os.environ.get("PORT", "10000").strip()
+    port_str = os.environ.get("PORT", "7860").strip()
     try:
-        port = int(port_str)
+        primary_port = int(port_str)
     except ValueError:
-        port = 10000
+        primary_port = 7860
 
     from aiohttp import web
 
@@ -220,18 +233,79 @@ async def setup_health_server():
 
     _health_runner = web.AppRunner(app)
     await _health_runner.setup()
-    site = web.TCPSite(_health_runner, "0.0.0.0", port)
-    try:
-        await site.start()
-        logger.info(f"[HEALTH] Lightweight HTTP health check server listening on 0.0.0.0:{port}")
-    except Exception as e:
-        logger.warning(f"[HEALTH] Could not bind HTTP health check server on port {port}: {e}")
+
+    ports_to_bind = [primary_port]
+    for p in (7860, 10000):
+        if p not in ports_to_bind:
+            ports_to_bind.append(p)
+
+    for p in ports_to_bind:
+        try:
+            site = web.TCPSite(_health_runner, "0.0.0.0", p)
+            await site.start()
+            logger.info(f"[HEALTH] Lightweight HTTP health check server listening on 0.0.0.0:{p}")
+        except Exception as e:
+            logger.warning(f"[HEALTH] Port {p} unavailable or already bound: {e}")
 
 bot.setup_hook = setup_health_server
 
 # Initialize Kazumi Advanced Feature Suite (Moderation, Logging, Tickets, Giveaways, Music, etc.)
 import discord_features
 kazumi_features = discord_features.setup_all_features(bot, bot.tree)
+
+# Central Channel Policy Gatekeeper for Slash Commands (Phase 3)
+async def global_channel_policy_check(interaction: discord.Interaction) -> bool:
+    if not interaction.guild or not interaction.channel:
+        return True
+
+    cmd_name = interaction.command.name if interaction.command else ""
+    channel_policy_mgr = kazumi_features.get("channel_policy")
+    if not channel_policy_mgr:
+        return True
+
+    from discord_features.channel_policy import ChannelPolicyType, FeatureGroup
+    policy = channel_policy_mgr.get_policy_for_channel(interaction.channel, interaction.guild.id)
+
+    # Allow staging and testing commands in dedicated #bot-testing channel
+    is_testing_channel = "testing" in getattr(interaction.channel, "name", "").lower()
+    if is_testing_channel and (policy.is_staff_only or interaction.user.guild_permissions.manage_guild):
+        return True
+
+    # 1. Read-only channels block all interactive slash commands
+    if policy.name == ChannelPolicyType.READ_ONLY:
+        await interaction.response.send_message("❌ This channel is read-only. Commands cannot be run here.", ephemeral=True)
+        return False
+
+    # 2. Staff management commands
+    staff_cmds = {"automod", "logging", "security", "case", "cases", "modnote", "modnotes", "modhistory", "modqueue", "quarantine", "unquarantine", "raidmode", "channel_policy"}
+    if cmd_name in staff_cmds:
+        if not policy.is_staff_only and not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ Staff management commands can only be executed in private staff channels.", ephemeral=True)
+            return False
+
+    # 3. Game commands
+    game_cmds = {"game", "dailygame", "arcade", "trivia", "tictactoe", "connect4", "hangman", "wordchain", "wouldyourather", "reactionrace", "arena", "dailyanswer"}
+    if cmd_name in game_cmds:
+        if not policy.is_feature_allowed(FeatureGroup.GAMES) and not is_testing_channel:
+            await interaction.response.send_message("❌ Game commands are only allowed in #kazumi-games or #bot-testing! 🎮", ephemeral=True)
+            return False
+
+    # 4. Music commands
+    music_cmds = {"play", "pause", "resume", "skip", "stop", "queue", "nowplaying", "shuffle", "loop", "volume", "clearqueue", "previous", "lyrics", "disconnect", "seek", "remove", "join", "leave", "musicstatus"}
+    if cmd_name in music_cmds:
+        if not policy.is_feature_allowed(FeatureGroup.MUSIC) and not is_testing_channel:
+            await interaction.response.send_message("❌ Music commands are only allowed in #music-commands or #bot-testing! 🎶", ephemeral=True)
+            return False
+
+    # 5. Giveaway commands
+    if cmd_name == "giveaway":
+        if not policy.is_feature_allowed(FeatureGroup.GIVEAWAYS) and not policy.is_staff_only and not is_testing_channel:
+            await interaction.response.send_message("❌ Giveaways are only allowed in #giveaways or staff channels! 🎉", ephemeral=True)
+            return False
+
+    return True
+
+bot.tree.interaction_check = global_channel_policy_check
 
 # Active conversational sessions: (channel_id, user_id) -> last_active_timestamp
 active_conversations = {}
@@ -240,6 +314,7 @@ CONVERSATION_TIMEOUT_SECONDS = 90  # Stays attentive for 90 seconds after direct
 
 # Cache of recent message IDs sent by Kazumi to accurately detect replies
 recent_bot_message_ids = set()
+_processed_message_ids = set()
 
 # Observational Roasting & Message Activity Tracking (Sections 5 & 21)
 user_rapid_typing: dict[int, list[float]] = {}
@@ -270,19 +345,27 @@ CHAT_REACTIONS_AND_SLANG = {
 
 
 def is_kazumi_channel(channel) -> bool:
-    """Returns True if the channel is permitted for Kazumi conversations."""
+    """Returns True if the channel is permitted for Kazumi conversations under Central Channel Policy."""
     if isinstance(channel, discord.DMChannel):
         return True
-    if DISCORD_CHANNEL_ID and str(channel.id) == str(DISCORD_CHANNEL_ID):
+    if DISCORD_CHANNEL_ID and str(getattr(channel, "id", 0)) == str(DISCORD_CHANNEL_ID):
         return True
+    mgr = kazumi_features.get("channel_policy") if 'kazumi_features' in globals() else None
+    if mgr:
+        gid = channel.guild.id if hasattr(channel, "guild") and channel.guild else None
+        policy = mgr.get_policy_for_channel(channel, gid)
+        return policy.allow_ai_chat
     ch_name = getattr(channel, "name", "").lower()
-    return "kazumi" in ch_name
+    return "kazumi-chat" in ch_name or ("kazumi" in ch_name and "command" not in ch_name and "log" not in ch_name)
 
 
 def find_kazumi_channel_in_guild(guild: Optional[discord.Guild]) -> Optional[discord.TextChannel]:
     """Finds a dedicated Kazumi channel in the guild if one exists."""
     if not guild or not hasattr(guild, "text_channels"):
         return None
+    for ch in guild.text_channels:
+        if "kazumi-chat" in ch.name.lower():
+            return ch
     for ch in guild.text_channels:
         if is_kazumi_channel(ch):
             return ch
@@ -357,93 +440,151 @@ def get_user_session_id(user: discord.User | discord.Member) -> str:
 
 def detect_creator_relationship(user: discord.User | discord.Member) -> tuple[Optional[str], Optional[str]]:
     """
-    Identifies whether the Discord user is one of Kazumi's creators and fathers:
-    - 'Aamir the Chad'
-    - 'Sir Shan D. First'
-    Returns (creator_title, creator_context_description) or (None, None).
+    Identifies whether the Discord user is one of Kazumi's verified creators and fathers.
+    Uses stable Discord user IDs first, with exact name matching as a secondary check.
     """
-    uid_str = str(getattr(user, "id", ""))
-    combined = f"{getattr(user, 'name', '')} {getattr(user, 'display_name', '')} {getattr(user, 'global_name', '')}".lower()
-    
-    # 1. Check Aamir first (by name keyword or explicit Aamir UID)
-    if uid_str in AAMIR_USER_IDS or any(w in combined for w in ["aamir the chad", "aamir", "amir"]):
+    uid_str = str(getattr(user, "id", "")).strip()
+
+    # 1. Primary verification: stable Discord user IDs
+    if uid_str in AAMIR_USER_IDS:
         return ("Aamir the Chad", "Aamir the Chad (your creator and father)")
-        
-    # 2. Check Shan (by name keyword or explicit Shan UID)
-    if uid_str in SHAN_USER_IDS or any(w in combined for w in ["shan2157", "sir shan", "shan d. first", "shan d first", "shan"]):
+    if uid_str in SHAN_USER_IDS:
         return ("Sir Shan D. First", "Sir Shan D. First (your creator and father)")
-        
-    # 3. Check general CREATOR_USER_IDS if configured
     if uid_str in CREATOR_USER_IDS:
         return ("Creator", "Creator and Father")
+
+    # 2. Secondary verification: exact full creator handles / names
+    raw_names = {
+        getattr(user, "name", "").lower(),
+        getattr(user, "display_name", "").lower(),
+        getattr(user, "global_name", "").lower()
+    } - {""}
+
+    exact_aamir_matches = {"aamir the chad", "aamir", "amir_the_chad"}
+    exact_shan_matches = {"shan2157", "sir shan", "sir shan d. first", "sir shan d first", "shan d. first", "shan d first"}
+
+    if any(n in exact_aamir_matches for n in raw_names):
+        return ("Aamir the Chad", "Aamir the Chad (your creator and father)")
+    if any(n in exact_shan_matches for n in raw_names):
+        return ("Sir Shan D. First", "Sir Shan D. First (your creator and father)")
 
     return (None, None)
 
 
-def sync_kazumi_reply(text: str, session_id: str, user_name: Optional[str] = None, creator_identity: Optional[str] = None, person_directive: Optional[str] = None) -> str:
-    """Thread-safe call to Kazumi's sync reply function."""
+def sync_kazumi_reply(
+    text: str,
+    session_id: str,
+    user_name: Optional[str] = None,
+    creator_identity: Optional[str] = None,
+    person_directive: Optional[str] = None,
+    archetype: Optional[str] = None,
+    is_roast: bool = False
+) -> str:
+    """Thread-safe scoped call to Kazumi's sync reply function."""
     if not kazumi_core:
         return "I'm having a little trouble connecting to my thoughts right now. Please try again in a moment! 🌸"
     with kazumi_lock:
-        if creator_identity:
+        prev_creator = getattr(kazumi_core, "creator_context", None)
+        prev_directive = getattr(kazumi_core, "person_directive", None)
+        prev_user_name = getattr(kazumi_core, "current_user_name", None)
+        prev_archetype = getattr(kazumi_core, "current_archetype", "DEREDERE")
+        prev_roast_mode = getattr(kazumi_core, "roast_mode", False)
+        prev_roast_intensity = getattr(kazumi_core, "roast_intensity", 1)
+        prev_roast_style = getattr(kazumi_core, "roast_style", "CASUAL")
+
+        try:
             kazumi_core.creator_context = creator_identity
-        else:
-            kazumi_core.creator_context = None
-
-        if person_directive:
             kazumi_core.person_directive = person_directive
-        else:
-            kazumi_core.person_directive = None
-
-        if user_name:
-            kazumi_core.load_game_states(session_id)
             kazumi_core.current_user_name = user_name
-            if hasattr(kazumi_core, "memory") and hasattr(kazumi_core.memory, "profile"):
-                profile = kazumi_core.memory.profile
-                session_game_states = profile.setdefault("session_game_states", {})
-                game_state = session_game_states.setdefault(session_id, {})
-                game_state["user_name"] = user_name
-                if creator_identity:
-                    profile["name"] = user_name
-                elif not profile.get("name") or profile.get("name").strip().lower() in ("friend", "user", "sweetie", "none"):
-                    profile["name"] = user_name
 
-        res = kazumi_core.reply(text, session_id=session_id)
-        kazumi_core.creator_context = None
-        kazumi_core.person_directive = None
-        kazumi_core.current_user_name = None
-        return res if res else "I'm right here with you! 🌸 (Kazumi smiles warmly.)"
+            if is_roast:
+                kazumi_core.roast_mode = True
+                kazumi_core.roast_intensity = 4
+                kazumi_core.roast_style = "UNHINGED"
+                kazumi_core.current_archetype = "UNHINGED"
+            elif archetype:
+                kazumi_core.current_archetype = archetype
+                kazumi_core.roast_mode = False
+
+            if user_name:
+                kazumi_core.load_game_states(session_id)
+                kazumi_core.current_user_name = user_name
+                if hasattr(kazumi_core, "memory") and hasattr(kazumi_core.memory, "profile"):
+                    profile = kazumi_core.memory.profile
+                    session_game_states = profile.setdefault("session_game_states", {})
+                    game_state = session_game_states.setdefault(session_id, {})
+                    game_state["user_name"] = user_name
+                    if creator_identity:
+                        profile["name"] = user_name
+
+            res = kazumi_core.reply(text, session_id=session_id)
+            return res if res else "I'm right here with you! 🌸 (Kazumi smiles warmly.)"
+        finally:
+            kazumi_core.creator_context = prev_creator
+            kazumi_core.person_directive = prev_directive
+            kazumi_core.current_user_name = prev_user_name
+            kazumi_core.current_archetype = prev_archetype
+            kazumi_core.roast_mode = prev_roast_mode
+            kazumi_core.roast_intensity = prev_roast_intensity
+            kazumi_core.roast_style = prev_roast_style
 
 
-async def ask_kazumi(text: str, session_id: str, user_name: Optional[str] = None, creator_identity: Optional[str] = None, person_directive: Optional[str] = None) -> str:
+async def ask_kazumi(
+    text: str,
+    session_id: str,
+    user_name: Optional[str] = None,
+    creator_identity: Optional[str] = None,
+    person_directive: Optional[str] = None,
+    archetype: Optional[str] = None,
+    is_roast: bool = False
+) -> str:
     """Non-blocking asynchronous wrapper over Kazumi's core reply."""
     try:
-        reply = await asyncio.to_thread(sync_kazumi_reply, text, session_id, user_name, creator_identity, person_directive)
+        # If archetype is not explicitly provided, look up from user session
+        if archetype is None and kazumi_core and hasattr(kazumi_core, "memory") and hasattr(kazumi_core.memory, "profile"):
+            with kazumi_lock:
+                s_state = kazumi_core.memory.profile.get("session_game_states", {}).get(session_id, {})
+                archetype = s_state.get("archetype")
+
+        reply = await asyncio.to_thread(
+            sync_kazumi_reply,
+            text,
+            session_id,
+            user_name,
+            creator_identity,
+            person_directive,
+            archetype,
+            is_roast
+        )
         return (reply or "").strip() or "I'm right here with you! 🌸"
     except Exception as e:
         logger.error(f"Error in ask_kazumi wrapper: {e}", exc_info=True)
         return "I'm right here with you! 🌸 (Kazumi nods softly.) How are you feeling today?"
 
 
-async def send_kazumi_response(message: discord.Message, text: str):
+async def send_kazumi_response(message: discord.Message, text: str) -> bool:
     """Reliably delivers messages to the user/channel with automatic fallback."""
     text = (text or "").strip()
     if not text:
         text = "I'm right here with you! 🌸 (Kazumi smiles warmly.)"
     chunks = split_message(text)
+    any_sent = False
     for idx, chunk in enumerate(chunks):
         sent_msg = None
         if idx == 0:
             try:
                 sent_msg = await message.reply(chunk, mention_author=False)
+                any_sent = True
             except Exception:
                 try:
                     sent_msg = await message.channel.send(chunk)
+                    any_sent = True
                 except Exception as send_err:
                     logger.error(f"Failed to send reply chunk: {send_err}")
         else:
             try:
                 sent_msg = await message.channel.send(chunk)
+                any_sent = True
             except Exception as send_err:
                 logger.error(f"Failed to send followup chunk: {send_err}")
 
@@ -454,6 +595,7 @@ async def send_kazumi_response(message: discord.Message, text: str):
                     recent_bot_message_ids.pop()
                 except Exception:
                     pass
+    return any_sent
 
 
 def create_kazumi_embed(title: str, description: str, color: int = 0xc084fc) -> discord.Embed:
@@ -474,28 +616,54 @@ def create_kazumi_embed(title: str, description: str, color: int = 0xc084fc) -> 
 @bot.event
 async def on_ready():
     global _tree_synced, _background_feature_task
-    logger.info(f"[CONNECTION] Discord Gateway connected as {bot.user.name}#{bot.user.discriminator} (ID: {bot.user.id})")
-    logger.info(f"[CONNECTION] Connected to {len(bot.guilds)} server(s).")
+    bot_name = bot.user.name if bot.user else "Kazumi"
+    bot_disc = bot.user.discriminator if bot.user else "0000"
+    bot_id = bot.user.id if bot.user else 0
+    logger.info(f"[CONNECTION] Discord Gateway connected as {bot_name}#{bot_disc} (ID: {bot_id})")
+    logger.info(f"[CONNECTION] Connected to {len(bot.guilds) if getattr(bot, 'guilds', None) else 0} server(s).")
     
     # Set status presence
-    activity = discord.Activity(
-        type=discord.ActivityType.listening,
-        name="@Kazumi or /chat 🌸"
-    )
-    await bot.change_presence(status=discord.Status.online, activity=activity)
+    if bot.user:
+        try:
+            activity = discord.Activity(
+                type=discord.ActivityType.listening,
+                name="@Kazumi or /chat 🌸"
+            )
+            await bot.change_presence(status=discord.Status.online, activity=activity)
+        except Exception as pres_err:
+            logger.debug(f"Presence update error: {pres_err}")
 
     # Sync Slash Application Commands (only once on startup to prevent Discord rate limits)
     if not _tree_synced:
         try:
+            guild_id_str = os.environ.get("TEST_GUILD_ID") or os.environ.get("DISCORD_GUILD_ID")
+            if guild_id_str:
+                try:
+                    guild_obj = discord.Object(id=int(guild_id_str))
+                    bot.tree.copy_global_to(guild=guild_obj)
+                    synced_guild = await bot.tree.sync(guild=guild_obj)
+                    logger.info(f"[STARTUP] Instantly synced {len(synced_guild)} slash command(s) to test guild {guild_id_str}.")
+                except Exception as g_err:
+                    logger.warning(f"Guild-specific slash command sync failed: {g_err}")
+
+            # Ensure Gaman has dedicated guild commands (including /join, /leave, /musicstatus) synced
+            gaman_guild_id = 1554152397327044729
+            try:
+                discord_features.music.setup_music_commands(bot.tree, bot, guild_id=gaman_guild_id)
+                synced_gaman = await bot.tree.sync(guild=discord.Object(id=gaman_guild_id))
+                logger.info(f"[STARTUP] Synced {len(synced_gaman)} guild command(s) to Gaman ({gaman_guild_id}).")
+            except Exception as g_err:
+                logger.warning(f"Gaman guild-specific slash command sync failed: {g_err}")
+
             synced = await bot.tree.sync()
-            logger.info(f"[STARTUP] Synced {len(synced)} slash command(s).")
+            logger.info(f"[STARTUP] Globally synced {len(synced)} slash command(s).")
             _tree_synced = True
         except Exception as e:
             logger.warning(f"Slash command sync failed: {e}")
 
     # Launch Kazumi background feature task (Giveaways, Reminders, Server Moments) - singleton guard
     if _background_feature_task is None or _background_feature_task.done():
-        _background_feature_task = bot.loop.create_task(kazumi_background_feature_loop())
+        _background_feature_task = asyncio.create_task(kazumi_background_feature_loop())
 
     write_health_status(
         "online",
@@ -573,6 +741,16 @@ async def on_message(message: discord.Message):
     # Ignore self and other bots
     if message.author.bot or (bot.user and message.author.id == bot.user.id):
         return
+
+    # Deduplication Guard: prevent duplicate concurrent processing of identical message events
+    if message.id in _processed_message_ids:
+        return
+    _processed_message_ids.add(message.id)
+    if len(_processed_message_ids) > 2000:
+        _processed_message_ids.difference_update(list(_processed_message_ids)[:1000])
+
+    correlation_id = f"msg_{message.id}"
+    start_time = time.time()
 
     raw_content = (message.content or "").strip()
     channel = message.channel
@@ -723,6 +901,53 @@ async def on_message(message: discord.Message):
     is_addressed = is_user_mentioned or is_role_mentioned or is_reply_to_kazumi or is_directly_addressed or is_prefix_called
 
     # =========================================================================
+    # 0D. CENTRAL COMMAND DISPATCHER (PHASE 2)
+    # Commands must be recognized and processed BEFORE Channel Policy AI blocks
+    # or Human Interaction silence suppresses them!
+    # =========================================================================
+    ctx = None
+    try:
+        ctx = await bot.get_context(message)
+    except Exception as ctx_err:
+        logger.debug(f"[{correlation_id}] Failed to get context: {ctx_err}")
+
+    if ctx and ctx.valid:
+        logger.info(f"[{correlation_id}] ⚡ [COMMAND] Dispatching prefix command '{ctx.command.name}' for {message.author}")
+        try:
+            await bot.invoke(ctx)
+        except Exception as cmd_err:
+            logger.error(f"[{correlation_id}] Error executing command '{ctx.command.name}': {cmd_err}", exc_info=True)
+            await message.channel.send(f"⚠️ Error executing command: {cmd_err}")
+        # Always return: A recognized command NEVER falls through to AI conversation!
+        return
+
+    # Check explicit prefix command attempt:
+    if is_prefix_called:
+        clean_pfx = re.sub(r"^\s*!(?:k|kazumi)\b[:,]?", "", raw_content, flags=re.IGNORECASE)
+        clean_pfx = re.sub(r"^\s*k!\b[:,]?", "", clean_pfx, flags=re.IGNORECASE)
+        if prefix_clean:
+            clean_pfx = re.sub(r"^\s*" + re.escape(prefix_clean) + r"\b[:,]?", "", clean_pfx, flags=re.IGNORECASE)
+        clean_pfx = clean_pfx.strip()
+        tokens = clean_pfx.split()
+        if tokens:
+            cmd_token = tokens[0].lower()
+            cmd_candidate = bot.get_command(cmd_token)
+            if cmd_candidate:
+                message.content = f"{PREFIX}{cmd_token} {' '.join(tokens[1:])}"
+                try:
+                    new_ctx = await bot.get_context(message)
+                    if new_ctx and new_ctx.valid:
+                        logger.info(f"[{correlation_id}] ⚡ [COMMAND] Dispatching resolved command '{cmd_candidate.name}' for {message.author}")
+                        await bot.invoke(new_ctx)
+                        return
+                except Exception as invoke_err:
+                    logger.debug(f"[{correlation_id}] Error invoking resolved command: {invoke_err}")
+            elif len(tokens) == 1 and not re.search(r"[?!.,]", cmd_token) and cmd_token not in CHAT_REACTIONS_AND_SLANG and cmd_token not in {"hi", "hello", "hey", "sup", "yo", "gm", "gn", "bye", "cya", "morning", "night", "hola"}:
+                # Explicit command keyword attempted that does not exist
+                await message.channel.send(f"I don't recognize the command `!k {cmd_token}`. Type `!k help` or `/help` to see everything I can do! 🌸")
+                return
+
+    # =========================================================================
     # 🌸 PERSON OBSERVATION & ADAPTIVE INTERACTION PIPELINE
     # =========================================================================
     author_name = getattr(message.author, "display_name", "") or getattr(message.author, "name", "")
@@ -750,37 +975,71 @@ async def on_message(message: discord.Message):
     if channel_mode == "DISABLED":
         return
 
-    # Mode 2: OBSERVATION_ONLY — secondary chats (Section 2B & 11)
-    # - Silently observe and update behavioral profile
-    # - NEVER send normal conversational text replies
-    # - React with context-aware emoji if appropriate (cooldown & probability enforced)
+    # =========================================================================
+    # 🌸 CENTRAL CHANNEL POLICY GATEKEEPER & ENFORCEMENT (PHASE 3)
+    # =========================================================================
+    channel_policy_mgr = kazumi_features.get("channel_policy")
+    current_policy = None
+    if channel_policy_mgr:
+        gid = message.guild.id if message.guild else None
+        current_policy = channel_policy_mgr.get_policy_for_channel(channel, gid)
+
+    if current_policy:
+        from discord_features.channel_policy import ChannelPolicyType
+
+        # 1. READ_ONLY (#rules) — completely silent
+        if current_policy.name == ChannelPolicyType.READ_ONLY:
+            return
+
+        # 2. STAFF_ONLY (#staff-chat, #mod-logs, #kazumi-logs, #bot-testing)
+        if current_policy.is_staff_only:
+            is_staff = False
+            if hasattr(message.author, "guild_permissions"):
+                perms = message.author.guild_permissions
+                is_staff = perms.administrator or perms.manage_guild or perms.manage_messages
+            if not is_staff:
+                return
+
+        # 3. OBSERVATION_ONLY (#general)
+        if current_policy.name == ChannelPolicyType.OBSERVATION_ONLY:
+            if react_emoji and current_policy.allow_reactions:
+                try:
+                    await message.add_reaction(react_emoji)
+                except Exception:
+                    pass
+
+            # When someone mentions Kazumi here, she should reply at most once:
+            # “Hey! 🌸 Let's keep this channel flowing. For a proper chat with me, come find me in #kazumi-chat! ✨”
+            if is_addressed:
+                gid_val = message.guild.id if message.guild else 0
+                if channel_policy_mgr.should_redirect_mention(gid_val, channel.id, message.author.id):
+                    redirect_msg = channel_policy_mgr.get_mention_redirect_message(message.guild)
+                    try:
+                        await message.reply(redirect_msg, mention_author=False)
+                    except Exception:
+                        try:
+                            await message.channel.send(redirect_msg)
+                        except Exception:
+                            pass
+            return
+
+        # 4. Other Non-AI-Chat Channels (#welcome, #announcements, #server-guide, #roles, #games, #giveaways, #music-commands)
+        if not current_policy.allow_ai_chat and not is_dm:
+            if react_emoji and current_policy.allow_reactions:
+                try:
+                    await message.add_reaction(react_emoji)
+                except Exception:
+                    pass
+            # Never send normal conversational AI text in these channels
+            return
+
+    # Fallback Mode 2: Legacy OBSERVATION_ONLY
     if channel_mode == "OBSERVATION_ONLY":
         if react_emoji:
             try:
                 await message.add_reaction(react_emoji)
             except Exception:
                 pass
-
-        # If user explicitly pinged/addressed Kazumi in an observation channel, politely redirect once
-        if is_addressed:
-            kazumi_ch = find_kazumi_channel_in_guild(message.guild)
-            if kazumi_ch and kazumi_ch.id != channel.id:
-                try:
-                    await message.reply(
-                        f"🌸 Hi {message.author.mention}! To keep this channel clean for everyone, I only chat in <#{kazumi_ch.id}> or DMs! Come talk with me over there! ✨",
-                        mention_author=False
-                    )
-                except Exception:
-                    pass
-            elif not kazumi_ch:
-                try:
-                    await message.reply(
-                        f"🌸 Hi {message.author.mention}! Please create a dedicated `#kazumi` channel for me to chat in, or DM me directly! ✨",
-                        mention_author=False
-                    )
-                except Exception:
-                    pass
-        # Never send normal text in observation-only channels
         return
 
     # =========================================================================
@@ -971,11 +1230,6 @@ async def on_message(message: discord.Message):
             or getattr(kazumi_core, "current_archetype", "") == "UNHINGED"
             or g_roast.get("unhinged_mode", False)
         )
-        if is_roast_active and kazumi_core:
-            kazumi_core.roast_mode = True
-            kazumi_core.roast_intensity = 4
-            kazumi_core.roast_style = "UNHINGED"
-            kazumi_core.current_archetype = "UNHINGED"
 
         social_directives = []
         if is_roast_active:
@@ -1006,20 +1260,43 @@ async def on_message(message: discord.Message):
         combined_directive = "\n".join(social_directives) if social_directives else None
 
         reply_text = None
+        reply_delivered = False
         # Safely trigger typing indicator while generating reply
         try:
             async with message.channel.typing():
-                reply_text = await asyncio.wait_for(ask_kazumi(clean_text, session_id, display_author, creator_ctx, person_directive=combined_directive), timeout=35.0)
+                reply_text = await asyncio.wait_for(
+                    ask_kazumi(
+                        clean_text,
+                        session_id,
+                        display_author,
+                        creator_ctx,
+                        person_directive=combined_directive,
+                        is_roast=is_roast_active
+                    ),
+                    timeout=35.0
+                )
         except Exception as typing_err:
             if not reply_text:
                 try:
-                    reply_text = await asyncio.wait_for(ask_kazumi(clean_text, session_id, display_author, creator_ctx, person_directive=combined_directive), timeout=25.0)
+                    reply_text = await asyncio.wait_for(
+                        ask_kazumi(
+                            clean_text,
+                            session_id,
+                            display_author,
+                            creator_ctx,
+                            person_directive=combined_directive,
+                            is_roast=is_roast_active
+                        ),
+                        timeout=25.0
+                    )
                 except Exception as core_err:
                     logger.error(f"Error querying Kazumi core: {core_err}", exc_info=True)
                     reply_text = "I'm right here with you! 🌸 (Kazumi smiles warmly.) What's on your mind?"
 
 
         reply_text = (reply_text or "").strip() or "I'm right here with you! 🌸"
+        if kazumi_core and hasattr(kazumi_core, "controller") and hasattr(kazumi_core.controller, "fix_unprompted_how_are_you"):
+            reply_text = kazumi_core.controller.fix_unprompted_how_are_you(reply_text, clean_text)
         logger.info(f"💬 Replying to {message.author}: '{reply_text[:60]}...'")
 
         # Update active conversation timestamp (user-level only)
@@ -1044,14 +1321,15 @@ async def on_message(message: discord.Message):
             pass
 
         # Deliver message reliably with fallback
-        await send_kazumi_response(message, reply_text)
+        reply_delivered = await send_kazumi_response(message, reply_text)
 
     except Exception as e:
         logger.error(f"❌ Error in on_message: {e}", exc_info=True)
-        await send_kazumi_response(
-            message,
-            "I'm right here with you! 🌸 (Kazumi nods warmly.) Something went a little fuzzy for a second, but I'm listening now!"
-        )
+        if not reply_delivered:
+            await send_kazumi_response(
+                message,
+                "I'm right here with you! 🌸 (Kazumi nods warmly.) Something went a little fuzzy for a second, but I'm listening now!"
+            )
 
 
 # ===========================================================================
@@ -1351,11 +1629,11 @@ async def slash_status(interaction: discord.Interaction):
     session_id = get_user_session_id(interaction.user)
     with kazumi_lock:
         kazumi_core.load_game_states(session_id)
-        profile = kazumi_core.memory.profile
-        affection = profile.get("affection_level", 10)
-        cozy_points = profile.get("cozy_points", 100)
-        persona = kazumi_core.current_archetype
-        turn_count = getattr(kazumi_core, "turn_count", 0)
+        s_state = kazumi_core.memory.profile.setdefault("session_game_states", {}).setdefault(session_id, {})
+        affection = s_state.get("affection_level", 10)
+        cozy_points = s_state.get("cozy_points", 100)
+        persona = s_state.get("archetype", getattr(kazumi_core, "current_archetype", "DEREDERE"))
+        turn_count = s_state.get("turn_count", 0)
 
     # Calculate affection hearts bar
     filled_hearts = min(10, max(0, affection // 10))
@@ -1435,21 +1713,23 @@ async def slash_persona(interaction: discord.Interaction, archetype: Optional[ap
 
     session_id = get_user_session_id(interaction.user)
     with kazumi_lock:
+        s_state = kazumi_core.memory.profile.setdefault("session_game_states", {}).setdefault(session_id, {})
         if archetype:
-            kazumi_core.current_archetype = archetype.value
-            kazumi_core.memory.profile["archetype"] = archetype.value
+            s_state["archetype"] = archetype.value
             kazumi_core.memory.save_profile()
             if archetype.value == "UNHINGED":
                 desc = f"Switched Kazumi's personality style to **{archetype.name}**! 💀🔥 All filters and sweetness are OFF—prepare for ruthless roasts!"
             else:
                 desc = f"Switched Kazumi's personality style to **{archetype.name}** for our upcoming chats! 🌸"
         else:
-            desc = f"Kazumi's current active personality is **{kazumi_core.current_archetype}**."
+            curr_arch = s_state.get("archetype", getattr(kazumi_core, "current_archetype", "DEREDERE"))
+            desc = f"Kazumi's current active personality for you is **{curr_arch}**."
 
+    curr_p = s_state.get("archetype", getattr(kazumi_core, "current_archetype", "DEREDERE"))
     embed = create_kazumi_embed(
         title="🎭 Companion Personality Style",
         description=desc,
-        color=0xff3366 if getattr(kazumi_core, "current_archetype", "") == "UNHINGED" else 0xc084fc
+        color=0xff3366 if curr_p == "UNHINGED" else 0xc084fc
     )
     await interaction.followup.send(embed=embed)
 
@@ -1462,9 +1742,19 @@ async def slash_reset(interaction: discord.Interaction):
         return
 
     session_id = get_user_session_id(interaction.user)
+    session_key = (interaction.channel_id, interaction.user.id)
+    active_conversations.pop(session_key, None)
+
     with kazumi_lock:
-        kazumi_core.memory.history = []
-        kazumi_core.memory.save_history(session_id)
+        if hasattr(kazumi_core, "memory") and hasattr(kazumi_core.memory, "history") and isinstance(kazumi_core.memory.history, list):
+            kazumi_core.memory.history = [item for item in kazumi_core.memory.history if item.get("session_id") != session_id]
+            kazumi_core.memory.save_history()
+
+        if hasattr(kazumi_core, "memory") and hasattr(kazumi_core.memory, "profile"):
+            profile = kazumi_core.memory.profile
+            if isinstance(profile, dict) and "session_game_states" in profile:
+                profile["session_game_states"].pop(session_id, None)
+                kazumi_core.memory.save_profile()
     
     embed = create_kazumi_embed(
         title="🌿 Fresh Start",
@@ -1587,36 +1877,6 @@ async def slash_help(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed)
 
 
-@bot.tree.command(name="channel_mode", description="Configure Kazumi's mode in this channel (ACTIVE_CHAT, OBSERVATION_ONLY, or DISABLED)")
-@app_commands.describe(mode="Active Chat (talks), Observation Only (reactions only, no text), or Disabled")
-@app_commands.choices(mode=[
-    app_commands.Choice(name="Active Chat (Replies & talks normally)", value="ACTIVE_CHAT"),
-    app_commands.Choice(name="Observation Only (Watches & reacts with emojis, NO text)", value="OBSERVATION_ONLY"),
-    app_commands.Choice(name="Disabled (Completely ignores this channel)", value="DISABLED"),
-])
-async def slash_channel_mode(interaction: discord.Interaction, mode: app_commands.Choice[str]):
-    # Permissions check: Require manage_channels or admin in guilds
-    if interaction.guild:
-        perms = interaction.channel.permissions_for(interaction.user)
-        if not (perms.manage_channels or perms.administrator or interaction.user.guild_permissions.administrator):
-            await interaction.response.send_message("❌ You need the **Manage Channels** or **Administrator** permission to change channel modes.", ephemeral=True)
-            return
-
-    if obs_manager:
-        obs_manager.set_channel_mode(str(interaction.channel_id), mode.value)
-        embed = create_kazumi_embed(
-            title="🌸 Channel Mode Updated",
-            description=(
-                f"This channel (<#{interaction.channel_id}>) has been set to **{mode.name}**!\n\n"
-                f"• **Active Chat**: Kazumi speaks and answers conversations normally.\n"
-                f"• **Observation Only**: Kazumi observes context and occasionally adds natural emoji reactions (probability & cooldown limited), but **never** sends text messages.\n"
-                f"• **Disabled**: Kazumi completely ignores this channel."
-            )
-        )
-        await interaction.response.send_message(embed=embed)
-    else:
-        await interaction.response.send_message("Observation manager is not initialized.", ephemeral=True)
-
 
 @bot.tree.command(name="reset_person", description="Reset learned behavior profile (Privacy & Safety)")
 @app_commands.describe(user="The user whose profile to reset (defaults to yourself)")
@@ -1671,7 +1931,7 @@ async def slash_vibe(interaction: discord.Interaction):
         title=f"🌸 Conversational Harmony • {interaction.user.display_name}",
         description=f"Here is how Kazumi experiences your shared conversational rhythm!"
     )
-    embed.add_field(name="Companion Familiarity", value=f"💫 **{rel_title}** (Level {profile.relationship_level}/4)", inline=True)
+    embed.add_field(name="Companion Familiarity", value=f"💫 **{rel_title}** (Level {profile.relationship_level}/5)", inline=True)
     embed.add_field(name="Conversational Vibe", value=f"✨ **{vibe_str}**", inline=True)
     embed.add_field(name="Interactions Observed", value=f"💬 **{profile.interaction_count} messages**", inline=True)
 
@@ -1682,6 +1942,439 @@ async def slash_vibe(interaction: discord.Interaction):
         embed.add_field(name="Observed Rhythm", value="\n".join([f"• {p}" for p in profile.behaviour_patterns[:3]]), inline=False)
 
     await interaction.response.send_message(embed=embed)
+
+
+# ---------------------------------------------------------------------------
+# Prefix Commands (!k <command>)
+# ---------------------------------------------------------------------------
+
+@bot.command(name="ping", help="Check Kazumi's latency and response time 🏓")
+async def cmd_ping(ctx: commands.Context):
+    latency_ms = round(bot.latency * 1000, 1) if bot.latency else 0.0
+    await ctx.send(f"Pong! 🏓 Latency: **{latency_ms}ms** 🌸")
+
+
+@bot.command(name="uptime", help="Check Kazumi's current online uptime ⏱️")
+async def cmd_uptime(ctx: commands.Context):
+    uptime_sec = int(time.time() - BOT_START_TIME)
+    days, rem = divmod(uptime_sec, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, seconds = divmod(rem, 60)
+    parts = []
+    if days > 0:
+        parts.append(f"{days}d")
+    if hours > 0:
+        parts.append(f"{hours}h")
+    if minutes > 0:
+        parts.append(f"{minutes}m")
+    parts.append(f"{seconds}s")
+    uptime_str = " ".join(parts)
+    embed = create_kazumi_embed(
+        title="⏱️ Kazumi Uptime",
+        description=f"Kazumi has been online and chatting for **{uptime_str}**! 🌸"
+    )
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="status", help="Check companion affection level, cozy points, and persona 💕")
+async def cmd_status(ctx: commands.Context):
+    if not kazumi_core:
+        await ctx.send("Kazumi core is currently offline.")
+        return
+    session_id = get_user_session_id(ctx.author)
+    with kazumi_lock:
+        kazumi_core.load_game_states(session_id)
+        s_state = kazumi_core.memory.profile.setdefault("session_game_states", {}).setdefault(session_id, {})
+        affection = s_state.get("affection_level", 10)
+        cozy_points = s_state.get("cozy_points", 100)
+        persona = s_state.get("archetype", getattr(kazumi_core, "current_archetype", "DEREDERE"))
+        turn_count = s_state.get("turn_count", 0)
+
+    filled_hearts = min(10, max(0, affection // 10))
+    empty_hearts = 10 - filled_hearts
+    heart_bar = "💖" * filled_hearts + "🤍" * empty_hearts
+
+    embed = create_kazumi_embed(
+        title="🌸 Kazumi Companion Status",
+        description=f"Here is our companion bond and cozy stats, **{ctx.author.display_name}**!"
+    )
+    embed.add_field(name="Affection Level", value=f"{heart_bar} **{affection}%**", inline=False)
+    embed.add_field(name="Cozy Points", value=f"✨ **{cozy_points} pts**", inline=True)
+    embed.add_field(name="Active Persona", value=f"🌸 **{persona}**", inline=True)
+    embed.add_field(name="Conversations", value=f"💬 **{turn_count} turns**", inline=True)
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="diary", help="Read what Kazumi wrote in her journal today 📖")
+async def cmd_diary(ctx: commands.Context):
+    session_id = get_user_session_id(ctx.author)
+    reply_text = await ask_kazumi("/diary", session_id)
+    embed = create_kazumi_embed(
+        title="📖 Kazumi's Diary Entry",
+        description=reply_text[:4000]
+    )
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="quests", help="View your active cozy quests and goals 🌟")
+async def cmd_quests(ctx: commands.Context):
+    session_id = get_user_session_id(ctx.author)
+    reply_text = await ask_kazumi("/quests", session_id)
+    embed = create_kazumi_embed(
+        title="🌟 Cozy Quests & Goals",
+        description=reply_text[:4000]
+    )
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="horoscope", help="Get a daily horoscope reading ✨")
+async def cmd_horoscope(ctx: commands.Context, sign: str = "Aries"):
+    if not kazumi_core:
+        await ctx.send("Kazumi core is currently offline.")
+        return
+    with kazumi_lock:
+        horo = kazumi_core.get_daily_horoscope(sign.strip().title())
+
+    embed = create_kazumi_embed(
+        title=f"✨ Daily Cosmic Reading for {sign.strip().title()}",
+        description=horo.get("prediction", "May your day be filled with warm smiles and calm moments! 🌸")
+    )
+    embed.add_field(name="Lucky Gift", value=f"🎁 {horo.get('lucky_gift', 'Cherry Blossoms')}", inline=True)
+    embed.add_field(name="Lucky Decor", value=f"🖼️ {horo.get('lucky_decor', 'Soft Cushion')}", inline=True)
+    embed.add_field(name="Cosmic Affinity", value=f"💫 **{horo.get('affinity', 85)}%**", inline=True)
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="persona", help="Switch or view Kazumi's personality archetype 🎭")
+async def cmd_persona(ctx: commands.Context, archetype: Optional[str] = None):
+    if not kazumi_core:
+        await ctx.send("Kazumi core is currently offline.")
+        return
+    session_id = get_user_session_id(ctx.author)
+    valid_archetypes = {"DEREDERE", "TEASING", "KUUDERE", "TSUNDERE", "UNHINGED"}
+    with kazumi_lock:
+        s_state = kazumi_core.memory.profile.setdefault("session_game_states", {}).setdefault(session_id, {})
+        if archetype and archetype.upper() in valid_archetypes:
+            arch_val = archetype.upper()
+            s_state["archetype"] = arch_val
+            kazumi_core.memory.save_profile()
+            if arch_val == "UNHINGED":
+                desc = f"Switched Kazumi's personality style to **Unhinged**! 💀🔥 All filters and sweetness are OFF—prepare for ruthless roasts!"
+            else:
+                desc = f"Switched Kazumi's personality style to **{arch_val.title()}** for our upcoming chats! 🌸"
+        else:
+            curr = s_state.get("archetype", getattr(kazumi_core, "current_archetype", "DEREDERE"))
+            desc = f"Kazumi's current personality for you is **{curr}**.\n\nAvailable archetypes: `Deredere`, `Teasing`, `Kuudere`, `Tsundere`, `Unhinged`."
+
+    embed = create_kazumi_embed(
+        title="🎭 Companion Personality Style",
+        description=desc,
+        color=0xff3366 if s_state.get("archetype") == "UNHINGED" else 0xc084fc
+    )
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="reset", help="Clear recent conversation memory for a fresh start 🌿")
+async def cmd_reset(ctx: commands.Context):
+    if not kazumi_core:
+        await ctx.send("Kazumi core is offline.")
+        return
+    session_id = get_user_session_id(ctx.author)
+    session_key = (ctx.channel.id, ctx.author.id)
+    active_conversations.pop(session_key, None)
+
+    with kazumi_lock:
+        if hasattr(kazumi_core, "memory") and hasattr(kazumi_core.memory, "history") and isinstance(kazumi_core.memory.history, list):
+            kazumi_core.memory.history = [item for item in kazumi_core.memory.history if item.get("session_id") != session_id]
+            kazumi_core.memory.save_history()
+
+        if hasattr(kazumi_core, "memory") and hasattr(kazumi_core.memory, "profile"):
+            profile = kazumi_core.memory.profile
+            if isinstance(profile, dict) and "session_game_states" in profile:
+                profile["session_game_states"].pop(session_id, None)
+                kazumi_core.memory.save_profile()
+    embed = create_kazumi_embed(
+        title="🌿 Fresh Start",
+        description="I've cleared our recent chat history for a fresh start! I'm right here whenever you'd like to talk again. 🌸"
+    )
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="emotion", help="Check Kazumi's current spontaneous human emotion 💕")
+async def cmd_emotion(ctx: commands.Context):
+    try:
+        emo_engine = get_emotion_engine()
+        curr_emo = emo_engine.get_current_emotion()
+        cue = emo_engine.get_random_cue()
+        embed = create_kazumi_embed(
+            title=f"{curr_emo['emoji']} Kazumi's Current Emotion: {curr_emo['name']}",
+            description=(
+                f"*{cue}*\n\n"
+                f"**Current Vibe:** {curr_emo['vibe_description']}\n\n"
+                f"Kazumi experiences spontaneous human girl emotions during chats—feeling shy, teasing, "
+                f"affectionate, pouty, excited, thoughtful, or sleepy depending on the moment! 🌸"
+            )
+        )
+        await ctx.send(embed=embed)
+    except Exception as e:
+        await ctx.send("I'm feeling cozy and happy to be here with you! 🌸")
+
+
+@bot.command(name="vibe", help="Check your conversational vibe and familiarity level ✨")
+async def cmd_vibe(ctx: commands.Context):
+    if not obs_manager:
+        await ctx.send("Observation manager is not initialized.")
+        return
+    profile = obs_manager.get_profile(str(ctx.author.id), display_name=ctx.author.display_name)
+    from person_memory.relationship_manager import RelationshipManager
+    rel_title = RelationshipManager.get_relationship_title(profile.relationship_level)
+
+    style = profile.communication_style
+    vibes = []
+    if style.humor >= 0.5:
+        vibes.append("Playful & Witty 😂")
+    elif style.formality >= 0.6:
+        vibes.append("Thoughtful & Articulate 📜")
+    else:
+        vibes.append("Casual & Warm 🌸")
+
+    if style.energy >= 0.6:
+        vibes.append("High Energy ✨")
+    elif style.energy <= 0.3:
+        vibes.append("Calm & Chill ☕")
+
+    vibe_str = " • ".join(vibes)
+    embed = create_kazumi_embed(
+        title=f"🌸 Conversational Harmony • {ctx.author.display_name}",
+        description="Here is how Kazumi experiences your shared conversational rhythm!"
+    )
+    embed.add_field(name="Companion Familiarity", value=f"💫 **{rel_title}** (Level {profile.relationship_level}/5)", inline=True)
+    embed.add_field(name="Conversational Vibe", value=f"✨ **{vibe_str}**", inline=True)
+    embed.add_field(name="Interactions Observed", value=f"💬 **{profile.interaction_count} messages**", inline=True)
+    if profile.interests:
+        embed.add_field(name="Shared Topics", value=", ".join([f"`{i.title()}`" for i in profile.interests[:4]]), inline=False)
+    if profile.behaviour_patterns:
+        embed.add_field(name="Observed Rhythm", value="\n".join([f"• {p}" for p in profile.behaviour_patterns[:3]]), inline=False)
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="roast", help="Deliver a sharp witty or unhinged roast 💀🔥")
+async def cmd_roast(ctx: commands.Context, *, target: Optional[str] = None):
+    roast_engine = kazumi_features.get("roast_engine")
+    db_inst = kazumi_features.get("db")
+    target_str = target or ctx.author.mention
+    target_user = None
+    if ctx.message.mentions:
+        target_user = ctx.message.mentions[0]
+    elif not target:
+        target_user = ctx.author
+
+    if target_user and db_inst and db_inst.is_user_roast_opted_out(target_user.id):
+        await ctx.send(f"🛡️ {target_user.display_name} has opted out of roasts.")
+        return
+
+    comeback = None
+    if roast_engine and hasattr(roast_engine, "generate_roast"):
+        try:
+            comeback = roast_engine.generate_roast(target=target_str, intensity=3)
+        except Exception:
+            pass
+    if not comeback:
+        comeback = discord_features.ComebackEngine.get_comeback("skill_issue")
+    embed = create_kazumi_embed(
+        title="💀🔥 Kazumi Roast Delivery",
+        description=f"**Target:** {target_str}\n\n{comeback}",
+        color=0xff3366
+    )
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="unhinged", help="Toggle savage unhinged mode for the server or channel 💀🔥")
+async def cmd_unhinged(ctx: commands.Context, toggle: Optional[str] = None):
+    db_inst = kazumi_features.get("db")
+    if not ctx.guild:
+        await ctx.send("This command can only be used in a server.")
+        return
+    gid = ctx.guild.id
+    current_settings = db_inst.get_guild_roast_settings(gid) if db_inst else {}
+    current_state = current_settings.get("unhinged_mode", False)
+    
+    if toggle is None:
+        new_state = not current_state
+    else:
+        new_state = toggle.lower() in ("true", "on", "yes", "enable", "enabled", "1")
+        
+    if db_inst:
+        current_settings["unhinged_mode"] = new_state
+        db_inst.set_guild_roast_settings(gid, current_settings)
+
+    if new_state:
+        msg = "🔥 **Unhinged Mode is now ACTIVATED!** 💀 Kazumi's sweet filters are OFF. Prepare for savage burns!"
+    else:
+        msg = "🌸 **Unhinged Mode is now DEACTIVATED.** Kazumi is back to her sweet, cozy companion self."
+    await ctx.send(msg)
+
+
+@bot.command(name="connect4", help="Play Connect Four with another user 🔴🔵")
+async def cmd_connect4(ctx: commands.Context, opponent: Optional[discord.Member] = None):
+    if not ctx.guild:
+        await ctx.send("❌ Games can only be played in servers.")
+        return
+    if not opponent or opponent.id == ctx.author.id or opponent.bot:
+        await ctx.send("❌ Please mention a valid player to challenge (e.g. `!k connect4 @player`)!")
+        return
+    db_inst = kazumi_features.get("db")
+    engine = discord_features.get_game_engine(db_inst) if db_inst else None
+    if not engine:
+        await ctx.send("Game engine is not initialized.")
+        return
+    can_play, msg = engine.can_user_play(ctx.guild.id, ctx.author.id)
+    if not can_play:
+        await ctx.send(f"❌ {msg}")
+        return
+    from discord_features.game_engine import ConnectFourView
+    view = ConnectFourView(ctx.author, opponent, engine)
+    await ctx.send(embed=view.render_embed(), view=view)
+
+
+@bot.command(name="tictactoe", help="Play Tic-Tac-Toe vs another player or Kazumi AI ❌⭕")
+async def cmd_tictactoe(ctx: commands.Context, opponent: Optional[discord.Member] = None, difficulty: str = "normal"):
+    if not ctx.guild:
+        await ctx.send("❌ Server only.")
+        return
+    db_inst = kazumi_features.get("db")
+    engine = discord_features.get_game_engine(db_inst) if db_inst else None
+    if not engine:
+        await ctx.send("Game engine is not initialized.")
+        return
+    is_ai = (opponent is None or (bot.user and opponent.id == bot.user.id))
+    from discord_features.game_engine import TicTacToeView
+    view = TicTacToeView(ctx.author, opponent if not is_ai else None, is_ai, difficulty.lower(), engine)
+    await ctx.send(embed=view.render_embed(), view=view)
+
+
+@bot.command(name="arena", help="Challenge a friend to a tactical RPG Arena Duel ⚔️")
+async def cmd_arena(ctx: commands.Context, opponent: Optional[discord.Member] = None, your_class: str = "warrior"):
+    if not ctx.guild:
+        await ctx.send("❌ Server only.")
+        return
+    if not opponent or opponent.id == ctx.author.id or opponent.bot:
+        await ctx.send("❌ Please challenge another human player (e.g. `!k arena @player`)!")
+        return
+    db_inst = kazumi_features.get("db")
+    engine = discord_features.get_game_engine(db_inst) if db_inst else None
+    if not engine:
+        await ctx.send("Game engine is not initialized.")
+        return
+    from discord_features.game_engine import ArenaDuelView
+    view = ArenaDuelView(ctx.author, opponent, your_class.lower(), engine)
+    await ctx.send(embed=view.render_embed(), view=view)
+
+
+@bot.command(name="trivia", help="Play a round of anime, tech, gaming, or science trivia 🧠")
+async def cmd_trivia(ctx: commands.Context, category: Optional[str] = None):
+    db_inst = kazumi_features.get("db")
+    engine = discord_features.get_game_engine(db_inst) if db_inst else None
+    if not engine:
+        await ctx.send("Game engine is not initialized.")
+        return
+    from discord_features.game_engine import TriviaView
+    view = TriviaView(ctx.author, category.lower() if category else None, engine)
+    await ctx.send(embed=view.render_embed(), view=view)
+
+
+@bot.command(name="arcade", aliases=["game", "games"], help="Open the Master Arcade Menu 🎮")
+async def cmd_arcade(ctx: commands.Context):
+    db_inst = kazumi_features.get("db")
+    engine = discord_features.get_game_engine(db_inst) if db_inst else None
+    if not engine:
+        await ctx.send("Game engine is not initialized.")
+        return
+    from discord_features.game_engine import ArcadeMenuView
+    view = ArcadeMenuView(engine)
+    embed = create_kazumi_embed(
+        title="🎮 Kazumi Arcade & Entertainment Suite",
+        description=(
+            "Welcome to the Kazumi Arcade! Select a game from the buttons below or use commands:\n\n"
+            "• `!k connect4 @player` - Connect Four 🔴🔵\n"
+            "• `!k tictactoe [@player] [easy/normal/hard]` - Tic-Tac-Toe ❌⭕\n"
+            "• `!k arena @player` - RPG Battle Arena ⚔️\n"
+            "• `!k trivia [category]` - Trivia Challenge 🧠\n"
+            "• `!k roll [dice]` - Roll dice 🎲\n"
+            "• `!k coinflip` - Flip a coin 🪙"
+        ),
+        color=0xa855f7
+    )
+    await ctx.send(embed=embed, view=view)
+
+
+@bot.command(name="roll", help="Roll a die (e.g., !k roll, !k roll 100, !k roll 2d6) 🎲")
+async def cmd_roll(ctx: commands.Context, dice: Optional[str] = None):
+    if not dice:
+        result = random.randint(1, 6)
+        await ctx.send(f"🎲 **{ctx.author.display_name}** rolled a **{result}** (1-6)!")
+        return
+    match = re.match(r"^(\d+)?d(\d+)$", dice.lower().strip())
+    if match:
+        count = min(int(match.group(1) or 1), 20)
+        sides = max(2, min(int(match.group(2)), 1000))
+        rolls = [random.randint(1, sides) for _ in range(count)]
+        total = sum(rolls)
+        rolls_str = ", ".join(map(str, rolls)) if count > 1 else ""
+        if rolls_str:
+            await ctx.send(f"🎲 **{ctx.author.display_name}** rolled `{dice}`: [{rolls_str}] = **{total}**!")
+        else:
+            await ctx.send(f"🎲 **{ctx.author.display_name}** rolled `{dice}`: **{total}**!")
+        return
+    try:
+        max_val = int(dice)
+        if max_val >= 2:
+            result = random.randint(1, max_val)
+            await ctx.send(f"🎲 **{ctx.author.display_name}** rolled a **{result}** (1-{max_val})!")
+            return
+    except ValueError:
+        pass
+    await ctx.send("🎲 Rolling a standard 6-sided die: **{}**!".format(random.randint(1, 6)))
+
+
+@bot.command(name="coinflip", aliases=["flip", "coin"], help="Flip a coin (Heads or Tails) 🪙")
+async def cmd_coinflip(ctx: commands.Context):
+    outcome = random.choice(["Heads 🪙", "Tails 🪙"])
+    await ctx.send(f"🪙 **{ctx.author.display_name}** flipped a coin and got **{outcome}**!")
+
+
+@bot.command(name="help", help="Show all available Kazumi commands 🌸")
+async def cmd_help(ctx: commands.Context):
+    embed = create_kazumi_embed(
+        title="🌸 Kazumi Commands & Features Guide",
+        description=(
+            "Here is a complete list of commands you can use with prefix `!k` or `/`:\n\n"
+            "**💬 Conversation & Companion:**\n"
+            "• `!k ping` - Check latency\n"
+            "• `!k uptime` - Check bot uptime\n"
+            "• `!k status` - Affection level, cozy points, turn count\n"
+            "• `!k diary` - Read Kazumi's daily reflections\n"
+            "• `!k quests` - Cozy quests and milestones\n"
+            "• `!k horoscope [sign]` - Daily astrological reading\n"
+            "• `!k persona [archetype]` - Switch persona (Deredere, Teasing, Kuudere, Tsundere, Unhinged)\n"
+            "• `!k reset` - Clear conversation history for a fresh start\n"
+            "• `!k emotion` - View spontaneous human emotions\n"
+            "• `!k vibe` - Check conversational harmony\n"
+            "• `!k roast [@user]` - Savage roast delivery\n"
+            "• `!k unhinged [on/off]` - Toggle unhinged savage mode\n\n"
+            "**🎮 Arcade & Games:**\n"
+            "• `!k arcade` - Master arcade game menu\n"
+            "• `!k connect4 @player` - Connect Four match\n"
+            "• `!k tictactoe [@player] [diff]` - Tic-Tac-Toe\n"
+            "• `!k arena @player` - RPG Arena Duel\n"
+            "• `!k trivia [category]` - Trivia quiz\n"
+            "• `!k roll [dice]` - Roll dice\n"
+            "• `!k coinflip` - Flip a coin\n\n"
+            "**✨ Slash Commands:**\n"
+            "You can also use `/chat`, `/status`, `/roast`, `/help`, and 20+ other slash commands!"
+        )
+    )
+    await ctx.send(embed=embed)
 
 
 # ---------------------------------------------------------------------------

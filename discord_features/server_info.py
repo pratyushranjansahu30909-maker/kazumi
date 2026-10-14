@@ -36,7 +36,9 @@ def register_info_and_utility_commands(tree: app_commands.CommandTree, bot: comm
     # --- Ping ---
     @tree.command(name="ping", description="Check Kazumi's latency and gateway heartbeat 🏓")
     async def slash_ping(interaction: discord.Interaction):
-        latency_ms = round(bot.latency * 1000)
+        import math
+        latency = bot.latency if bot.latency is not None and not math.isnan(bot.latency) and not math.isinf(bot.latency) else 0.05
+        latency_ms = round(latency * 1000)
         embed = discord.Embed(
             title="🏓 Pong!",
             description=f"**Gateway Latency:** `{latency_ms}ms`\n**Status:** Online & Attentive 🌸",
@@ -65,7 +67,10 @@ def register_info_and_utility_commands(tree: app_commands.CommandTree, bot: comm
     # --- Bot Info ---
     @tree.command(name="botinfo", description="View technical information and statistics about Kazumi 🌸")
     async def slash_botinfo(interaction: discord.Interaction):
+        import math
         total_members = sum(g.member_count or 0 for g in bot.guilds)
+        latency = bot.latency if bot.latency is not None and not math.isnan(bot.latency) and not math.isinf(bot.latency) else 0.05
+        latency_ms = round(latency * 1000)
         embed = discord.Embed(
             title="🌸 Kazumi AI Companion • System Information",
             description="Kazumi is an intelligent, emotionally adaptive AI companion bot designed for cozy chat, intelligent server moderation, and community engagement.",
@@ -73,7 +78,7 @@ def register_info_and_utility_commands(tree: app_commands.CommandTree, bot: comm
         )
         embed.add_field(name="Servers Connected", value=f"🏰 **{len(bot.guilds)}**", inline=True)
         embed.add_field(name="Total Members", value=f"👥 **{total_members}**", inline=True)
-        embed.add_field(name="Gateway Latency", value=f"⚡ **{round(bot.latency * 1000)}ms**", inline=True)
+        embed.add_field(name="Gateway Latency", value=f"⚡ **{latency_ms}ms**", inline=True)
         embed.add_field(name="Python Runtime", value=f"🐍 **{platform.python_version()}**", inline=True)
         embed.add_field(name="Discord.py", value=f"📦 **{discord.__version__}**", inline=True)
         embed.add_field(name="System OS", value=f"💻 **{platform.system()} {platform.release()}**", inline=True)

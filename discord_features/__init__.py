@@ -163,9 +163,12 @@ def setup_all_features(bot: commands.Bot, tree: app_commands.CommandTree) -> Dic
     from .intent_router import NaturalIntentRouter
     from .announcements import setup_announcement_commands
     from .stage import setup_stage_commands
+    from .channel_policy import get_channel_policy_manager, register_channel_policy_commands, FeatureGroup, ChannelPolicyType
 
     announcement_scheduler = setup_announcement_commands(tree, bot, db)
     setup_stage_commands(tree, bot, db)
+    channel_policy_mgr = get_channel_policy_manager(db)
+    register_channel_policy_commands(tree, bot, db)
 
     intent_router = NaturalIntentRouter(bot, {
         "db": db,
@@ -174,7 +177,8 @@ def setup_all_features(bot: commands.Bot, tree: app_commands.CommandTree) -> Dic
         "giveaways": giveaway_manager,
         "music": music,
         "roast_engine": roast_engine,
-        "case_manager": case_manager
+        "case_manager": case_manager,
+        "channel_policy": channel_policy_mgr
     })
 
     logger.info("All Kazumi feature modules loaded and command handlers registered.")
@@ -203,5 +207,6 @@ def setup_all_features(bot: commands.Bot, tree: app_commands.CommandTree) -> Dic
         "human_interaction": human_interaction,
         "music": music,
         "permissions": PermissionService,
-        "intent_router": intent_router
+        "intent_router": intent_router,
+        "channel_policy": channel_policy_mgr
     }

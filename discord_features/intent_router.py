@@ -276,6 +276,21 @@ class NaturalIntentRouter:
         author = message.author
         is_unhinged = self._is_unhinged_active(guild.id if guild else None, author.id)
 
+        # Enforce Central Channel Policy Gatekeeper
+        channel_policy = self.features.get("channel_policy")
+        if channel_policy and guild and message.channel:
+            from .channel_policy import FeatureGroup
+            feat_map = {
+                "music": FeatureGroup.MUSIC,
+                "moderation": FeatureGroup.MODERATION,
+                "giveaway": FeatureGroup.GIVEAWAYS
+            }
+            target_feat = feat_map.get(category)
+            if target_feat:
+                can_run, denial_reason = channel_policy.can_execute(message.channel, target_feat, author, message)
+                if not can_run:
+                    return True, denial_reason, None
+
         # ---------------------------------------------------------------------
         # A. MUSIC EXECUTION
         # ---------------------------------------------------------------------

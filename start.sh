@@ -8,6 +8,7 @@ cd "$SCRIPT_DIR"
 export ISA_MEMORY_DIR="${ISA_MEMORY_DIR:-$SCRIPT_DIR/isa_memory}"
 export KAZUMI_SUPERVISED=1
 export PYTHONUNBUFFERED=1
+export PORT="${PORT:-7860}"
 mkdir -p "$SCRIPT_DIR/logs" "$ISA_MEMORY_DIR"
 
 # Source .env if present
