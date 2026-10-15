@@ -422,7 +422,60 @@ class TestMonitoringSystem(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(stats["sent"], 1)
 
     # --------------------------------------------------------------------------
-    # 7. Helper Utilities
+    # 7. Role Button Interaction Persistence
+    # --------------------------------------------------------------------------
+    async def test_role_toggle_interaction_adds_role(self):
+        """Test persistent button click toggles role ON when member lacks it."""
+        from discord_features.reaction_roles import handle_role_toggle_interaction
+        mock_role = MagicMock(id=555, name="Announcements Ping")
+        mock_guild = MagicMock()
+        mock_guild.get_role.return_value = mock_role
+        mock_guild.me.top_role.__le__.return_value = False
+
+        mock_member = MagicMock(spec=discord.Member)
+        mock_member.roles = []
+        mock_member.add_roles = AsyncMock()
+
+        mock_interaction = MagicMock(spec=discord.Interaction)
+        mock_interaction.response.is_done.return_value = False
+        mock_interaction.response.send_message = AsyncMock()
+        mock_interaction.data = {"custom_id": "kazumi:role:555"}
+        mock_interaction.guild = mock_guild
+        mock_interaction.user = mock_member
+
+        handled = await handle_role_toggle_interaction(mock_interaction)
+        self.assertTrue(handled)
+        mock_member.add_roles.assert_called_once_with(mock_role, reason="Kazumi Button Roles Toggle")
+        mock_interaction.response.send_message.assert_called_once()
+        self.assertIn("Added", mock_interaction.response.send_message.call_args[0][0])
+
+    async def test_role_toggle_interaction_removes_role(self):
+        """Test persistent button click toggles role OFF when member already has it."""
+        from discord_features.reaction_roles import handle_role_toggle_interaction
+        mock_role = MagicMock(id=555, name="Announcements Ping")
+        mock_guild = MagicMock()
+        mock_guild.get_role.return_value = mock_role
+        mock_guild.me.top_role.__le__.return_value = False
+
+        mock_member = MagicMock(spec=discord.Member)
+        mock_member.roles = [mock_role]
+        mock_member.remove_roles = AsyncMock()
+
+        mock_interaction = MagicMock(spec=discord.Interaction)
+        mock_interaction.response.is_done.return_value = False
+        mock_interaction.response.send_message = AsyncMock()
+        mock_interaction.data = {"custom_id": "kazumi:role:555"}
+        mock_interaction.guild = mock_guild
+        mock_interaction.user = mock_member
+
+        handled = await handle_role_toggle_interaction(mock_interaction)
+        self.assertTrue(handled)
+        mock_member.remove_roles.assert_called_once_with(mock_role, reason="Kazumi Button Roles Toggle")
+        mock_interaction.response.send_message.assert_called_once()
+        self.assertIn("Removed", mock_interaction.response.send_message.call_args[0][0])
+
+    # --------------------------------------------------------------------------
+    # 8. Helper Utilities
     # --------------------------------------------------------------------------
     def test_safe_mask_url(self):
         url = "https://discord.com/api/webhooks/123456789/abcdefghijklmnopqrstuvwxyz"

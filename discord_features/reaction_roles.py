@@ -13,6 +13,80 @@ from discord.ext import commands
 from discord_features.database import get_feature_db
 
 
+async def handle_role_toggle_interaction(interaction: discord.Interaction, role_id: Optional[int] = None) -> bool:
+    """
+    Handles self-service role toggle button clicks (kazumi:role:<role_id>).
+    Guarantees persistence across bot restarts and prevents interaction timeouts.
+    """
+    if interaction.response.is_done():
+        return True
+
+    if role_id is None:
+        custom_id = str(getattr(interaction, "data", {}).get("custom_id", ""))
+        if not custom_id.startswith("kazumi:role:"):
+            return False
+        try:
+            role_id = int(custom_id.split(":")[-1])
+        except (ValueError, IndexError):
+            return False
+
+    guild = interaction.guild
+    if not guild:
+        return False
+
+    role = guild.get_role(role_id)
+    if not role:
+        try:
+            await interaction.response.send_message("❌ This role no longer exists in the server.", ephemeral=True)
+        except Exception:
+            pass
+        return True
+
+    if guild.me.top_role <= role:
+        try:
+            await interaction.response.send_message("❌ Kazumi's role is lower than this role in the server hierarchy.", ephemeral=True)
+        except Exception:
+            pass
+        return True
+
+    member = interaction.user
+    if not hasattr(member, "roles") and hasattr(guild, "get_member"):
+        try:
+            member = guild.get_member(member.id) or await guild.fetch_member(member.id)
+        except Exception:
+            pass
+
+    if not hasattr(member, "roles"):
+        try:
+            await interaction.response.send_message("❌ Could not resolve member details.", ephemeral=True)
+        except Exception:
+            pass
+        return True
+
+    if role in member.roles:
+        try:
+            await member.remove_roles(role, reason="Kazumi Button Roles Toggle")
+            await interaction.response.send_message(f"➖ Removed **{role.name}** role from you.", ephemeral=True)
+            return True
+        except Exception as e:
+            try:
+                await interaction.response.send_message(f"❌ Error removing role: {e}", ephemeral=True)
+            except Exception:
+                pass
+            return True
+    else:
+        try:
+            await member.add_roles(role, reason="Kazumi Button Roles Toggle")
+            await interaction.response.send_message(f"➕ Added **{role.name}** role to you!", ephemeral=True)
+            return True
+        except Exception as e:
+            try:
+                await interaction.response.send_message(f"❌ Error adding role: {e}", ephemeral=True)
+            except Exception:
+                pass
+            return True
+
+
 class RoleToggleButton(discord.ui.Button):
     """Button representing a single assignable role."""
     def __init__(self, role_id: int, label: str, emoji: Optional[str] = None):
@@ -25,32 +99,7 @@ class RoleToggleButton(discord.ui.Button):
         self.role_id = role_id
 
     async def callback(self, interaction: discord.Interaction):
-        guild = interaction.guild
-        if not guild:
-            return
-
-        role = guild.get_role(self.role_id)
-        if not role:
-            await interaction.response.send_message("❌ This role no longer exists.", ephemeral=True)
-            return
-
-        if guild.me.top_role <= role:
-            await interaction.response.send_message("❌ Kazumi's role is lower than this role in the server hierarchy.", ephemeral=True)
-            return
-
-        member = interaction.user
-        if role in member.roles:
-            try:
-                await member.remove_roles(role, reason="Kazumi Button Roles Toggle")
-                await interaction.response.send_message(f"➖ Removed **{role.name}** role from you.", ephemeral=True)
-            except Exception as e:
-                await interaction.response.send_message(f"❌ Error removing role: {e}", ephemeral=True)
-        else:
-            try:
-                await member.add_roles(role, reason="Kazumi Button Roles Toggle")
-                await interaction.response.send_message(f"➕ Added **{role.name}** role to you!", ephemeral=True)
-            except Exception as e:
-                await interaction.response.send_message(f"❌ Error adding role: {e}", ephemeral=True)
+        await handle_role_toggle_interaction(interaction, role_id=self.role_id)
 
 
 class DynamicRolePanelView(discord.ui.View):

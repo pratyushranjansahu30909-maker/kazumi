@@ -766,6 +766,18 @@ async def on_resumed():
 
 
 @bot.event
+async def on_interaction(interaction: discord.Interaction):
+    """Global interaction dispatcher ensuring persistent button handling across restarts."""
+    if interaction.type == discord.InteractionType.component:
+        custom_id = str(getattr(interaction, "data", {}).get("custom_id", ""))
+        if custom_id.startswith("kazumi:role:"):
+            from discord_features.reaction_roles import handle_role_toggle_interaction
+            await handle_role_toggle_interaction(interaction)
+            if "kazumi_features" in globals() and kazumi_features and kazumi_features.get("monitoring"):
+                kazumi_features["monitoring"].record_api_interaction()
+
+
+@bot.event
 async def on_message_delete(message: discord.Message):
     """Unified Message Deletion Handler: Observational Roasting & Server Audit Logging."""
     if not message or not message.author or message.author.bot:
