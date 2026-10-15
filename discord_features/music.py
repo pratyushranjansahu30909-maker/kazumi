@@ -84,8 +84,28 @@ except ImportError:
     DAVEY_AVAILABLE = False
 
 
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def get_ffmpeg_executable() -> Optional[str]:
+    # Check system PATH first
+    sys_ffmpeg = shutil.which("ffmpeg") or shutil.which("ffmpeg.exe")
+    if sys_ffmpeg:
+        return sys_ffmpeg
+    # Check local project bin directory or project root (useful for cloud hosts without root apt)
+    for candidate in [
+        os.path.join(ROOT_DIR, "bin", "ffmpeg"),
+        os.path.join(ROOT_DIR, "bin", "ffmpeg.exe"),
+        os.path.join(ROOT_DIR, "ffmpeg"),
+        os.path.join(ROOT_DIR, "ffmpeg.exe"),
+    ]:
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
 def is_ffmpeg_installed() -> bool:
-    return shutil.which("ffmpeg") is not None
+    return get_ffmpeg_executable() is not None
 
 
 YTDL_OPTIONS = {
@@ -238,8 +258,9 @@ class GuildMusicPlayer:
             else:
                 ffmpeg_opts = {'options': '-vn'}
 
+            ffmpeg_exe = get_ffmpeg_executable() or "ffmpeg"
             source = discord.PCMVolumeTransformer(
-                discord.FFmpegPCMAudio(track.stream_url, **ffmpeg_opts),
+                discord.FFmpegPCMAudio(track.stream_url, executable=ffmpeg_exe, **ffmpeg_opts),
                 volume=self.volume
             )
 
@@ -666,7 +687,7 @@ def setup_music_commands(tree: app_commands.CommandTree, bot: commands.Bot, guil
 
             embed = discord.Embed(title="⚙️ Music Subsystem Diagnostics", color=0xFFB6C1)
             ffmpeg_ok = is_ffmpeg_installed()
-            ffmpeg_path = shutil.which("ffmpeg") or "Not found"
+            ffmpeg_path = get_ffmpeg_executable() or "Not found"
 
             embed.add_field(
                 name="🛠️ Audio Dependencies",

@@ -29,7 +29,7 @@ class PersonMemoryManager:
         self.profiles_path = os.path.join(self.persist_dir, "person_profiles.json")
         self.channels_path = os.path.join(self.persist_dir, "channel_configs.json")
 
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._profiles_cache: Dict[str, PersonProfile] = {}
         self._channels_cache: Dict[str, str] = {}  # channel_id -> mode
 

@@ -1,13 +1,14 @@
 import os
 import logging
 try:
-    import logging_config
+    pass
 except ImportError:
     pass
 logger = logging.getLogger("kazumi_memory")
 import re
 import time
 import json
+import threading
 from kazumi_data import LEXICON
 
 class CozyProfileDict(dict):
@@ -28,6 +29,7 @@ class ChromaMemory:
     Supports persistent storage, speakers, valence, and keyword-overlap semantic memory recall.
     """
     def __init__(self, persist_directory="isa_memory"):
+        self._lock = threading.RLock()
         self.persist_path = os.path.join(persist_directory, "conversations.json")
         self.profile_path = os.path.join(persist_directory, "profile.json")
         self.diary_path = os.path.join(persist_directory, "diary.json")
@@ -40,30 +42,31 @@ class ChromaMemory:
         self.profile = self.load_profile()
 
     def _atomic_write_json(self, file_path, data):
-        try:
-            # Step 1: Pre-write backup to .bak
-            if os.path.exists(file_path):
-                import shutil
-                shutil.copy2(file_path, file_path + ".bak")
-            
-            # Step 2: Write atomically to .tmp
-            tmp_path = file_path + ".tmp"
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-                f.flush()
-                os.fsync(f.fileno())
-            
-            # Step 3: Atomic replacement
-            os.replace(tmp_path, file_path)
-            return True
-        except Exception as e:
-            tmp_path = file_path + ".tmp"
-            if os.path.exists(tmp_path):
-                try:
-                    os.remove(tmp_path)
-                except Exception:
-                    pass
-            raise e
+        with self._lock:
+            try:
+                # Step 1: Pre-write backup to .bak
+                if os.path.exists(file_path):
+                    import shutil
+                    shutil.copy2(file_path, file_path + ".bak")
+                
+                # Step 2: Write atomically to .tmp
+                tmp_path = file_path + ".tmp"
+                with open(tmp_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                
+                # Step 3: Atomic replacement
+                os.replace(tmp_path, file_path)
+                return True
+            except Exception as e:
+                tmp_path = file_path + ".tmp"
+                if os.path.exists(tmp_path):
+                    try:
+                        os.remove(tmp_path)
+                    except Exception:
+                        pass
+                raise e
 
     def load_profile(self):
         profile = None
@@ -203,23 +206,24 @@ class ChromaMemory:
         }
 
     def save_profile(self):
-        try:
-            logger.info("Saving profile with affection_level=%s", self.profile.get("affection_level"))
-            if self.profile and isinstance(self.profile, dict) and "cozy_points" in self.profile:
-                if self.profile.get("_is_default"):
-                    self.profile["_is_default"] = False
-                
-                # Split storage: write diary to diary.json and profile without diary key to profile.json
-                diary = self.profile.get("diary", [])
-                self._atomic_write_json(self.diary_path, diary)
-                
-                profile_to_save = dict(self.profile)
-                if "diary" in profile_to_save:
-                    del profile_to_save["diary"]
+        with self._lock:
+            try:
+                logger.info("Saving profile with affection_level=%s", self.profile.get("affection_level"))
+                if self.profile and isinstance(self.profile, dict) and "cozy_points" in self.profile:
+                    if self.profile.get("_is_default"):
+                        self.profile["_is_default"] = False
                     
-                self._atomic_write_json(self.profile_path, profile_to_save)
-        except Exception:
-            pass
+                    # Split storage: write diary to diary.json and profile without diary key to profile.json
+                    diary = self.profile.get("diary", [])
+                    self._atomic_write_json(self.diary_path, diary)
+                    
+                    profile_to_save = dict(self.profile)
+                    if "diary" in profile_to_save:
+                        del profile_to_save["diary"]
+                        
+                    self._atomic_write_json(self.profile_path, profile_to_save)
+            except Exception as e:
+                logger.warning(f"Error saving profile: {e}")
 
     def load_history(self):
         logger.info("Loading conversation history from %s", self.persist_path)
@@ -249,25 +253,27 @@ class ChromaMemory:
                 pass
         return []
 
-    def save_history(self):
-        try:
-            if isinstance(self.history, list):
-                self._atomic_write_json(self.persist_path, self.history)
-        except Exception:
-            pass
+    def save_history(self, *args, **kwargs):
+        with self._lock:
+            try:
+                if isinstance(self.history, list):
+                    self._atomic_write_json(self.persist_path, self.history)
+            except Exception as e:
+                logger.warning(f"Error saving history: {e}")
 
     def add(self, text, speaker="user", valence=0.0, session_id=None):
-        if session_id is None:
-            session_id = getattr(self, "current_session_id", None)
-        self.history.append({
-            "text": text,
-            "speaker": speaker,
-            "valence": float(valence),
-            "timestamp": time.time(),
-            "session_id": session_id
-        })
-        logger.info("Appending to history: %s", text[:30])
-        self.save_history()
+        with self._lock:
+            if session_id is None:
+                session_id = getattr(self, "current_session_id", None)
+            self.history.append({
+                "text": text,
+                "speaker": speaker,
+                "valence": float(valence),
+                "timestamp": time.time(),
+                "session_id": session_id
+            })
+            logger.info("Appending to history: %s", text[:30])
+            self.save_history()
 
     def get_session_history(self, session_id=None, limit=10):
         if session_id is None:
@@ -281,15 +287,27 @@ class ChromaMemory:
         hist = self.get_session_history(session_id=session_id, limit=1)
         return hist[-1] if hist else None
 
-    def recall(self, text, top_k=3, speaker_filter=None):
+    def recall(self, text, top_k=3, speaker_filter=None, session_id=None):
+        if session_id is None:
+            session_id = getattr(self, "current_session_id", None)
+
         query_words = set(re.findall(r"\b\w+\b", text.lower()))
+        
+        # Helper to check if history item belongs to session and matches speaker
+        def item_matches(item):
+            if speaker_filter and item.get("speaker") != speaker_filter:
+                return False
+            if session_id and item.get("session_id") and item.get("session_id") != session_id:
+                return False
+            return True
+
         if not query_words:
-            matching = [item["text"] for item in self.history if not speaker_filter or item["speaker"] == speaker_filter]
+            matching = [item["text"] for item in self.history if item_matches(item)]
             return matching[-top_k:] if matching else []
             
         scored_docs = []
         for item in self.history:
-            if speaker_filter and item["speaker"] != speaker_filter:
+            if not item_matches(item):
                 continue
             doc_words = set(re.findall(r"\b\w+\b", item["text"].lower()))
             overlap = len(query_words.intersection(doc_words))
@@ -300,7 +318,7 @@ class ChromaMemory:
         results = [doc[1] for doc in scored_docs[:top_k]]
         
         if not results:
-            matching = [item["text"] for item in self.history if not speaker_filter or item["speaker"] == speaker_filter]
+            matching = [item["text"] for item in self.history if item_matches(item)]
             results = matching[-top_k:] if matching else []
             
         return results

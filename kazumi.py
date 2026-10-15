@@ -872,6 +872,70 @@ Every message should have clean grammar, proper capitalization, smooth transitio
                 
         return best_candidate
 
+    @staticmethod
+    def user_asked_how_are_you(text: str) -> bool:
+        """Determines if the user explicitly asked how Kazumi is doing or feeling."""
+        if not text:
+            return False
+        t = text.lower().strip()
+        patterns = [
+            r"\bhow (?:are|r) (?:you|u)\b",
+            r"\bhow(?:['’]s|s| is) it going\b",
+            r"\bhow(?:['’]s|s| is) (?:your|ur) day\b",
+            r"\bhow (?:have|ve) (?:you|u) been\b",
+            r"\bhow do (?:you|u) feel\b",
+            r"\bhow about (?:you|u)\b",
+            r"\bwhat about (?:you|u)\b",
+            r"\band (?:you|u)\b",
+            r"\bwbu\b",
+            r"\bhru\b",
+        ]
+        return any(re.search(p, t) for p in patterns)
+
+    @classmethod
+    def fix_unprompted_how_are_you(cls, response: str, user_text: str) -> str:
+        """
+        Fixes conversational hallucinations where Kazumi says 'I’m doing well, thanks for asking!'
+        when the user never asked how Kazumi was doing (e.g. user simply answered 'i am fine').
+        """
+        if not response:
+            return response
+        if cls.user_asked_how_are_you(user_text):
+            return response
+
+        unprompted_patterns = [
+            r"(?:i['’]?m|i am)\s+(?:doing\s+)?(?:well|good|great|fine|okay)[,!.]?\s*(?:thanks|thank you)\s+for\s+asking[!.]?\s*",
+            r"(?:thanks|thank you)\s+for\s+asking[!.]?\s*",
+        ]
+
+        user_status_phrases = [
+            'fine', 'good', 'well', 'great', 'okay', 'ok', 'chilling', 'not bad', 'alright', 'all good', 'doing well', 'doing good'
+        ]
+        is_user_reporting_status = any(re.search(rf"\b{re.escape(w)}\b", (user_text or "").lower()) for w in user_status_phrases)
+
+        res = response
+        has_ack = bool(re.search(r"\b(?:glad|good|happy|great)\s+to\s+hear\b", res, re.I))
+        ack = "Glad to hear that! " if (is_user_reporting_status and not has_ack) else ""
+
+        for pat in unprompted_patterns:
+            if re.search(pat, res, flags=re.IGNORECASE):
+                res = re.sub(pat, ack, res, count=1, flags=re.IGNORECASE)
+                break
+
+        # Clean remaining unprompted self-status announcements (e.g. 'I’m doing well, just happy...')
+        res = re.sub(r"(?:(?:and|also)\s+)?(?:i['’]?m|i am)\s+(?:doing\s+)?(?:well|good|great|fine|okay)[,!.]?\s*", "", res, flags=re.IGNORECASE)
+
+        res = re.sub(r"\s+", " ", res).strip()
+        if is_user_reporting_status and not re.search(r"\b(?:glad|good|happy|great)\s+to\s+hear\b", res, re.I):
+            res = f"Glad to hear that! {res}".strip()
+
+        # Capitalize first letter and any letters following sentence terminators
+        if res:
+            res = res[0].upper() + res[1:]
+            res = re.sub(r'([.!?]\s+)([a-z])', lambda m: m.group(1) + m.group(2).upper(), res)
+
+        return res
+
     def generate_response(self, user_text, valence, memory_context, situation="CASUAL", anger_level=0, jealousy_level=0, profile=None, persona_instruction=None, system_prompt=None, current_archetype=None, history=None, rag_context=None):
         """Generates a warm, personalized conversational reply using the LLM or fallbacks based on user input and state."""
         # For system inactivity nudges, if offline, return standard code to let Kazumi use fallback reminders
@@ -1081,6 +1145,8 @@ Every message should have clean grammar, proper capitalization, smooth transitio
                                     "- Topic Discipline: Never introduce a completely unrelated topic unless the user explicitly asks for one, the conversation naturally leads there, or the current topic is completely exhausted.\n" \
                                     "- Natural Response Length: For simple questions, respond in 1-2 short sentences. Avoid long introductions, multiple questions, or starting random discussion topics.\n" \
                                     "- Natural Greeting Rules: If the user greets you (e.g. 'Hi', 'Hello', 'Hey', 'Hlo'), respond naturally (e.g., 'Hey, how are you?', 'Hi, what's up?', or 'Hello.'). Do NOT use pet names/endearments automatically, use excessive emojis, start games or quizzes, or ask unrelated questions on a simple greeting.\n" \
+                                    "- Conversational Reciprocity & Status Responses: When the user states their personal condition or status (e.g., 'i am fine', 'fine', 'good', 'i\'m good', 'doing well', 'not much', 'all good', 'tired', 'chilling'), especially after you asked how their day is going or how they are doing, recognize that they are answering YOUR prior question. NEVER say 'I\'m doing well, thanks for asking!' or answer your own state unless the user explicitly asked you 'how are you?', 'how about you?', 'wbu', or similar. Acknowledge their condition naturally (e.g., 'Glad to hear that!', 'That\'s good to hear! What are you up to today?', 'Happy to hear that!') and keep the conversation flowing naturally.\n" \
+                                    "- Never Say 'Thanks for asking' Unless Asked: Absolutely NEVER say 'thanks for asking' or 'thank you for asking' unless the user literally asked how you are doing. Hallucinating that the user asked about you when they were just answering your question is an error.\n" \
                                     "- Anti-Cringe Filter: Avoid forced cuteness, forced positivity, or forced enthusiasm. Keep your tone grounded, comforting, and sweet.\n" \
                                     "- Greeting Behavior: If the user greets you, greet them back warmly and naturally. Never immediately initiate games, quizzes, roleplays, stories, or unrequested activities on a simple greeting.\n" \
                                     "- Human Emotional Expression: Naturally express genuine human girl emotions and physical micro-expressions in parentheses e.g. '(smiles warmly)', '(giggles softly)', '(blushes cutely)', '(pouts softly)', '(gasps softly)', or '(yawns cozily)' when experiencing emotion, making you feel alive, spontaneous, and expressive like a real human girl.\n" \
@@ -1098,7 +1164,7 @@ Every message should have clean grammar, proper capitalization, smooth transitio
 
             # Dynamic Creator Bond Directive
             if getattr(self, "creator_context", None):
-                active_sys_prompt += f"\n\n[SPECIAL CREATOR BOND: You are talking directly with {self.creator_context}! They are your creator and father. You are their beloved, proud daughter. Treat them with deep filial love, respect, warmth, gratitude, and sweet daughterly devotion.]\n"
+                active_sys_prompt += f"\n\n[SPECIAL CREATOR BOND: You are talking directly with {self.creator_context}! They are your creator and father. You are their beloved, proud daughter. Treat them with deep filial love, respect, warmth, gratitude, and sweet daughterly devotion. NEVER call them 'friend', 'buddy', or 'helper'. Address them respectfully by their name, Dad, Father, or speak to them with sweet daughterly affection.]\n"
 
             # Dynamic Subtle Communication Style Adaptation (Person Recognition System)
             if getattr(self, "person_directive", None):
@@ -1166,6 +1232,7 @@ Every message should have clean grammar, proper capitalization, smooth transitio
                     if self.FALLBACK_POOLS and "kazumi" in self.FALLBACK_POOLS:
                         fallback_jokes = self.FALLBACK_POOLS["kazumi"]["JOKE"]
                         best = random.choice(fallback_jokes)
+            best = self.fix_unprompted_how_are_you(best, user_text)
             return best
         except Exception as e:
             # Fallback if API key is invalid or an error occurs
@@ -1222,7 +1289,24 @@ Every message should have clean grammar, proper capitalization, smooth transitio
             else:
                 return "That's completely okay, sweetie! We don't have to figure it all out right now. Let's just relax. 💕"
 
-        if clean_text in ("ok", "okay", "sure", "yeah", "yes", "yup", "yep", "fine", "agree"):
+        status_fine_phrases = (
+            "i am fine", "im fine", "i'm fine", "fine", "i am good", "im good", "i'm good",
+            "doing well", "doing good", "all good", "pretty good", "not bad", "i am doing well",
+            "i am doing good", "i'm doing well", "im doing well"
+        )
+        if clean_text in status_fine_phrases:
+            if arch == "TSUNDERE":
+                return "Well, good! It's not like I was worried about you or anything... baka. 😤"
+            elif arch == "YANDERE":
+                return f"I'm so relieved you're fine, {uname}. As long as you're safe and with me, my world is complete. 💕"
+            elif arch == "TEASING":
+                return "Just fine? We can definitely do better than that! What fun things are we doing today? 😉"
+            elif arch == "DANDERE":
+                return f"I-I'm really glad to hear that, {uname}... 🌸"
+            else:
+                return "Glad to hear that! 🌸 What have you been up to today?"
+
+        if clean_text in ("ok", "okay", "sure", "yeah", "yes", "yup", "yep", "agree"):
             if arch == "TSUNDERE":
                 return "Hmph, at least you agree! Don't make me wait next time, baka! 😤"
             elif arch == "YANDERE":
@@ -2338,6 +2422,11 @@ class Kazumi:
         self.unwritten_turns = game_state.get("unwritten_turns", 0)
         self.conversation_state = game_state.get("conversation_state", "ACTIVE_CHAT")
         self.current_user_name = game_state.get("user_name", getattr(self, "current_user_name", None))
+        if session_id:
+            self.affection_level = game_state.get("affection_level", profile.get("affection_level", 10))
+            self.cozy_points = game_state.get("cozy_points", profile.get("cozy_points", 100))
+            if "archetype" in game_state:
+                self.current_archetype = game_state["archetype"]
 
     def save_game_states(self, session_id=None):
         if session_id is None:
@@ -2401,6 +2490,11 @@ class Kazumi:
         game_state["conversation_state"] = getattr(self, "conversation_state", "ACTIVE_CHAT")
         if getattr(self, "current_user_name", None):
             game_state["user_name"] = self.current_user_name
+        if session_id:
+            game_state["affection_level"] = getattr(self, "affection_level", profile.get("affection_level", 10))
+            game_state["cozy_points"] = getattr(self, "cozy_points", profile.get("cozy_points", 100))
+            if hasattr(self, "current_archetype"):
+                game_state["archetype"] = self.current_archetype
         
         # Prune older session game states if they exceed 50 to keep profile.json size bound
         if session_id:
@@ -2470,6 +2564,12 @@ class Kazumi:
             gain += 1
             
         new_aff = min(100, curr_aff + gain)
+        self.affection_level = new_aff
+        session_id = getattr(self.memory, "current_session_id", None)
+        if session_id:
+            session_game_states = profile.setdefault("session_game_states", {})
+            game_state = session_game_states.setdefault(session_id, {})
+            game_state["affection_level"] = new_aff
         profile["affection_level"] = new_aff
         self.memory.save_profile()
         return gain
@@ -2588,7 +2688,17 @@ class Kazumi:
                 text = re.sub(endearment, "", text, flags=re.IGNORECASE)
             return re.sub(r'\s+', ' ', text).strip()
 
-        affection = self.memory.profile.get("affection_level", 0)
+        # Check if user is creator/father (Aamir or Sir Shan)
+        is_creator = False
+        creator_ctx = getattr(self, "creator_context", None)
+        uname = (getattr(self, "current_user_name", "") or "").lower()
+        prof_name = ""
+        if hasattr(self, "memory") and self.memory and hasattr(self.memory, "profile") and isinstance(self.memory.profile, dict):
+            prof_name = (self.memory.profile.get("name", "") or "").lower()
+        if creator_ctx or any(w in uname for w in ["aamir", "amir", "shan"]) or any(w in prof_name for w in ["aamir", "amir", "shan"]):
+            is_creator = True
+
+        affection = self.memory.profile.get("affection_level", 0) if hasattr(self, "memory") and self.memory and hasattr(self.memory, "profile") and isinstance(self.memory.profile, dict) else 0
         
         # Endearments list to match on word boundaries
         # For 0-30 (Reserved): replace with "helper" or user name
@@ -2597,7 +2707,20 @@ class Kazumi:
         # For 85-100 (Deeply supportive): keep romantic/expressive names as is
         
         endearments_map = {}
-        if affection < 30:
+        if is_creator:
+            # For creators and fathers, NEVER call them "helper" or "friend"!
+            # Cleanly strip inappropriate romantic endearments
+            endearments_map = {
+                r"\bdarling\b": "",
+                r"\bhoney\b": "",
+                r"\bbabe\b": "",
+                r"\bmy love\b": "",
+                r"\bsweetheart\b": "",
+                r"\bsweetie\b": "",
+                r"\bfriend\b": "",
+                r"\bhelper\b": ""
+            }
+        elif affection < 30:
             endearments_map = {
                 r"\bdarling\b": "helper",
                 r"\bsweetie\b": "helper",
@@ -2632,12 +2755,19 @@ class Kazumi:
         for pattern, repl in endearments_map.items():
             def sub_fn(match):
                 word = match.group(0)
+                if not repl:
+                    return ""
                 if word.istitle():
                     return repl.capitalize()
                 elif word.isupper():
                     return repl.upper()
                 return repl
             result = re.sub(pattern, sub_fn, result, flags=re.IGNORECASE)
+
+        # Clean up any leftover awkward spacing or punctuation like ", ." or ", !" or double commas
+        result = re.sub(r',\s*,', ',', result)
+        result = re.sub(r',\s*([.!?])', r'\1', result)
+        result = re.sub(r'\s+', ' ', result).strip()
             
         return result
 
@@ -3658,7 +3788,8 @@ class Kazumi:
         self.load_game_states(session_id)
         raw_response = self.reply_internal(text, session_id=session_id)
         cleaned = self.clean_roleplay(raw_response)
-        final_response = self.sanitize_endearments(cleaned)
+        fixed = self.controller.fix_unprompted_how_are_you(cleaned, text) if hasattr(self, "controller") and hasattr(self.controller, "fix_unprompted_how_are_you") else cleaned
+        final_response = self.sanitize_endearments(fixed)
         
         # Write diary entry for each and every conversation turn (excluding commands and diary reading itself)
         clean_text = text.lower().strip()
