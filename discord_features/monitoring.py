@@ -690,6 +690,13 @@ async def execute_with_retry(
 
             if not is_last_attempt:
                 backoff = base_backoff * (2 ** attempt)
+                # Respect Discord rate limit retry_after if provided
+                retry_after = getattr(e, "retry_after", None)
+                if retry_after is not None:
+                    try:
+                        backoff = max(float(retry_after), backoff)
+                    except (ValueError, TypeError):
+                        pass
                 logger.warning(
                     f"[RETRY] Transient failure on {event_id} (Attempt {attempt+1}/{max_retries}): {e}. "
                     f"Backing off for {backoff:.1f}s..."

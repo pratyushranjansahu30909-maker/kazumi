@@ -232,6 +232,38 @@ class TestMonitoringSystem(unittest.IsolatedAsyncioTestCase):
         rec = self.ledger.get_event(event_id)
         self.assertEqual(rec["state"], EventState.SENT)
 
+    async def test_rate_limit_retry_after_respected(self):
+        """Test that rate limit with retry_after attribute is parsed and respected."""
+        event_id = await self.ledger.record_received("member_join", 1, 2, "User", 3)
+        attempts = 0
+
+        class MockRateLimitError(discord.RateLimited):
+            def __init__(self, retry_after):
+                self.retry_after = retry_after
+                super().__init__(retry_after=retry_after)
+
+        async def _action():
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise MockRateLimitError(0.02)
+            return MagicMock(id=777)
+
+        success, res = await execute_with_retry(
+            action_coro_fn=_action,
+            event_id=event_id,
+            ledger=self.ledger,
+            alert_mgr=self.alert_mgr,
+            guild_id=1,
+            channel_id=3,
+            max_retries=2,
+            base_backoff=0.01
+        )
+        self.assertTrue(success)
+        self.assertEqual(attempts, 2)
+        rec = self.ledger.get_event(event_id)
+        self.assertEqual(rec["state"], EventState.SENT)
+
     async def test_permanent_error_no_retry(self):
         """Test that 403 Forbidden terminates immediately without wasteful retries."""
         event_id = await self.ledger.record_received("member_join", 1, 2, "User", 3)
