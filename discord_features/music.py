@@ -853,7 +853,7 @@ def setup_music_commands(tree: app_commands.CommandTree, bot: commands.Bot, guil
                 inline=True
             )
 
-            embed.set_footer(text="Gaman Community Music System • Fully Operational 🌸")
+            embed.set_footer(text="LAPEACE Community Music System • Fully Operational 🌸")
             await interaction.response.send_message(embed=embed)
 
     # 16. /previous
