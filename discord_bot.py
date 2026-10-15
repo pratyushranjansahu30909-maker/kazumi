@@ -258,13 +258,16 @@ class CloudHealthCheckHandler(http.server.BaseHTTPRequestHandler):
         pass
 
 def start_cloud_health_servers():
-    port_str = os.environ.get("PORT", "7860").strip()
-    try:
-        primary_port = int(port_str)
-    except ValueError:
-        primary_port = 7860
-
-    ports_to_bind = [primary_port]
+    ports_to_bind = []
+    for var in ("PORT", "SERVER_PORT"):
+        val = os.environ.get(var)
+        if val:
+            try:
+                p = int(val.strip())
+                if p not in ports_to_bind:
+                    ports_to_bind.append(p)
+            except ValueError:
+                pass
     for p in (7860, 10000):
         if p not in ports_to_bind:
             ports_to_bind.append(p)
