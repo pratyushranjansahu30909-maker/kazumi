@@ -272,14 +272,18 @@ class EventLedger:
         event_id = self.generate_event_id(event_type, guild_id, member_id, now)
 
         async with self._lock:
-            # Bound cache size if it exceeds limit
+            # Bound cache size: prune oldest terminal records (SENT, FAILED_PERMANENT) only
+            # Never prune PROCESSING, RECEIVED, or FAILED_RETRYABLE records awaiting recovery
             if len(self._events) >= self.MAX_ENTRIES:
-                sorted_keys = sorted(
-                    self._events.keys(),
-                    key=lambda k: self._events[k].get("created_at_epoch", 0.0)
-                )
-                for k in sorted_keys[: len(self._events) - self.MAX_ENTRIES + 1]:
-                    del self._events[k]
+                prunable_keys = [
+                    k for k, v in self._events.items()
+                    if v.get("state") in (EventState.SENT, EventState.FAILED_PERMANENT)
+                ]
+                if prunable_keys:
+                    prunable_keys.sort(key=lambda k: self._events[k].get("created_at_epoch", 0.0))
+                    excess = len(self._events) - self.MAX_ENTRIES + 1
+                    for k in prunable_keys[:excess]:
+                        del self._events[k]
 
             self._events[event_id] = {
                 "event_id": event_id,

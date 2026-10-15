@@ -212,44 +212,27 @@ class CloudHealthCheckHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         is_conn = False
-        bot_user_str = None
-        latency = 0.0
-        guilds_count = 0
         try:
             if "bot" in globals() and bot and bot.is_ready():
                 is_conn = True
-                bot_user_str = str(bot.user) if bot.user else None
-                latency = round(bot.latency * 1000, 1) if bot.latency else 0.0
-                guilds_count = len(bot.guilds)
         except Exception:
             pass
 
-        # Retrieve detailed monitoring telemetry if available
-        monitor = None
+        # Retrieve monitoring health state if available
         health_data = {}
         try:
             if "kazumi_features" in globals() and kazumi_features and kazumi_features.get("monitoring"):
-                monitor = kazumi_features["monitoring"]
-                health_data = monitor.get_health_status()
+                health_data = kazumi_features["monitoring"].get_health_status()
         except Exception:
             pass
 
-        status_str = "online" if is_conn else ("starting" if DISCORD_BOT_TOKEN else "configuration_required")
+        is_ready = bool(is_conn and health_data.get("readiness", is_conn))
+        overall_status = "healthy" if is_ready else ("degraded" if is_conn else ("starting" if DISCORD_BOT_TOKEN else "offline"))
         payload = {
-            "status": status_str,
-            "connected": is_conn,
+            "status": overall_status,
             "liveness": health_data.get("liveness", True),
-            "readiness": health_data.get("readiness", is_conn),
-            "state": health_data.get("state", "healthy" if is_conn else "disconnected"),
-            "bot": "Kazumi Discord AI Companion",
-            "bot_user": bot_user_str,
-            "guilds": guilds_count,
-            "latency_ms": latency,
-            "uptime_seconds": round(time.time() - BOT_START_TIME, 1),
-            "restart_count": health_data.get("restart_count", 1),
-            "event_ledger": health_data.get("ledger_stats", {}),
-            "monitoring_enabled": health_data.get("monitoring_enabled", True),
-            "webhook_configured": health_data.get("webhook_configured", False)
+            "readiness": is_ready,
+            "uptime_seconds": round(time.time() - BOT_START_TIME, 1)
         }
         self.wfile.write(json.dumps(payload, indent=2).encode("utf-8"))
 

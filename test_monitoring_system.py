@@ -484,6 +484,75 @@ class TestMonitoringSystem(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(masked.startswith("https://discord.com/api/webhooks/123456789/***"))
         self.assertEqual(_safe_mask_url(""), "None")
 
+    async def test_ledger_pruning_preserves_processing_and_unresolved_events(self):
+        """Verify that ledger pruning only prunes terminal events and never prunes PROCESSING or FAILED_RETRYABLE."""
+        ledger = EventLedger(os.path.join(self.temp_dir, "prune_test_ledger.json"))
+        ledger.MAX_ENTRIES = 5
+
+        # Record 3 events that are in non-terminal states
+        id1 = await ledger.record_received("member_join", 1, 101, "User1", 10)
+        await ledger.record_processing(id1, 10)  # state: PROCESSING
+
+        id2 = await ledger.record_received("member_join", 1, 102, "User2", 10)
+        await ledger.record_failure(id2, error_category="DISCORD_API_ERROR", error_message="transient", is_permanent=False)  # state: FAILED_RETRYABLE
+
+        id3 = await ledger.record_received("member_join", 1, 103, "User3", 10)  # state: RECEIVED
+
+        # Record 2 events that are terminal
+        id4 = await ledger.record_received("member_join", 1, 104, "User4", 10)
+        await ledger.record_sent(id4, 994)  # state: SENT
+
+        id5 = await ledger.record_received("member_join", 1, 105, "User5", 10)
+        await ledger.record_sent(id5, 995)  # state: SENT
+
+        # Ledger now has 5 entries (at MAX_ENTRIES)
+        self.assertEqual(len(ledger._events), 5)
+
+        # Adding a 6th event should trigger pruning of oldest terminal events
+        id6 = await ledger.record_received("member_join", 1, 106, "User6", 10)
+
+        # Verify non-terminal events (id1, id2, id3) are STILL present
+        self.assertIn(id1, ledger._events)
+        self.assertEqual(ledger._events[id1]["state"], EventState.PROCESSING)
+        self.assertIn(id2, ledger._events)
+        self.assertEqual(ledger._events[id2]["state"], EventState.FAILED_RETRYABLE)
+        self.assertIn(id3, ledger._events)
+        self.assertEqual(ledger._events[id3]["state"], EventState.RECEIVED)
+
+        # Terminal event id4 was the oldest terminal, so it should have been pruned
+        self.assertNotIn(id4, ledger._events)
+        # New event id6 is present
+        self.assertIn(id6, ledger._events)
+
+    def test_minimized_health_check_payload_exposure(self):
+        """Verify that CloudHealthCheckHandler outputs only basic liveness/readiness/status and no secrets or internal details."""
+        import io
+        from discord_bot import CloudHealthCheckHandler
+
+        handler = CloudHealthCheckHandler.__new__(CloudHealthCheckHandler)
+        handler.wfile = io.BytesIO()
+        handler.send_response = MagicMock()
+        handler.send_header = MagicMock()
+        handler.end_headers = MagicMock()
+
+        handler.do_GET()
+
+        output = handler.wfile.getvalue().decode("utf-8")
+        data = json.loads(output)
+
+        # Required minimal fields
+        expected_keys = {"status", "liveness", "readiness", "uptime_seconds"}
+        self.assertEqual(set(data.keys()), expected_keys)
+
+        # Ensure no sensitive operational internals are exposed
+        forbidden_keys = [
+            "bot_user", "token", "guilds", "latency_ms", "restart_count",
+            "event_ledger", "webhook_configured", "monitoring_enabled", "state"
+        ]
+        for key in forbidden_keys:
+            self.assertNotIn(key, data)
+
+
 
 if __name__ == "__main__":
     unittest.main()
