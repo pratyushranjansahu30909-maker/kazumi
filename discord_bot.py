@@ -224,17 +224,34 @@ class CloudHealthCheckHandler(http.server.BaseHTTPRequestHandler):
         except Exception:
             pass
 
+        # Retrieve detailed monitoring telemetry if available
+        monitor = None
+        health_data = {}
+        try:
+            if "kazumi_features" in globals() and kazumi_features and kazumi_features.get("monitoring"):
+                monitor = kazumi_features["monitoring"]
+                health_data = monitor.get_health_status()
+        except Exception:
+            pass
+
         status_str = "online" if is_conn else ("starting" if DISCORD_BOT_TOKEN else "configuration_required")
         payload = {
             "status": status_str,
             "connected": is_conn,
+            "liveness": health_data.get("liveness", True),
+            "readiness": health_data.get("readiness", is_conn),
+            "state": health_data.get("state", "healthy" if is_conn else "disconnected"),
             "bot": "Kazumi Discord AI Companion",
             "bot_user": bot_user_str,
             "guilds": guilds_count,
             "latency_ms": latency,
-            "uptime_seconds": round(time.time() - BOT_START_TIME, 1)
+            "uptime_seconds": round(time.time() - BOT_START_TIME, 1),
+            "restart_count": health_data.get("restart_count", 1),
+            "event_ledger": health_data.get("ledger_stats", {}),
+            "monitoring_enabled": health_data.get("monitoring_enabled", True),
+            "webhook_configured": health_data.get("webhook_configured", False)
         }
-        self.wfile.write(json.dumps(payload).encode("utf-8"))
+        self.wfile.write(json.dumps(payload, indent=2).encode("utf-8"))
 
     def log_message(self, format, *args):
         # Suppress routine health check polling noise from cloud probes
@@ -634,6 +651,13 @@ def create_kazumi_embed(title: str, description: str, color: int = 0xc084fc) -> 
 # ---------------------------------------------------------------------------
 
 @bot.event
+async def on_connect():
+    logger.info("[CONNECTION] Discord Gateway connection established.")
+    if "kazumi_features" in globals() and kazumi_features and kazumi_features.get("monitoring"):
+        kazumi_features["monitoring"].record_connect()
+
+
+@bot.event
 async def on_ready():
     global _tree_synced, _background_feature_task
     bot_name = bot.user.name if bot.user else "Kazumi"
@@ -641,6 +665,15 @@ async def on_ready():
     bot_id = bot.user.id if bot.user else 0
     logger.info(f"[CONNECTION] Discord Gateway connected as {bot_name}#{bot_disc} (ID: {bot_id})")
     logger.info(f"[CONNECTION] Connected to {len(bot.guilds) if getattr(bot, 'guilds', None) else 0} server(s).")
+
+    # Record Gateway Ready & Launch Background Health Monitor Loop (initial startup only)
+    if "kazumi_features" in globals() and kazumi_features and kazumi_features.get("monitoring"):
+        kazumi_features["monitoring"].record_ready()
+        if not _tree_synced and (kazumi_features["monitoring"].monitoring_task is None or kazumi_features["monitoring"].monitoring_task.done()):
+            try:
+                await kazumi_features["monitoring"].start_background_monitor()
+            except Exception as mon_err:
+                logger.warning(f"Failed to start monitoring task: {mon_err}")
     
     # Set status presence
     if bot.user:
@@ -709,12 +742,16 @@ async def on_ready():
 @bot.event
 async def on_disconnect():
     logger.warning("[RECONNECT] Discord Gateway connection dropped. Retrying automatically...")
+    if "kazumi_features" in globals() and kazumi_features and kazumi_features.get("monitoring"):
+        kazumi_features["monitoring"].record_disconnect()
     write_health_status("disconnected", connected=False, extra={"warning": "Gateway connection dropped"})
 
 
 @bot.event
 async def on_resumed():
     logger.info("[RECOVERY] Discord Gateway session successfully resumed! Kazumi is back listening.")
+    if "kazumi_features" in globals() and kazumi_features and kazumi_features.get("monitoring"):
+        kazumi_features["monitoring"].record_resumed()
     write_health_status(
         "online",
         connected=True,

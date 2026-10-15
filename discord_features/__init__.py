@@ -29,6 +29,7 @@ from .moderation import AutoModTracker, register_moderation_commands
 
 from .logging import ServerLogging, register_logging_commands
 from .welcome import WelcomeSystem, register_welcome_commands
+from .monitoring import BotMonitor, AlertManager, EventLedger
 from .autorole import AutoRoleSystem, register_autorole_commands
 from .tickets import (
     TicketManager,
@@ -181,6 +182,8 @@ def setup_all_features(bot: commands.Bot, tree: app_commands.CommandTree) -> Dic
         "channel_policy": channel_policy_mgr
     })
 
+    bot_monitor = BotMonitor.get_instance(bot)
+
     logger.info("All Kazumi feature modules loaded and command handlers registered.")
 
     return {
@@ -188,6 +191,7 @@ def setup_all_features(bot: commands.Bot, tree: app_commands.CommandTree) -> Dic
         "automod": automod_tracker,
         "logging": server_logging,
         "welcome": welcome_system,
+        "monitoring": bot_monitor,
         "autorole": autorole_system,
         "tickets": ticket_manager,
         "giveaways": giveaway_manager,

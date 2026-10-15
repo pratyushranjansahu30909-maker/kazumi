@@ -29,6 +29,7 @@ from discord.ext import commands
 
 from discord_features.database import get_feature_db
 from discord_features.config import KazumiConfig
+from discord_features.monitoring import BotMonitor, check_channel_permissions, execute_with_retry
 
 logger = logging.getLogger("KazumiWelcome")
 
@@ -597,14 +598,58 @@ class WelcomeSystem:
                 _PROCESSED_JOINS[dedup_key] = now_time
 
         channel = cls.resolve_welcome_channel(guild, settings)
+        monitor = BotMonitor.get_instance()
+        raw_display_name = getattr(member, "display_name", "") or getattr(member, "name", "Friend")
+        safe_name = sanitize_display_name(raw_display_name)
+        channel_id = getattr(channel, "id", None)
+
+        # Durable Persistent Event Ledger - Record RECEIVED state
+        event_id = await monitor.event_ledger.record_received(
+            event_type="member_join",
+            guild_id=guild.id,
+            member_id=member.id,
+            member_name=safe_name,
+            channel_id=channel_id
+        )
+
         if not channel:
             logger.warning(f"No suitable welcome channel found in {guild.name} ({guild.id})")
+            await monitor.event_ledger.record_failure(
+                event_id,
+                "NO_SUITABLE_CHANNEL",
+                f"No suitable welcome channel found in {guild.name}",
+                is_permanent=True
+            )
+            await monitor.alert_manager.send_alert(
+                incident_type="CHANNEL_NOT_FOUND_ERROR",
+                severity="ERROR",
+                message=f"No suitable welcome channel found in {guild.name} ({guild.id})",
+                guild_id=guild.id,
+                correlation_id=event_id
+            )
+            return
+
+        # Pre-flight channel permissions audit
+        has_perms, perm_err = check_channel_permissions(channel, getattr(guild, "me", None))
+        if not has_perms:
+            logger.error(f"Cannot deliver welcome poem: {perm_err} in #{channel.name}")
+            await monitor.event_ledger.record_failure(
+                event_id,
+                perm_err or "MISSING_PERMISSIONS",
+                f"Lacks permissions in #{channel.name}",
+                is_permanent=True
+            )
+            await monitor.alert_manager.send_alert(
+                incident_type="CHANNEL_PERMISSION_ERROR",
+                severity="ERROR",
+                message=f"Bot lacks required permissions in welcome channel #{channel.name} ({channel.id}): {perm_err}",
+                guild_id=guild.id,
+                channel_id=channel.id,
+                correlation_id=event_id
+            )
             return
 
         try:
-            # Safe Display Name Sanitization
-            raw_display_name = getattr(member, "display_name", "") or getattr(member, "name", "Friend")
-            safe_name = sanitize_display_name(raw_display_name)
             server_name = guild.name
 
             # Generate the personalized 4–8 line welcome poem
@@ -642,11 +687,33 @@ class WelcomeSystem:
 
             # Mention member directly in content tag for push notification
             mention_tag = f"🌸 Welcome {member.mention}! ✨"
-            await channel.send(content=mention_tag, embed=embed)
-            logger.info(f"Delivered personalized welcome poem for {safe_name} ({member.id}) in #{channel.name}")
+
+            async def _do_send_welcome():
+                return await channel.send(content=mention_tag, embed=embed)
+
+            success, send_result = await execute_with_retry(
+                action_coro_fn=_do_send_welcome,
+                event_id=event_id,
+                ledger=monitor.event_ledger,
+                alert_mgr=monitor.alert_manager,
+                guild_id=guild.id,
+                channel_id=channel.id
+            )
+
+            if success:
+                monitor.record_api_interaction()
+                logger.info(f"Delivered personalized welcome poem for {safe_name} ({member.id}) in #{channel.name}")
+            else:
+                logger.error(f"Failed to deliver welcome poem for {safe_name} after retry evaluation.")
 
         except Exception as e:
             logger.error(f"Failed to deliver welcome poem in #{channel.name}: {e}", exc_info=True)
+            await monitor.event_ledger.record_failure(
+                event_id,
+                "UNEXPECTED_HANDLER_ERROR",
+                str(e),
+                is_permanent=True
+            )
 
     @classmethod
     async def send_goodbye(cls, member: discord.Member):
@@ -682,13 +749,58 @@ class WelcomeSystem:
                 _PROCESSED_LEAVES[dedup_key] = now_time
 
         channel = cls.resolve_goodbye_channel(guild, settings)
+        monitor = BotMonitor.get_instance()
+        raw_display_name = getattr(member, "display_name", "") or getattr(member, "name", "Friend")
+        safe_name = sanitize_display_name(raw_display_name)
+        channel_id = getattr(channel, "id", None)
+
+        # Durable Persistent Event Ledger - Record RECEIVED state
+        event_id = await monitor.event_ledger.record_received(
+            event_type="member_leave",
+            guild_id=guild.id,
+            member_id=member.id,
+            member_name=safe_name,
+            channel_id=channel_id
+        )
+
         if not channel:
             logger.warning(f"No suitable farewell channel found in {guild.name} ({guild.id})")
+            await monitor.event_ledger.record_failure(
+                event_id,
+                "NO_SUITABLE_CHANNEL",
+                f"No suitable farewell channel found in {guild.name}",
+                is_permanent=True
+            )
+            await monitor.alert_manager.send_alert(
+                incident_type="CHANNEL_NOT_FOUND_ERROR",
+                severity="ERROR",
+                message=f"No suitable farewell channel found in {guild.name} ({guild.id})",
+                guild_id=guild.id,
+                correlation_id=event_id
+            )
+            return
+
+        # Pre-flight channel permissions audit
+        has_perms, perm_err = check_channel_permissions(channel, getattr(guild, "me", None))
+        if not has_perms:
+            logger.error(f"Cannot deliver farewell poem: {perm_err} in #{channel.name}")
+            await monitor.event_ledger.record_failure(
+                event_id,
+                perm_err or "MISSING_PERMISSIONS",
+                f"Lacks permissions in #{channel.name}",
+                is_permanent=True
+            )
+            await monitor.alert_manager.send_alert(
+                incident_type="CHANNEL_PERMISSION_ERROR",
+                severity="ERROR",
+                message=f"Bot lacks required permissions in farewell channel #{channel.name} ({channel.id}): {perm_err}",
+                guild_id=guild.id,
+                channel_id=channel.id,
+                correlation_id=event_id
+            )
             return
 
         try:
-            raw_display_name = getattr(member, "display_name", "") or getattr(member, "name", "Friend")
-            safe_name = sanitize_display_name(raw_display_name)
             server_name = guild.name
 
             # Generate the personalized 4–8 line farewell poem
@@ -711,11 +823,32 @@ class WelcomeSystem:
                 embed.set_footer(text="Kazumi Companion 💜 • Always remembered")
             embed.timestamp = datetime.now(timezone.utc)
 
-            await channel.send(embed=embed)
-            logger.info(f"Delivered personalized farewell poem for {safe_name} ({member.id}) in #{channel.name}")
+            async def _do_send_goodbye():
+                return await channel.send(embed=embed)
+
+            success, send_result = await execute_with_retry(
+                action_coro_fn=_do_send_goodbye,
+                event_id=event_id,
+                ledger=monitor.event_ledger,
+                alert_mgr=monitor.alert_manager,
+                guild_id=guild.id,
+                channel_id=channel.id
+            )
+
+            if success:
+                monitor.record_api_interaction()
+                logger.info(f"Delivered personalized farewell poem for {safe_name} ({member.id}) in #{channel.name}")
+            else:
+                logger.error(f"Failed to deliver farewell poem for {safe_name} after retry evaluation.")
 
         except Exception as e:
             logger.error(f"Failed to deliver farewell poem in #{channel.name}: {e}", exc_info=True)
+            await monitor.event_ledger.record_failure(
+                event_id,
+                "UNEXPECTED_HANDLER_ERROR",
+                str(e),
+                is_permanent=True
+            )
 
 
 # ==============================================================================
