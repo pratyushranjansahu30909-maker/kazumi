@@ -20,6 +20,8 @@ import time
 import asyncio
 import logging
 import shutil
+import json
+import urllib.request
 from typing import Dict, List, Optional, Any, Tuple
 import discord
 from discord import app_commands
@@ -131,13 +133,14 @@ FFMPEG_OPTIONS = {
 
 
 class Track:
-    def __init__(self, title: str, url: str, stream_url: str, duration: int, requester: str, thumbnail: Optional[str] = None):
+    def __init__(self, title: str, url: str, stream_url: str, duration: int, requester: str, thumbnail: Optional[str] = None, provider: str = "Audio"):
         self.title = title
         self.url = url
         self.stream_url = stream_url
         self.duration = duration
         self.requester = requester
         self.thumbnail = thumbnail
+        self.provider = provider
         self.started_at: Optional[float] = None
 
     @property
@@ -267,13 +270,12 @@ class GuildMusicPlayer:
             def after_play(err):
                 if err:
                     logger.error(f"[Music] Playback error: {err}")
-                if self.bot and hasattr(self.bot, "loop"):
+                if self.voice_client and self.voice_client.is_connected() and self.bot and hasattr(self.bot, "loop"):
                     coro = self.play_next()
-                    fut = asyncio.run_coroutine_threadsafe(coro, self.bot.loop)
                     try:
-                        fut.result()
+                        asyncio.run_coroutine_threadsafe(coro, self.bot.loop)
                     except Exception as ex:
-                        logger.error(f"[Music] Error calling play_next in threadsafe: {ex}")
+                        logger.error(f"[Music] Error scheduling play_next: {ex}")
 
             self.voice_client.play(source, after=after_play)
         except Exception as e:
@@ -398,6 +400,10 @@ def setup_music_commands(tree: app_commands.CommandTree, bot: commands.Bot, guil
         voice_channel = interaction.user.voice.channel
         player = manager.get_player(interaction.guild_id)
 
+        # Synchronize with Discord gateway voice state if already connected
+        if interaction.guild and interaction.guild.voice_client and interaction.guild.voice_client.is_connected():
+            player.voice_client = interaction.guild.voice_client
+
         if not player.voice_client or not player.voice_client.is_connected():
             try:
                 player.voice_client = await voice_channel.connect(timeout=15.0)
@@ -428,6 +434,167 @@ def setup_music_commands(tree: app_commands.CommandTree, bot: commands.Bot, guil
 
         return player.voice_client
 
+    async def resolve_audio_track(query: str, requester: str, loop: asyncio.AbstractEventLoop) -> Tuple[Optional[Track], Optional[str]]:
+        """
+        Resilient multi-tier audio track resolution:
+        1. Local diagnostic files (e.g. test_tone.mp3)
+        2. Direct audio URL (.mp3, .ogg, .wav, .flac, .m4a, .aac, or raw audio stream)
+        3. SoundCloud direct URL
+        4. YouTube URL with fallback to oEmbed title + SoundCloud search
+        5. Plain search query: YouTube search with modern client args -> fallback to SoundCloud search
+        """
+        clean_query = query.strip()
+        
+        # 1. Local audio file check
+        if clean_query.lower() in ("test", "test_tone", "tone", "test_tone.mp3"):
+            local_candidate = os.path.join(ROOT_DIR, "test_tone.mp3")
+            if os.path.exists(local_candidate):
+                return Track(
+                    title="Kazumi Diagnostic Test Tone",
+                    url="local:test_tone.mp3",
+                    stream_url=local_candidate,
+                    duration=5,
+                    requester=requester,
+                    provider="Local Audio"
+                ), None
+                
+        if os.path.exists(clean_query) and any(clean_query.lower().endswith(ext) for ext in [".mp3", ".ogg", ".wav", ".flac", ".m4a"]):
+            return Track(
+                title=os.path.basename(clean_query),
+                url=clean_query,
+                stream_url=clean_query,
+                duration=0,
+                requester=requester,
+                provider="Local Audio"
+            ), None
+
+        # 2. Direct HTTP/HTTPS audio stream
+        if clean_query.startswith(("http://", "https://")):
+            url_without_params = clean_query.split("?")[0].lower()
+            if any(url_without_params.endswith(ext) for ext in [".mp3", ".ogg", ".wav", ".flac", ".m4a", ".aac"]):
+                filename = clean_query.split("/")[-1].split("?")[0]
+                return Track(
+                    title=filename or "Direct Audio Stream",
+                    url=clean_query,
+                    stream_url=clean_query,
+                    duration=0,
+                    requester=requester,
+                    provider="Direct Stream"
+                ), None
+
+        if not YTDL_AVAILABLE:
+            return None, "Audio extraction library (yt-dlp) is not installed."
+
+        ydl_base_opts = {
+            'format': 'bestaudio/best',
+            'extractaudio': True,
+            'audioformat': 'mp3',
+            'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
+            'restrictfilenames': True,
+            'noplaylist': True,
+            'nocheckcertificate': True,
+            'ignoreerrors': False,
+            'logtostderr': False,
+            'quiet': True,
+            'no_warnings': True,
+            'source_address': '0.0.0.0',
+        }
+
+        # 3. Direct SoundCloud URL
+        if clean_query.startswith(("http://", "https://")) and ("soundcloud.com" in clean_query or "snd.sc" in clean_query):
+            try:
+                ydl_sc = yt_dlp.YoutubeDL(ydl_base_opts)
+                data = await loop.run_in_executor(None, lambda: ydl_sc.extract_info(clean_query, download=False))
+                if 'entries' in data and data['entries']:
+                    data = data['entries'][0]
+                return Track(
+                    title=data.get('title', 'SoundCloud Track'),
+                    url=data.get('webpage_url', clean_query),
+                    stream_url=data.get('url'),
+                    duration=data.get('duration', 0),
+                    requester=requester,
+                    thumbnail=data.get('thumbnail'),
+                    provider="SoundCloud"
+                ), None
+            except Exception as e:
+                logger.warning(f"[Music] SoundCloud URL extraction error: {e}")
+                return None, f"SoundCloud extraction failed: {e}"
+
+        # 4. YouTube Direct URL or Fallback
+        is_yt_url = clean_query.startswith(("http://", "https://")) and ("youtube.com" in clean_query or "youtu.be" in clean_query)
+        
+        yt_opts = dict(ydl_base_opts)
+        yt_opts['extractor_args'] = {
+            'youtube': {
+                'player_client': ['android', 'ios', 'web_creator', 'mweb']
+            }
+        }
+        
+        yt_error = None
+        target_yt = clean_query if is_yt_url else f"ytsearch:{clean_query}"
+        
+        try:
+            ydl_yt = yt_dlp.YoutubeDL(yt_opts)
+            data = await loop.run_in_executor(None, lambda: ydl_yt.extract_info(target_yt, download=False))
+            if 'entries' in data:
+                entries = data.get('entries') or []
+                data = entries[0] if entries else None
+            if data and data.get('url'):
+                return Track(
+                    title=data.get('title', 'YouTube Track'),
+                    url=data.get('webpage_url', clean_query),
+                    stream_url=data.get('url'),
+                    duration=data.get('duration', 0),
+                    requester=requester,
+                    thumbnail=data.get('thumbnail'),
+                    provider="YouTube"
+                ), None
+        except Exception as e:
+            yt_error = str(e)
+            logger.warning(f"[Music] YouTube extraction encountered challenge ({e}). Attempting fallback...")
+
+        # 5. Resilient Fallback to SoundCloud
+        search_keywords = clean_query
+        if is_yt_url:
+            try:
+                oembed_url = f"https://www.youtube.com/oembed?url={clean_query}&format=json"
+                req = urllib.request.Request(oembed_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+                def fetch_title():
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        return json.loads(resp.read().decode('utf-8', errors='replace')).get('title')
+                yt_title = await loop.run_in_executor(None, fetch_title)
+                if yt_title:
+                    search_keywords = yt_title
+                    logger.info(f"[Music] Resolved YouTube URL to title via oEmbed: '{yt_title}'")
+            except Exception as oe_err:
+                logger.debug(f"[Music] Could not resolve YouTube title via oEmbed: {oe_err}")
+
+        # Search SoundCloud
+        try:
+            sc_opts = dict(ydl_base_opts)
+            sc_opts['default_search'] = 'scsearch'
+            ydl_sc = yt_dlp.YoutubeDL(sc_opts)
+            target_sc = f"scsearch:{search_keywords}"
+            sc_data = await loop.run_in_executor(None, lambda: ydl_sc.extract_info(target_sc, download=False))
+            if 'entries' in sc_data and sc_data['entries']:
+                item = sc_data['entries'][0]
+                if item and item.get('url'):
+                    provider_tag = "SoundCloud (YouTube Fallback)" if is_yt_url or (yt_error and "Sign in" in yt_error) else "SoundCloud"
+                    return Track(
+                        title=item.get('title', 'Audio Track'),
+                        url=item.get('webpage_url', clean_query),
+                        stream_url=item.get('url'),
+                        duration=item.get('duration', 0),
+                        requester=requester,
+                        thumbnail=item.get('thumbnail'),
+                        provider=provider_tag
+                    ), None
+        except Exception as sc_err:
+            logger.warning(f"[Music] SoundCloud fallback also failed: {sc_err}")
+
+        err_summary = yt_error or "No playable audio stream found."
+        return None, f"Could not extract audio for `{clean_query}`: {err_summary}"
+
     # 1. /play
     @tree.command(name="play", description="Play audio or search YouTube/Soundcloud for a track.", guild=guild_target)
     @app_commands.describe(query="Song title, artist, or direct audio URL")
@@ -446,58 +613,16 @@ def setup_music_commands(tree: app_commands.CommandTree, bot: commands.Bot, guil
 
         player = manager.get_player(interaction.guild_id)
 
-        # Check for local media file, direct audio URL, or test stream
-        track = None
-        if os.path.exists(query) and any(query.lower().endswith(ext) for ext in [".mp3", ".ogg", ".wav", ".flac", ".m4a"]):
-            track = Track(
-                title=os.path.basename(query),
-                url=query,
-                stream_url=query,
-                duration=5,
-                requester=interaction.user.display_name
-            )
-        elif query.startswith("http://") or query.startswith("https://"):
-            # Direct media file or URL
-            if any(query.lower().endswith(ext) for ext in [".mp3", ".ogg", ".wav", ".flac", ".m4a"]):
-                track = Track(
-                    title=query.split("/")[-1].split("?")[0],
-                    url=query,
-                    stream_url=query,
-                    duration=0,
-                    requester=interaction.user.display_name
-                )
-
+        track, err_msg = await resolve_audio_track(query, interaction.user.display_name, bot.loop)
         if not track:
-            if not YTDL_AVAILABLE:
-                return await interaction.followup.send("❌ Audio extractor (yt-dlp) is not installed on this system.")
-
-            loop = bot.loop
-            search_query = query if query.startswith("http") else f"ytsearch:{query}"
-            try:
-                ydl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
-                data = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
-                if 'entries' in data:
-                    entries = data['entries']
-                    if not entries:
-                        return await interaction.followup.send(f"❌ No matching tracks found for `{query}`.")
-                    data = entries[0]
-
-                track = Track(
-                    title=data.get('title', 'Unknown Title'),
-                    url=data.get('webpage_url', query),
-                    stream_url=data.get('url'),
-                    duration=data.get('duration', 0),
-                    requester=interaction.user.display_name,
-                    thumbnail=data.get('thumbnail')
-                )
-            except Exception as e:
-                return await interaction.followup.send(f"❌ Error extracting audio for `{query}`: {e}")
+            return await interaction.followup.send(f"❌ {err_msg or 'Could not resolve audio for the specified query.'}")
 
         player.queue.append(track)
 
+        provider_badge = f" | Source: `{track.provider}`" if hasattr(track, "provider") and track.provider else ""
         embed = discord.Embed(
             title="🎵 Added to Queue",
-            description=f"[{track.title}]({track.url})\nDuration: `{track.formatted_duration}` | Requester: {track.requester}",
+            description=f"[{track.title}]({track.url})\nDuration: `{track.formatted_duration}` | Requester: {track.requester}{provider_badge}",
             color=0xFFB6C1
         )
         if track.thumbnail:
