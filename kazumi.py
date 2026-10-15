@@ -378,11 +378,21 @@ class ChromaMemory:
         hist = self.get_session_history(session_id=session_id, limit=1)
         return hist[-1] if hist else None
 
-    def recall(self, text, top_k=3, speaker_filter=None):
+    def recall(self, text, top_k=3, speaker_filter=None, session_id=None):
+        if session_id is None:
+            session_id = getattr(self, "current_session_id", None)
+
+        def item_matches(item):
+            if speaker_filter and item.get("speaker") != speaker_filter:
+                return False
+            if session_id and item.get("session_id") and item.get("session_id") != session_id:
+                return False
+            return True
+
         query_words = set(re.findall(r"\b\w+\b", text.lower())) - STOP_WORDS
         if not query_words:
             # Fallback to most recent messages
-            matching = [item["text"] for item in self.history if not speaker_filter or item["speaker"] == speaker_filter]
+            matching = [item["text"] for item in self.history if item_matches(item)]
             results = []
             seen = set()
             for msg in reversed(matching):
@@ -396,7 +406,7 @@ class ChromaMemory:
             
         scored_docs = []
         for item in self.history:
-            if speaker_filter and item["speaker"] != speaker_filter:
+            if not item_matches(item):
                 continue
             doc_words = set(re.findall(r"\b\w+\b", item["text"].lower())) - STOP_WORDS
             overlap = len(query_words.intersection(doc_words))
@@ -418,7 +428,7 @@ class ChromaMemory:
         
         # Fallback to most recent messages if no keyword matches
         if not results:
-            matching = [item["text"] for item in self.history if not speaker_filter or item["speaker"] == speaker_filter]
+            matching = [item["text"] for item in self.history if item_matches(item)]
             seen = set()
             for msg in reversed(matching):
                 norm_msg = msg.strip().lower()
