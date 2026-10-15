@@ -9,6 +9,8 @@ Validates:
 5. Safe local fallbacks on OpenAI timeout / API failure
 6. Safe handling of missing channels and permission errors
 7. Formatting constraints (4–8 lines, tasteful emojis, no guilt-tripping)
+8. Multi-guild isolation (LAPEACE vs other guilds)
+9. Channel resolution hierarchy targeting verified LAPEACE channels
 """
 
 import os
@@ -21,6 +23,9 @@ from discord_features.welcome import (
     WelcomePoemGenerator,
     WelcomeSystem,
     sanitize_display_name,
+    LAPEACE_GUILD_ID,
+    LAPEACE_WELCOME_CHANNEL_ID,
+    LAPEACE_GOODBYE_CHANNEL_ID,
     _PROCESSED_JOINS,
     _PROCESSED_LEAVES,
 )
@@ -62,16 +67,16 @@ class TestWelcomeFarewellPoetry(unittest.TestCase):
     def setUp(self):
         # Setup mock guild for LAPEACE
         self.guild = MagicMock()
-        self.guild.id = 1554152397327044729
+        self.guild.id = LAPEACE_GUILD_ID
         self.guild.name = "LAPEACE"
         self.guild.member_count = 42
 
-        # Setup mock channels
-        self.ch_welcome = MockTextChannel(101, "welcome")
-        self.ch_goodbye = MockTextChannel(102, "farewell")
-        self.ch_general = MockTextChannel(103, "general-chat")
-        self.ch_rules = MockTextChannel(104, "rules")
-        self.ch_intro = MockTextChannel(105, "introductions")
+        # Setup mock channels for LAPEACE
+        self.ch_welcome = MockTextChannel(LAPEACE_WELCOME_CHANNEL_ID, "welcome")
+        self.ch_goodbye = MockTextChannel(LAPEACE_GOODBYE_CHANNEL_ID, "goodbye")
+        self.ch_general = MockTextChannel(1554152397830357004, "general-chat")
+        self.ch_rules = MockTextChannel(1560031026477142057, "rules")
+        self.ch_intro = MockTextChannel(1560033839563145337, "introductions")
 
         self.guild.text_channels = [
             self.ch_welcome,
@@ -104,8 +109,8 @@ class TestWelcomeFarewellPoetry(unittest.TestCase):
         self.mock_db.return_value.get_guild_settings.return_value = {
             "welcome_enabled": True,
             "goodbye_enabled": True,
-            "welcome_channel_id": "101",
-            "goodbye_channel_id": "102",
+            "welcome_channel_id": str(LAPEACE_WELCOME_CHANNEL_ID),
+            "goodbye_channel_id": str(LAPEACE_GOODBYE_CHANNEL_ID),
         }
 
     def tearDown(self):
@@ -150,35 +155,27 @@ class TestWelcomeFarewellPoetry(unittest.TestCase):
             self.assertNotIn("betray", poem.lower())
 
     # =========================================================================
-    # 3. Channel Resolution Tests
+    # 3. Channel Resolution Tests (Verified LAPEACE IDs)
     # =========================================================================
-    def test_resolve_welcome_channel(self):
-        # 1. Configured channel
-        settings = {"welcome_channel_id": "101"}
-        ch = WelcomeSystem.resolve_welcome_channel(self.guild, settings)
-        self.assertEqual(ch.id, 101)
-
-        # 2. Channel named 'welcome'
+    def test_resolve_welcome_channel_lapeace_default(self):
+        """LAPEACE automatically resolves to verified welcome channel ID 1560033823960334396."""
         ch = WelcomeSystem.resolve_welcome_channel(self.guild, {})
-        self.assertEqual(ch.id, 101)
+        self.assertEqual(ch.id, LAPEACE_WELCOME_CHANNEL_ID)
 
-    def test_resolve_goodbye_channel_hierarchy(self):
-        # 1. Explicit goodbye channel
-        settings = {"goodbye_channel_id": "102"}
-        ch = WelcomeSystem.resolve_goodbye_channel(self.guild, settings)
-        self.assertEqual(ch.id, 102)
-
-        # 2. Named farewell or goodbye
+    def test_resolve_goodbye_channel_lapeace_default(self):
+        """LAPEACE automatically resolves to verified goodbye channel ID 1560220721429610556."""
         ch = WelcomeSystem.resolve_goodbye_channel(self.guild, {})
-        self.assertEqual(ch.id, 102)
+        self.assertEqual(ch.id, LAPEACE_GOODBYE_CHANNEL_ID)
 
-        # 3. Fallback to welcome channel if no farewell channel exists
-        guild_no_farewell = MagicMock()
-        guild_no_farewell.text_channels = [self.ch_welcome, self.ch_general]
-        guild_no_farewell.get_channel = MagicMock(return_value=None)
-        guild_no_farewell.system_channel = self.ch_general
-        ch = WelcomeSystem.resolve_goodbye_channel(guild_no_farewell, {})
-        self.assertEqual(ch.id, 101)
+    def test_resolve_goodbye_channel_hierarchy_fallback(self):
+        """If goodbye channel is missing, fallback cleanly to welcome channel."""
+        guild_no_goodbye = MagicMock()
+        guild_no_goodbye.id = 999999999
+        guild_no_goodbye.text_channels = [self.ch_welcome, self.ch_general]
+        guild_no_goodbye.get_channel = MagicMock(return_value=None)
+        guild_no_goodbye.system_channel = self.ch_general
+        ch = WelcomeSystem.resolve_goodbye_channel(guild_no_goodbye, {"welcome_channel_id": str(LAPEACE_WELCOME_CHANNEL_ID)})
+        self.assertEqual(ch.id, LAPEACE_WELCOME_CHANNEL_ID)
 
     # =========================================================================
     # 4. Member Join Welcome Event Tests
@@ -236,7 +233,31 @@ class TestWelcomeFarewellPoetry(unittest.TestCase):
         self.assertEqual(self.ch_goodbye.send.call_count, 2)
 
     # =========================================================================
-    # 6. Resilience & Safety Tests
+    # 6. Multi-Guild Isolation Tests
+    # =========================================================================
+    def test_multi_guild_isolation_unconfigured_disabled(self):
+        """Other guilds with disabled welcome/goodbye do not receive messages."""
+        other_guild = MagicMock()
+        other_guild.id = 888888888
+        other_guild.name = "OtherServer"
+        other_ch = MockTextChannel(801, "welcome")
+        other_guild.text_channels = [other_ch]
+        other_member = MockMember(777, "other_user", "OtherUser", guild=other_guild)
+
+        # Settings with disabled welcome/goodbye for other guild
+        self.mock_db.return_value.get_guild_settings.return_value = {
+            "welcome_enabled": False,
+            "goodbye_enabled": False,
+        }
+
+        asyncio.run(WelcomeSystem.send_welcome(other_member))
+        other_ch.send.assert_not_called()
+
+        asyncio.run(WelcomeSystem.send_goodbye(other_member))
+        other_ch.send.assert_not_called()
+
+    # =========================================================================
+    # 7. Resilience & Safety Tests
     # =========================================================================
     def test_send_welcome_bot_ignored(self):
         """Bots should never receive welcome or farewell poems."""

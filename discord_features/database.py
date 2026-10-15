@@ -154,7 +154,7 @@ class FeatureDatabase:
                     "welcome_enabled": True,
                     "goodbye_channel_id": None,
                     "goodbye_message": "{user} has left the server. Take care! 🌸",
-                    "goodbye_enabled": False,
+                    "goodbye_enabled": True,
                     "autorole_ids": [],
                     "automod": {
                         "enabled": False,

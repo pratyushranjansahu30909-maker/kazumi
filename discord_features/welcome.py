@@ -10,6 +10,7 @@ Features:
 - Varied, safe local fallback poems when API is unavailable or times out
 - Multi-layer join and leave deduplication (180s sliding window)
 - Automatic fallback channel resolution: farewell -> welcome -> system channel
+- Target server LAPEACE verified guild and channel resolution
 - Interactive slash commands: /welcome and /goodbye (channel, test, toggle, status)
 """
 
@@ -30,6 +31,11 @@ from discord_features.database import get_feature_db
 from discord_features.config import KazumiConfig
 
 logger = logging.getLogger("KazumiWelcome")
+
+# Target server verified constants
+LAPEACE_GUILD_ID = 1554152397327044729
+LAPEACE_WELCOME_CHANNEL_ID = 1560033823960334396
+LAPEACE_GOODBYE_CHANNEL_ID = 1560220721429610556
 
 # In-memory deduplication caches: (guild_id, member_id) -> timestamp
 _PROCESSED_JOINS: Dict[Tuple[int, int], float] = {}
@@ -388,9 +394,10 @@ class WelcomeSystem:
         Resolves the dedicated welcome channel obeying server architecture.
         Prioritizes:
         1. Explicitly configured welcome_channel_id in settings
-        2. Channel named 'welcome' with send permissions
-        3. Guild designated system channel
-        4. Safe text channel with permissions
+        2. Verified default for LAPEACE (1560033823960334396)
+        3. Channel named 'welcome' with send permissions
+        4. Guild designated system channel
+        5. First available permitted channel
         """
         if not guild or not hasattr(guild, "text_channels"):
             return None
@@ -415,16 +422,22 @@ class WelcomeSystem:
             except Exception:
                 pass
 
-        # 2. Channel named 'welcome'
+        # 2. Known verified default for LAPEACE
+        if getattr(guild, "id", None) == LAPEACE_GUILD_ID:
+            ch = guild.get_channel(LAPEACE_WELCOME_CHANNEL_ID)
+            if can_send(ch):
+                return ch
+
+        # 3. Channel named 'welcome'
         for ch in guild.text_channels:
             if "welcome" in ch.name.lower() and can_send(ch):
                 return ch
 
-        # 3. System channel
+        # 4. System channel
         if can_send(guild.system_channel):
             return guild.system_channel
 
-        # 4. First available permitted channel
+        # 5. First available permitted channel
         for ch in guild.text_channels:
             if can_send(ch):
                 return ch
@@ -437,11 +450,13 @@ class WelcomeSystem:
         Resolves the dedicated farewell/goodbye channel obeying server architecture.
         Hierarchy:
         1. Explicitly configured goodbye_channel_id in settings
-        2. Channel named 'farewell' or 'goodbye' with send permissions
-        3. Explicitly configured welcome_channel_id in settings
-        4. Channel named 'welcome' with send permissions
-        5. Guild designated system channel
-        6. First available permitted channel
+        2. Verified default for LAPEACE (1560220721429610556)
+        3. Channel named 'farewell' or 'goodbye' with send permissions
+        4. Explicitly configured welcome_channel_id in settings
+        5. Fallback to LAPEACE welcome channel (1560033823960334396)
+        6. Channel named 'welcome' with send permissions
+        7. Guild designated system channel
+        8. First available permitted channel
         """
         if not guild or not hasattr(guild, "text_channels"):
             return None
@@ -466,13 +481,19 @@ class WelcomeSystem:
             except Exception:
                 pass
 
-        # 2. Channel named 'farewell' or 'goodbye'
+        # 2. Known verified default for LAPEACE
+        if getattr(guild, "id", None) == LAPEACE_GUILD_ID:
+            ch = guild.get_channel(LAPEACE_GOODBYE_CHANNEL_ID)
+            if can_send(ch):
+                return ch
+
+        # 3. Channel named 'farewell' or 'goodbye'
         for ch in guild.text_channels:
             name_lower = ch.name.lower()
             if ("farewell" in name_lower or "goodbye" in name_lower) and can_send(ch):
                 return ch
 
-        # 3. Fallback to configured welcome_channel_id
+        # 4. Fallback to configured welcome_channel_id
         w_cid = settings.get("welcome_channel_id")
         if w_cid:
             try:
@@ -482,16 +503,22 @@ class WelcomeSystem:
             except Exception:
                 pass
 
-        # 4. Channel named 'welcome'
+        # 5. Fallback to known LAPEACE welcome channel
+        if getattr(guild, "id", None) == LAPEACE_GUILD_ID:
+            ch = guild.get_channel(LAPEACE_WELCOME_CHANNEL_ID)
+            if can_send(ch):
+                return ch
+
+        # 6. Channel named 'welcome'
         for ch in guild.text_channels:
             if "welcome" in ch.name.lower() and can_send(ch):
                 return ch
 
-        # 5. Guild system channel
+        # 7. Guild system channel
         if can_send(guild.system_channel):
             return guild.system_channel
 
-        # 6. First permitted text channel
+        # 8. First permitted text channel
         for ch in guild.text_channels:
             if can_send(ch):
                 return ch
@@ -546,8 +573,12 @@ class WelcomeSystem:
         db = get_feature_db()
         settings = db.get_guild_settings(str(guild.id))
 
-        if settings.get("welcome_enabled") is False:
-            return
+        if getattr(guild, "id", None) == LAPEACE_GUILD_ID:
+            if settings.get("welcome_enabled") is False and settings.get("welcome_explicitly_disabled") is True:
+                return
+        else:
+            if settings.get("welcome_enabled") is False:
+                return
 
         # Deduplication Check (In-memory + sliding time window of 180s)
         now_time = time.time()
@@ -627,9 +658,12 @@ class WelcomeSystem:
         db = get_feature_db()
         settings = db.get_guild_settings(str(guild.id))
 
-        # Farewell is enabled by default unless explicitly disabled
-        if settings.get("goodbye_enabled") is False:
-            return
+        if getattr(guild, "id", None) == LAPEACE_GUILD_ID:
+            if settings.get("goodbye_enabled") is False and settings.get("goodbye_explicitly_disabled") is True:
+                return
+        else:
+            if settings.get("goodbye_enabled") is False:
+                return
 
         # Deduplication Check (In-memory + sliding time window of 180s)
         now_time = time.time()
@@ -719,7 +753,11 @@ def register_welcome_commands(tree: app_commands.CommandTree, bot: commands.Bot)
             if not channel:
                 await interaction.response.send_message("❌ Please specify a channel.", ephemeral=True)
                 return
-            db.update_guild_settings(gid, {"welcome_channel_id": str(channel.id), "welcome_enabled": True})
+            db.update_guild_settings(gid, {
+                "welcome_channel_id": str(channel.id),
+                "welcome_enabled": True,
+                "welcome_explicitly_disabled": False
+            })
             await interaction.response.send_message(f"🌸 Welcome channel set to {channel.mention} (Welcome system enabled)!")
 
         elif action.value == "test":
@@ -740,17 +778,26 @@ def register_welcome_commands(tree: app_commands.CommandTree, bot: commands.Bot)
             await interaction.followup.send("✅ Test welcome poem generated:", embed=embed, ephemeral=True)
 
         elif action.value == "toggle":
-            is_en = enabled if enabled is not None else not settings.get("welcome_enabled", True)
-            db.update_guild_settings(gid, {"welcome_enabled": is_en})
+            curr = settings.get("welcome_enabled", True)
+            if interaction.guild_id == LAPEACE_GUILD_ID and settings.get("welcome_explicitly_disabled"):
+                curr = False
+            is_en = enabled if enabled is not None else not curr
+            db.update_guild_settings(gid, {
+                "welcome_enabled": is_en,
+                "welcome_explicitly_disabled": not is_en
+            })
             await interaction.response.send_message(f"🌸 Welcome greeting system is now **{'Enabled' if is_en else 'Disabled'}**.")
 
         elif action.value == "status":
-            ch_id = settings.get("welcome_channel_id")
+            ch_id = settings.get("welcome_channel_id") or (str(LAPEACE_WELCOME_CHANNEL_ID) if interaction.guild_id == LAPEACE_GUILD_ID else None)
+            is_en = settings.get("welcome_enabled", True)
+            if interaction.guild_id == LAPEACE_GUILD_ID and settings.get("welcome_explicitly_disabled"):
+                is_en = False
             ch_str = f"<#{ch_id}>" if ch_id else "`Default (#welcome)`"
             embed = discord.Embed(
                 title="🌸 Welcome Greeting Status",
                 description=(
-                    f"**Status:** {'✅ Enabled' if settings.get('welcome_enabled', True) else '❌ Disabled'}\n"
+                    f"**Status:** {'✅ Enabled' if is_en else '❌ Disabled'}\n"
                     f"**Channel:** {ch_str}\n"
                     f"**Engine:** Personalized 4–8 Line Welcome Poetry (`gpt-4o-mini` with local fallback)"
                 ),
@@ -787,7 +834,11 @@ def register_welcome_commands(tree: app_commands.CommandTree, bot: commands.Bot)
             if not channel:
                 await interaction.response.send_message("❌ Please specify a channel.", ephemeral=True)
                 return
-            db.update_guild_settings(gid, {"goodbye_channel_id": str(channel.id), "goodbye_enabled": True})
+            db.update_guild_settings(gid, {
+                "goodbye_channel_id": str(channel.id),
+                "goodbye_enabled": True,
+                "goodbye_explicitly_disabled": False
+            })
             await interaction.response.send_message(f"🍃 Goodbye channel set to {channel.mention} (Goodbye system enabled)!")
 
         elif action.value == "test":
@@ -806,18 +857,27 @@ def register_welcome_commands(tree: app_commands.CommandTree, bot: commands.Bot)
             await interaction.followup.send("✅ Test farewell poem generated:", embed=embed, ephemeral=True)
 
         elif action.value == "toggle":
-            is_en = enabled if enabled is not None else not settings.get("goodbye_enabled", True)
-            db.update_guild_settings(gid, {"goodbye_enabled": is_en})
+            curr = settings.get("goodbye_enabled", True)
+            if interaction.guild_id == LAPEACE_GUILD_ID and settings.get("goodbye_explicitly_disabled"):
+                curr = False
+            is_en = enabled if enabled is not None else not curr
+            db.update_guild_settings(gid, {
+                "goodbye_enabled": is_en,
+                "goodbye_explicitly_disabled": not is_en
+            })
             await interaction.response.send_message(f"🍃 Goodbye / Farewell system is now **{'Enabled' if is_en else 'Disabled'}**.")
 
         elif action.value == "status":
-            ch_id = settings.get("goodbye_channel_id")
-            w_id = settings.get("welcome_channel_id")
+            ch_id = settings.get("goodbye_channel_id") or (str(LAPEACE_GOODBYE_CHANNEL_ID) if interaction.guild_id == LAPEACE_GUILD_ID else None)
+            w_id = settings.get("welcome_channel_id") or (str(LAPEACE_WELCOME_CHANNEL_ID) if interaction.guild_id == LAPEACE_GUILD_ID else None)
+            is_en = settings.get("goodbye_enabled", True)
+            if interaction.guild_id == LAPEACE_GUILD_ID and settings.get("goodbye_explicitly_disabled"):
+                is_en = False
             ch_str = f"<#{ch_id}>" if ch_id else (f"<#{w_id}> (Welcome Fallback)" if w_id else "`Default (#farewell / #welcome)`")
             embed = discord.Embed(
                 title="🌙 Goodbye / Farewell Greeting Status",
                 description=(
-                    f"**Status:** {'✅ Enabled' if settings.get('goodbye_enabled', True) else '❌ Disabled'}\n"
+                    f"**Status:** {'✅ Enabled' if is_en else '❌ Disabled'}\n"
                     f"**Channel:** {ch_str}\n"
                     f"**Engine:** Personalized 4–8 Line Farewell Poetry (`gpt-4o-mini` with local fallback)"
                 ),

@@ -666,14 +666,16 @@ async def on_ready():
                 except Exception as g_err:
                     logger.warning(f"Guild-specific slash command sync failed: {g_err}")
 
-            # Ensure Gaman has dedicated guild commands (including /join, /leave, /musicstatus) synced
-            gaman_guild_id = 1554152397327044729
+            # Ensure LAPEACE has dedicated guild commands (including /join, /leave, /musicstatus) synced
+            target_guild_id = 1554152397327044729
             try:
-                discord_features.music.setup_music_commands(bot.tree, bot, guild_id=gaman_guild_id)
-                synced_gaman = await bot.tree.sync(guild=discord.Object(id=gaman_guild_id))
-                logger.info(f"[STARTUP] Synced {len(synced_gaman)} guild command(s) to Gaman ({gaman_guild_id}).")
+                discord_features.music.setup_music_commands(bot.tree, bot, guild_id=target_guild_id)
+                synced_guild_cmds = await bot.tree.sync(guild=discord.Object(id=target_guild_id))
+                target_g = bot.get_guild(target_guild_id)
+                target_name = target_g.name if target_g else "LAPEACE"
+                logger.info(f"[STARTUP] Synced {len(synced_guild_cmds)} guild command(s) to {target_name} ({target_guild_id}).")
             except Exception as g_err:
-                logger.warning(f"Gaman guild-specific slash command sync failed: {g_err}")
+                logger.warning(f"Target guild slash command sync failed: {g_err}")
 
             synced = await bot.tree.sync()
             logger.info(f"[STARTUP] Globally synced {len(synced)} slash command(s).")
