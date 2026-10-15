@@ -6,7 +6,7 @@ and organic mood fluctuations (blushing, playful teasing, cute pouts, bubbly exc
 """
 
 import random
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 
 HUMAN_GIRL_EMOTIONS: Dict[str, Dict[str, Any]] = {
     "SHY_FLUSTERED": {
@@ -245,3 +245,125 @@ def get_emotion_engine() -> HumanGirlEmotionEngine:
     if _emotion_engine is None:
         _emotion_engine = HumanGirlEmotionEngine()
     return _emotion_engine
+
+
+class EmotionalContextAnalyzer:
+    """
+    Analyzes user text to estimate emotional context and provide contextual response tone guidance.
+    Categories:
+    - EXCITED, HAPPY, DISAPPOINTED, FRUSTRATED, SAD, CURIOUS, CONFUSED, PLAYFUL, SERIOUS, NEUTRAL
+    """
+
+    def analyze_tone(self, text: str) -> Tuple[str, float, str]:
+        """
+        Analyzes the emotional tone of a message.
+        Returns: (tone_category: str, confidence: float, explanation: str)
+        """
+        return self._analyze_internal(text)
+
+    def analyze(self, text: str) -> Tuple[str, float, str]:
+        return self._analyze_internal(text)
+
+    def _analyze_internal(self, text: str) -> Tuple[str, float, str]:
+        import re
+        clean = (text or "").lower().strip()
+        words = set(re.findall(r"\b\w+\b", clean))
+
+        # 1. Repetition critique / Frustration with bot
+        if any(p in clean for p in ["repeating yourself", "you're repeating", "repeat yourself", "said that already", "same response", "broken bot", "annoying"]):
+            return "FRUSTRATED", 0.90, "User is critiquing repetition or expressing annoyance"
+
+        # 2. Playful conspiracies / banter / memes
+        if any(p in clean for p in ["world domination", "secretly planning", "secret agent", "skynet", "illuminati", "roast me", "destroy me", "cook me"]):
+            return "PLAYFUL", 0.85, "Playful teasing or harmless conspiracy banter"
+
+        # 3. Disappointment / Failure
+        disappointed_cues = ["failed my", "failed the", "didn't pass", "got rejected", "messed up", "bombed the", "blew it", "didn't make it", "ruined everything", "lost the match", "lost the game"]
+        if any(cue in clean for cue in disappointed_cues):
+            return "DISAPPOINTED", 0.85, "User experienced a failure, loss, or letdown"
+
+        # 4. Sadness / Grief / Distress
+        sad_cues = ["crying", "lost someone", "hurts so much", "depressed", "lonely", "hate myself", "heartbroken", "so down", "can't take it"]
+        if any(cue in clean for cue in sad_cues) or words.intersection({"sad", "depressed", "lonely", "heartbroken", "miserable", "crying"}):
+            return "SAD", 0.80, "User is feeling sorrow, loneliness, or emotional pain"
+
+        # 5. Accomplishment / Excitement
+        excited_cues = ["finally completed", "finally finished", "got the job", "passed my", "i won", "we won", "nailed it", "promoted", "best news", "omg yes", "holy shit", "let's gooo", "lets gooo", "i did it"]
+        if any(cue in clean for cue in excited_cues) or (words.intersection({"celebrating", "awesome", "incredible", "hyped"}) and ("!" in text)):
+            return "EXCITED", 0.85, "User completed a goal, milestone, or celebration"
+
+        # 6. Happiness / Contentment
+        happy_cues = ["such a good day", "feeling happy", "feeling great", "loved it", "so glad", "blessed", "wonderful day", "grateful"]
+        if any(cue in clean for cue in happy_cues) or words.intersection({"happy", "glad", "joyful", "great", "blessed", "delighted"}):
+            return "HAPPY", 0.75, "User is feeling cheerful, content, or appreciative"
+
+        # 7. Confusion / Perplexity
+        confused_cues = ["i don't understand", "i dont understand", "wait what", "confused", "makes no sense", "huh?", "what do you mean"]
+        if any(cue in clean for cue in confused_cues):
+            return "CONFUSED", 0.80, "User is puzzled, disoriented, or seeking clarity"
+
+        # 8. Serious / Deep Matters
+        serious_cues = ["need serious advice", "be honest with me", "important decision", "need to confess", "can i be real", "truth is"]
+        if any(cue in clean for cue in serious_cues):
+            return "SERIOUS", 0.80, "User is raising a sincere, serious matter"
+
+        # 9. Curiosity / Exploration
+        if clean.endswith("?") and any(clean.startswith(w) for w in ["why", "how", "what if", "can you explain", "tell me about"]):
+            return "CURIOUS", 0.70, "User is asking an exploratory question"
+
+        return "NEUTRAL", 0.50, "Everyday casual conversation or concise response"
+
+    def get_tone_prompt_directive(self, tone: str) -> Optional[str]:
+        """Returns prompt guidance tailored to the estimated tone."""
+        guidelines = {
+            "EXCITED": (
+                "[Emotional Intelligence: User is EXCITED / CELEBRATING 🎉]\n"
+                "- Match their genuine excitement with authentic, warm celebration (e.g., 'Wait, you actually finished it! That's awesome. 🌸').\n"
+                "- Never respond with dry corporate praise or pivot to unrelated questions."
+            ),
+            "HAPPY": (
+                "[Emotional Intelligence: User is HAPPY / CONTENT 😊]\n"
+                "- Share in their positive energy warmly and naturally.\n"
+                "- Keep the conversation comfortable and pleasant without forced, exaggerated enthusiasm."
+            ),
+            "DISAPPOINTED": (
+                "[Emotional Intelligence: User is DISAPPOINTED / EXPERIENCED A FAILURE 🌧️]\n"
+                "- Offer grounded, authentic empathy (e.g., 'Ah, that sucks. Take a moment. One exam doesn't decide your entire future.').\n"
+                "- CRITICAL: Do NOT make jokes. Do NOT give toxic positivity or dismiss their feelings."
+            ),
+            "SAD": (
+                "[Emotional Intelligence: User is SAD / HURTING 💙]\n"
+                "- Provide a quiet, comforting presence. Be gentle, calm, and sincere.\n"
+                "- Do NOT make jokes, give unsolicited lectures, or pretend everything is instantly fine."
+            ),
+            "FRUSTRATED": (
+                "[Emotional Intelligence: User is CRITIQUING REPETITION OR FRUSTRATED ⚠️]\n"
+                "- Acknowledge their critique directly and honestly (e.g., 'You're right. That reply was repetitive. I'll keep it more natural.').\n"
+                "- Do NOT repeat the previous phrase. Do NOT be defensive or give canned apologies."
+            ),
+            "PLAYFUL": (
+                "[Emotional Intelligence: User is PLAYFUL / JOKING / BANTERING 😏]\n"
+                "- Play along with quick, witty humor (e.g., 'Obviously. Step one: acquire snacks. Step two: deny everything. 🌸').\n"
+                "- Keep it lighthearted, cheeky, and fun without overexplaining the joke."
+            ),
+            "CONFUSED": (
+                "[Emotional Intelligence: User is CONFUSED / PUZZLED ❓]\n"
+                "- Provide a straightforward, clear explanation without condescension.\n"
+                "- Keep it simple and helpful."
+            ),
+            "SERIOUS": (
+                "[Emotional Intelligence: User is SERIOUS / DISCUSSING IMPORTANT MATTER ⚖️]\n"
+                "- Adopt a thoughtful, respectful, grounded demeanor.\n"
+                "- Avoid casual jokes, emojis, or silly tangents."
+            )
+        }
+        return guidelines.get(tone)
+
+
+_emotional_analyzer = None
+
+def get_emotional_analyzer() -> EmotionalContextAnalyzer:
+    global _emotional_analyzer
+    if _emotional_analyzer is None:
+        _emotional_analyzer = EmotionalContextAnalyzer()
+    return _emotional_analyzer

@@ -66,7 +66,9 @@ class HumanInteractionEngine:
         is_directly_addressed: bool,
         is_prefix_called: bool,
         channel_mode: str = "ACTIVE_CHAT",
-        relationship_level: int = 1
+        relationship_level: int = 1,
+        is_continuation: bool = False,
+        continuation_reason: str = ""
     ) -> Tuple[InteractionDecision, Optional[str], str]:
         """
         Evaluates a Discord message through Kazumi's social awareness filters.
@@ -133,6 +135,11 @@ class HumanInteractionEngine:
         if is_explicitly_summoned:
             self.record_bot_spoke(ch_id)
             return InteractionDecision.RESPOND, None, "Explicitly summoned or addressed by user"
+
+        # 9B. Natural Conversation Continuation without repeat pings (Phase 2)
+        if is_continuation:
+            self.record_bot_spoke(ch_id)
+            return InteractionDecision.RESPOND, None, f"Continuation of active conversation ({continuation_reason})"
 
         # 10. Chat Slang / Pure Laughter (e.g. "lmao", "haha", "bruh", "gg") -> REACT or WAIT
         chat_slang = {"lol", "lmao", "lmfao", "haha", "hahaha", "xd", "rofl", "bruh", "damn", "gg", "w", "rip"}

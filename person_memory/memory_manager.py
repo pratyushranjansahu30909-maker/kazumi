@@ -10,6 +10,7 @@ import time
 import shutil
 import threading
 import logging
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from person_memory.person_profile import PersonProfile
 
@@ -94,6 +95,75 @@ class PersonMemoryManager:
                         self._channels_cache[str(cid)] = cdata.upper()
 
             logger.info(f"Loaded {len(self._profiles_cache)} person profile(s) and {len(self._channels_cache)} channel config(s).")
+            # Auto-migrate legacy affection data from profile.json
+            self.migrate_legacy_data()
+
+    def migrate_legacy_data(self, profile_json_path: Optional[str] = None) -> int:
+        """
+        Safely migrates existing session_game_states from profile.json into person_profiles.json.
+        Preserves all higher existing scores without destroying anything.
+        """
+        if profile_json_path is None:
+            profile_json_path = os.path.join(self.persist_dir, "profile.json")
+
+        if not os.path.exists(profile_json_path):
+            return 0
+
+        migrated_count = 0
+        try:
+            legacy_data = self._safe_read_json(profile_json_path, {})
+            session_game_states = legacy_data.get("session_game_states", {})
+            if isinstance(session_game_states, dict):
+                for session_id, s_data in session_game_states.items():
+                    if not isinstance(s_data, dict):
+                        continue
+                    # Match discord_user_<uid>
+                    uid = None
+                    if session_id.startswith("discord_user_"):
+                        raw_id = session_id.replace("discord_user_", "").strip()
+                        if raw_id.isdigit():
+                            uid = raw_id
+
+                    if not uid:
+                        continue
+
+                    profile = self.get_profile(uid, display_name=s_data.get("user_name"))
+                    changed = False
+
+                    leg_aff = s_data.get("affection_level")
+                    if leg_aff is not None and isinstance(leg_aff, (int, float)):
+                        leg_aff = int(leg_aff)
+                        if leg_aff > profile.affection_level:
+                            profile.affection_level = leg_aff
+                            profile.lifetime_affection = max(profile.lifetime_affection, leg_aff)
+                            changed = True
+
+                    leg_cp = s_data.get("cozy_points")
+                    if leg_cp is not None and isinstance(leg_cp, (int, float)):
+                        leg_cp = int(leg_cp)
+                        if leg_cp > profile.cozy_points:
+                            profile.cozy_points = leg_cp
+                            changed = True
+
+                    leg_turns = s_data.get("turn_count")
+                    if leg_turns is not None and isinstance(leg_turns, (int, float)):
+                        profile.turn_count = max(profile.turn_count, int(leg_turns))
+                        changed = True
+
+                    if s_data.get("archetype") and not profile.archetype:
+                        profile.archetype = s_data["archetype"]
+                        changed = True
+
+                    if changed:
+                        migrated_count += 1
+
+                if migrated_count > 0:
+                    self.save_all()
+                    logger.info(f"Successfully migrated {migrated_count} legacy user session(s) into person profiles.")
+        except Exception as e:
+            logger.warning(f"Error during legacy profile migration: {e}")
+
+        return migrated_count
 
     def save_all(self) -> None:
         """Flushes in-memory profiles and channel configs to disk."""
@@ -111,6 +181,10 @@ class PersonMemoryManager:
                 for cid, mode in self._channels_cache.items()
             }
             self._atomic_write_json(self.channels_path, channels_dict)
+
+    def save_profiles(self) -> None:
+        """Alias for save_all to ensure compatibility with profile persistence."""
+        self.save_all()
 
     def get_profile(self, user_id: str, display_name: Optional[str] = None) -> PersonProfile:
         """Retrieves or creates a PersonProfile for user_id (stable platform ID)."""
@@ -136,6 +210,94 @@ class PersonMemoryManager:
 
         # Flush to disk
         self.save_all()
+
+    def get_affection(self, user_id: str) -> int:
+        """Returns the stable, persistent affection level for a Discord user."""
+        profile = self.get_profile(user_id)
+        return profile.affection_level
+
+    def set_affection(self, user_id: str, value: int) -> int:
+        """Sets the affection level directly with bounding and lifetime tracking."""
+        profile = self.get_profile(user_id)
+        clamped = max(0, min(100, int(value)))
+        with self._lock:
+            profile.affection_level = clamped
+            if clamped > profile.lifetime_affection:
+                profile.lifetime_affection = clamped
+        self.save_profile(profile)
+        return clamped
+
+    def add_affection(self, user_id: str, base_gain: int = 1, allow_farming: bool = False, delta: Optional[float] = None) -> int:
+        """
+        Increments user affection with diminishing returns and anti-farming / spam protection.
+        Different Discord members progress completely independently.
+        """
+        if delta is not None:
+            base_gain = int(delta)
+        import random
+        profile = self.get_profile(user_id)
+        curr_aff = profile.affection_level
+
+        # Diminishing returns scaling formula
+        if curr_aff < 50:
+            factor = 0.25
+        elif curr_aff < 75:
+            factor = 0.12
+        elif curr_aff < 90:
+            factor = 0.04
+        else:
+            factor = 0.008
+
+        now = time.time()
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        # Rate-limiting / anti-spam guard
+        if not allow_farming:
+            if now - profile.last_affection_gain_time < 3.0:
+                return 0
+
+            # Reset daily counter if new calendar day
+            if profile.daily_affection_date != today_str:
+                profile.daily_affection_date = today_str
+                profile.daily_affection_earned = 0
+
+            # Daily cap: max +25 affection per calendar day to prevent rapid farming
+            if profile.daily_affection_earned >= 25:
+                return 0
+
+        raw_gain = base_gain * factor
+        gain = int(raw_gain)
+        fractional = raw_gain - gain
+        if random.random() < fractional:
+            gain += 1
+
+        if not allow_farming and gain > 0:
+            gain = min(gain, max(0, 25 - profile.daily_affection_earned))
+
+        if gain > 0:
+            with self._lock:
+                new_aff = min(100, curr_aff + gain)
+                profile.affection_level = new_aff
+                profile.lifetime_affection = max(profile.lifetime_affection, new_aff)
+                profile.last_affection_gain_time = now
+                profile.daily_affection_earned += gain
+            self.save_profile(profile)
+
+        return gain
+
+    def get_cozy_points(self, user_id: str) -> int:
+        """Returns the cozy points for a Discord user."""
+        profile = self.get_profile(user_id)
+        return profile.cozy_points
+
+    def add_cozy_points(self, user_id: str, points: int) -> int:
+        """Awards cozy points to a Discord user and persists."""
+        profile = self.get_profile(user_id)
+        gain = max(0, int(points))
+        with self._lock:
+            profile.cozy_points += gain
+        self.save_profile(profile)
+        return profile.cozy_points
 
     def reset_person(self, user_id: str) -> bool:
         """

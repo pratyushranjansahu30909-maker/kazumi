@@ -58,6 +58,16 @@ class PersonProfile:
 
     relationship_level: int = 0  # 0=New person, 1=Recognised, 2=Familiar, 3=Regular interaction, 4=Strong familiarity
 
+    # Persistent Individual Affection & Progression (Phase 4)
+    affection_level: int = 10
+    cozy_points: int = 100
+    lifetime_affection: int = 10
+    turn_count: int = 0
+    archetype: Optional[str] = None
+    last_affection_gain_time: float = 0.0
+    daily_affection_earned: int = 0
+    daily_affection_date: str = ""
+
     known_preferences: List[str] = field(default_factory=list)
     positive_patterns: List[str] = field(default_factory=list)
     negative_patterns: List[str] = field(default_factory=list)
@@ -74,6 +84,8 @@ class PersonProfile:
             self.first_seen = now_iso
         if not self.last_seen:
             self.last_seen = now_iso
+        if self.lifetime_affection < self.affection_level:
+            self.lifetime_affection = self.affection_level
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -87,6 +99,14 @@ class PersonProfile:
             "interests": list(self.interests),
             "conversation_preferences": list(self.conversation_preferences),
             "relationship_level": int(self.relationship_level),
+            "affection_level": int(self.affection_level),
+            "cozy_points": int(self.cozy_points),
+            "lifetime_affection": int(self.lifetime_affection),
+            "turn_count": int(self.turn_count),
+            "archetype": self.archetype,
+            "last_affection_gain_time": float(self.last_affection_gain_time),
+            "daily_affection_earned": int(self.daily_affection_earned),
+            "daily_affection_date": str(self.daily_affection_date),
             "known_preferences": list(self.known_preferences),
             "positive_patterns": list(self.positive_patterns),
             "negative_patterns": list(self.negative_patterns),
@@ -99,6 +119,8 @@ class PersonProfile:
         style_raw = data.get("communication_style", {})
         comm_style = CommunicationStyle.from_dict(style_raw) if isinstance(style_raw, dict) else CommunicationStyle()
 
+        aff = int(data.get("affection_level", 10))
+        life_aff = int(data.get("lifetime_affection", aff))
         return cls(
             user_id=str(data.get("user_id", "")),
             display_name=str(data.get("display_name", "Unknown")),
@@ -110,6 +132,14 @@ class PersonProfile:
             interests=list(data.get("interests", [])),
             conversation_preferences=list(data.get("conversation_preferences", [])),
             relationship_level=int(data.get("relationship_level", 0)),
+            affection_level=aff,
+            cozy_points=int(data.get("cozy_points", 100)),
+            lifetime_affection=max(aff, life_aff),
+            turn_count=int(data.get("turn_count", 0)),
+            archetype=data.get("archetype"),
+            last_affection_gain_time=float(data.get("last_affection_gain_time", 0.0)),
+            daily_affection_earned=int(data.get("daily_affection_earned", 0)),
+            daily_affection_date=str(data.get("daily_affection_date", "")),
             known_preferences=list(data.get("known_preferences", [])),
             positive_patterns=list(data.get("positive_patterns", [])),
             negative_patterns=list(data.get("negative_patterns", [])),

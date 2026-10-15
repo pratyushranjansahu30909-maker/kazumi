@@ -29,6 +29,27 @@ class AutoModTracker:
         # (guild_id, user_id) -> list of recent message hashes/texts
         self.recent_contents: Dict[Tuple[str, str], List[str]] = {}
 
+    def check_bad_words(self, text: str, custom_bad_words: Optional[set] = None) -> bool:
+        """Checks text against multilingual profanity patterns and optional custom bad words."""
+        if not text:
+            return False
+        lower = text.lower()
+        if custom_bad_words:
+            for bw in custom_bad_words:
+                if bw and bw.lower() in lower:
+                    return True
+        multilingual_profanity_patterns = [
+            r"\b(?:f+u+c+k+|s+h+i+t+|b+i+t+c+h+|c+u+n+t+|a+s+s+h+o+l+e+|d+i+c+k+h+e+a+d+)\b",
+            r"\b(?:put[oa]|mierda|hijo\s*de\s*puta|coño|maric[oó]n|cabrón|pendej[oa])\b",
+            r"\b(?:bhenchod|madarchod|bhosdike|chutiya|gandu|harami|saale|randi|kameene|kameena)\b",
+            r"\b(?:putain|merde|connard|encul[eé]|salope)\b",
+            r"\b(?:schweinehund|hurensohn|arschloch|fotze)\b"
+        ]
+        for pat in multilingual_profanity_patterns:
+            if re.search(pat, lower, re.IGNORECASE):
+                return True
+        return False
+
     def record_and_evaluate(
         self,
         message: discord.Message,
@@ -63,13 +84,33 @@ class AutoModTracker:
             if len(message.mentions) > max_pings:
                 return (True, "Excessive Mentions", f"Pinging {len(message.mentions)} members exceeds limit ({max_pings}).")
 
-        # 4. Bad Words Filter
-        bad_words = automod_config.get("bad_words", [])
-        if bad_words:
+        # 4. Bad Words & Multilingual Profanity Filter
+        bad_words = set(automod_config.get("bad_words", []))
+        # Built-in multilingual profanity regex (English, Spanish, Hindi/Hinglish, French, German)
+        if automod_config.get("filter_profanity", True) or bad_words:
             lower = text.lower()
+            # Check configured bad words
             for bw in bad_words:
                 if bw and bw.lower() in lower:
-                    return (True, "Prohibited Language", f"Message contained blacklisted term.")
+                    return (True, "Prohibited Language", "Message contained blacklisted term.")
+
+            # Multilingual swear words patterns with word boundaries
+            multilingual_profanity_patterns = [
+                # English
+                r"\b(?:f+u+c+k+|s+h+i+t+|b+i+t+c+h+|c+u+n+t+|a+s+s+h+o+l+e+|d+i+c+k+h+e+a+d+)\b",
+                # Spanish
+                r"\b(?:put[oa]|mierda|hijo\s*de\s*puta|coño|maric[oó]n|cabrón|pendej[oa])\b",
+                # Hindi / Hinglish
+                r"\b(?:bhenchod|madarchod|bhosdike|chutiya|gandu|harami|saale|randi|kameene)\b",
+                # French
+                r"\b(?:putain|merde|connard|encul[eé]|salope)\b",
+                # German
+                r"\b(?:schweinehund|hurensohn|arschloch|fotze)\b"
+            ]
+            if automod_config.get("filter_profanity", True):
+                for pat in multilingual_profanity_patterns:
+                    if re.search(pat, lower, re.IGNORECASE):
+                        return (True, "Multilingual Profanity", "Message contained prohibited offensive language.")
 
         # 5. Anti-Spam (Rate limiting: max 5 messages in 4 seconds)
         if automod_config.get("anti_spam", True):

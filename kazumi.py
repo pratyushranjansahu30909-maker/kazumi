@@ -2433,8 +2433,22 @@ class Kazumi:
         self.conversation_state = game_state.get("conversation_state", "ACTIVE_CHAT")
         self.current_user_name = game_state.get("user_name", getattr(self, "current_user_name", None))
         if session_id:
-            self.affection_level = game_state.get("affection_level", profile.get("affection_level", 10))
-            self.cozy_points = game_state.get("cozy_points", profile.get("cozy_points", 100))
+            if session_id.startswith("discord_user_"):
+                uid_str = session_id.replace("discord_user_", "").strip()
+                try:
+                    from person_memory import get_observation_manager
+                    obs = get_observation_manager()
+                    if obs and obs.memory_mgr:
+                        p_aff = obs.memory_mgr.get_affection(uid_str)
+                        if p_aff > game_state.get("affection_level", 0):
+                            game_state["affection_level"] = p_aff
+                        p_cp = obs.memory_mgr.get_cozy_points(uid_str)
+                        if p_cp > game_state.get("cozy_points", 0):
+                            game_state["cozy_points"] = p_cp
+                except Exception:
+                    pass
+            self.affection_level = game_state.get("affection_level", 10)
+            self.cozy_points = game_state.get("cozy_points", 100)
             if "archetype" in game_state:
                 self.current_archetype = game_state["archetype"]
 
@@ -2501,22 +2515,21 @@ class Kazumi:
         if getattr(self, "current_user_name", None):
             game_state["user_name"] = self.current_user_name
         if session_id:
-            game_state["affection_level"] = getattr(self, "affection_level", profile.get("affection_level", 10))
-            game_state["cozy_points"] = getattr(self, "cozy_points", profile.get("cozy_points", 100))
+            game_state["affection_level"] = getattr(self, "affection_level", 10)
+            game_state["cozy_points"] = getattr(self, "cozy_points", 100)
             if hasattr(self, "current_archetype"):
                 game_state["archetype"] = self.current_archetype
+            if session_id.startswith("discord_user_"):
+                uid_str = session_id.replace("discord_user_", "").strip()
+                try:
+                    from person_memory import get_observation_manager
+                    obs = get_observation_manager()
+                    if obs and obs.memory_mgr:
+                        obs.memory_mgr.set_affection(uid_str, game_state["affection_level"])
+                except Exception:
+                    pass
         
-        # Prune older session game states if they exceed 50 to keep profile.json size bound
-        if session_id:
-            session_game_states = profile.setdefault("session_game_states", {})
-            if len(session_game_states) > 50:
-                sorted_sessions = sorted(
-                    session_game_states.items(),
-                    key=lambda x: x[1].get("last_time", 0)
-                )
-                for old_sess_id, _ in sorted_sessions[:-50]:
-                    session_game_states.pop(old_sess_id, None)
-
+        # Complete persistent history for all Discord members (NO 50-session pruning)
         self.memory.save_profile()
 
     def get_archetype_reaction(self, reactions_dict):
@@ -2528,9 +2541,18 @@ class Kazumi:
             react = list(reactions_dict.values())[0] if reactions_dict else ""
         return react
 
-    def add_affection(self, base_gain):
+    def add_affection(self, base_gain, session_id=None):
+        if session_id is None:
+            session_id = getattr(self.memory, "current_session_id", None)
+
         profile = self.memory.profile
-        curr_aff = profile.get("affection_level", 50)
+        if session_id:
+            session_game_states = profile.setdefault("session_game_states", {})
+            game_state = session_game_states.setdefault(session_id, {})
+            curr_aff = game_state.get("affection_level", 10)
+        else:
+            game_state = profile.setdefault("game_state", {})
+            curr_aff = profile.get("affection_level", 10)
         
         # Refined dynamic progression factors (Diminishing Returns)
         if curr_aff < 50:
@@ -2541,30 +2563,6 @@ class Kazumi:
             factor = 0.04       # Growth becomes difficult (75-90)
         else:
             factor = 0.008      # Growth becomes extremely difficult (90-100)
-
-        # Previous progression factors are commented out below to satisfy non-deletion constraint:
-        # if curr_aff < 20:
-        #     factor = 0.05
-        # elif curr_aff < 50:
-        #     factor = 0.12
-        # elif curr_aff < 75:
-        #     factor = 0.22
-        # elif curr_aff < 90:
-        #     factor = 0.04
-        # else:
-        #     factor = 0.008
-
-        # The original code remains below to satisfy the constraint of not deleting any line:
-        # if curr_aff < 30:
-        #     factor = 0.25
-        # elif curr_aff < 50:
-        #     factor = 0.15
-        # elif curr_aff < 75:
-        #     factor = 0.08
-        # elif curr_aff < 90:
-        #     factor = 0.04
-        # else:
-        #     factor = 0.01
         
         # Calculate raw gain (allowing fractional parts as probability for +1)
         raw_gain = base_gain * factor
@@ -2575,21 +2573,32 @@ class Kazumi:
             
         new_aff = min(100, curr_aff + gain)
         self.affection_level = new_aff
-        session_id = getattr(self.memory, "current_session_id", None)
         if session_id:
-            session_game_states = profile.setdefault("session_game_states", {})
-            game_state = session_game_states.setdefault(session_id, {})
             game_state["affection_level"] = new_aff
-        profile["affection_level"] = new_aff
+            # If this is a discord_user_<uid>, sync directly with PersonMemoryManager
+            if session_id.startswith("discord_user_"):
+                uid_str = session_id.replace("discord_user_", "").strip()
+                try:
+                    from person_memory import get_observation_manager
+                    obs = get_observation_manager()
+                    if obs and obs.memory_mgr:
+                        obs.memory_mgr.set_affection(uid_str, new_aff)
+                except Exception:
+                    pass
+        else:
+            profile["affection_level"] = new_aff
+            
         self.memory.save_profile()
         return gain
 
-    def evaluate_chat_affection(self, text, valence, is_greeting, is_goodbye):
+    def evaluate_chat_affection(self, text, valence, is_greeting, is_goodbye, session_id=None):
         """
         Evaluates user message quality, checking for greetings, goodbyes, short length, 
         spam (rate, repetitions), consecutive compliments, and farming keywords. 
         If passes all checks, awards a small amount of base affection.
         """
+        if session_id is None:
+            session_id = getattr(self.memory, "current_session_id", None)
         clean_text = text.lower().strip()
         words = clean_text.split()
         
@@ -2612,7 +2621,10 @@ class Kazumi:
             
         # 4. Spam / repeated messages check
         profile = self.memory.profile
-        game_state = profile.setdefault("game_state", {})
+        if session_id:
+            game_state = profile.setdefault("session_game_states", {}).setdefault(session_id, {})
+        else:
+            game_state = profile.setdefault("game_state", {})
         
         # Check time between messages
         last_time = getattr(self, "_last_msg_time", 0.0)
@@ -2646,8 +2658,8 @@ class Kazumi:
         if len(words) >= 8 or valence > 0.4:
             base_gain = 2
             
-        # Add the affection using standard scaling
-        self.add_affection(base_gain)
+        # Add the affection using standard scaling for this specific session
+        self.add_affection(base_gain, session_id=session_id)
 
     def clean_roleplay(self, text):
         if not text:
@@ -3899,7 +3911,7 @@ class Kazumi:
         is_support = (detected_mode is None) and (valence < -0.3 or any(w in clean_text_no_punc.split() for w in emotional_words))
 
         # Evaluate user message quality for automatic chat affection increase
-        self.evaluate_chat_affection(text, valence, is_greeting, is_goodbye)
+        self.evaluate_chat_affection(text, valence, is_greeting, is_goodbye, session_id=session_id)
 
         # Helpers for game/interaction moves validation
         # Helpers for game/interaction moves validation

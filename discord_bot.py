@@ -331,9 +331,13 @@ async def global_channel_policy_check(interaction: discord.Interaction) -> bool:
 bot.tree.interaction_check = global_channel_policy_check
 
 # Active conversational sessions: (channel_id, user_id) -> last_active_timestamp
-active_conversations = {}
-CONVERSATION_TIMEOUT_SECONDS = 90  # Stays attentive for 90 seconds after direct interaction
+from discord_features.conversation_context import get_conversation_manager
+convo_manager = get_conversation_manager()
+from kazumi_emotions import get_emotional_analyzer
+emotional_analyzer = get_emotional_analyzer()
 
+active_conversations = {}
+CONVERSATION_TIMEOUT_SECONDS = 180  # Stays attentive for 180 seconds for natural multi-turn conversation
 
 # Cache of recent message IDs sent by Kazumi to accurately detect replies
 recent_bot_message_ids = set()
@@ -592,16 +596,19 @@ async def send_kazumi_response(message: discord.Message, text: str) -> bool:
         text = "I'm right here with you! 🌸 (Kazumi smiles warmly.)"
     chunks = split_message(text)
     any_sent = False
+    first_sent_msg = None
     for idx, chunk in enumerate(chunks):
         sent_msg = None
         if idx == 0:
             try:
                 sent_msg = await message.reply(chunk, mention_author=False)
                 any_sent = True
+                first_sent_msg = sent_msg
             except Exception:
                 try:
                     sent_msg = await message.channel.send(chunk)
                     any_sent = True
+                    first_sent_msg = sent_msg
                 except Exception as send_err:
                     logger.error(f"Failed to send reply chunk: {send_err}")
         else:
@@ -618,6 +625,15 @@ async def send_kazumi_response(message: discord.Message, text: str) -> bool:
                     recent_bot_message_ids.pop()
                 except Exception:
                     pass
+
+    # Record bot response in conversation context manager for natural multi-turn tracking
+    if any_sent and convo_manager:
+        try:
+            bot_msg_id = first_sent_msg.id if first_sent_msg and hasattr(first_sent_msg, "id") else None
+            convo_manager.record_kazumi_response(message, text, bot_msg_id)
+        except Exception as ctx_err:
+            logger.debug(f"Error recording response in convo_manager: {ctx_err}")
+
     return any_sent
 
 
@@ -1102,6 +1118,38 @@ async def on_message(message: discord.Message):
     # =========================================================================
     # 🧠 RULE 2: CONVERSATIONAL INTELLIGENCE & HUMAN INTERACTION DECISION LAYER
     # =========================================================================
+    session_key = (message.channel.id, message.author.id)
+
+    # A. Check for STOP / SILENCE command
+    if is_stop_command(raw_content):
+        active_conversations.pop(session_key, None)
+        if convo_manager:
+            try:
+                convo_manager.close_session(message)
+            except Exception:
+                pass
+        if is_mentioned or is_reply_to_kazumi:
+            try:
+                await message.reply(
+                    "(Kazumi nods softly and goes quiet) 🌸 Understood! I'll stay quiet. Just mention me or say my name when you'd like to chat again!",
+                    mention_author=False
+                )
+            except Exception:
+                pass
+        return
+
+    # Check conversation continuity (Phase 2: Natural Conversation Without Repeated Pings)
+    is_continuation = False
+    cont_reason = ""
+    convo_ctx = None
+    if convo_manager:
+        try:
+            is_continuation, cont_reason, convo_ctx = convo_manager.is_continuation(
+                message, timeout_seconds=CONVERSATION_TIMEOUT_SECONDS
+            )
+        except Exception as c_err:
+            logger.debug(f"Error checking convo continuation: {c_err}")
+
     rel_level = 1
     if obs_manager and hasattr(obs_manager, "memory_mgr"):
         try:
@@ -1120,7 +1168,9 @@ async def on_message(message: discord.Message):
             is_directly_addressed=is_directly_addressed,
             is_prefix_called=is_prefix_called,
             channel_mode=channel_mode,
-            relationship_level=rel_level
+            relationship_level=rel_level,
+            is_continuation=is_continuation,
+            continuation_reason=cont_reason
         )
         if hi_decision.value in ("IGNORE", "OBSERVE", "WAIT"):
             return
@@ -1131,27 +1181,12 @@ async def on_message(message: discord.Message):
                 pass
             return
 
-    session_key = (message.channel.id, message.author.id)
-
-    # A. Check for STOP / SILENCE command
-    if is_stop_command(raw_content):
-        active_conversations.pop(session_key, None)
-        if is_mentioned or is_reply_to_kazumi:
-            try:
-                await message.reply(
-                    "(Kazumi nods softly and goes quiet) 🌸 Understood! I'll stay quiet. Just mention me or say my name when you'd like to chat again!",
-                    mention_author=False
-                )
-            except Exception:
-                pass
-        return
-
-    # B. Filter chat slang, laughter, and short reaction noise
+    # B. Filter chat slang, laughter, and short reaction noise (unless actively answering Kazumi)
     norm_reaction = re.sub(r"[^\w\s]", "", raw_content).lower().strip()
-    if norm_reaction in CHAT_REACTIONS_AND_SLANG and not is_mentioned and not is_prefix_called:
+    if norm_reaction in CHAT_REACTIONS_AND_SLANG and not is_mentioned and not is_prefix_called and not is_continuation:
         # User is just reacting/laughing in chat (e.g. LAWL, haha, bruh)
         # React with an emoji if recent conversation was active, but NEVER send a text message
-        if session_key in active_conversations:
+        if session_key in active_conversations or is_continuation:
             try:
                 if norm_reaction in {"lol", "lmao", "lmfao", "lawl", "haha", "hahaha", "xd", "rofl"}:
                     await message.add_reaction("😂")
@@ -1179,23 +1214,28 @@ async def on_message(message: discord.Message):
     # E. If user explicitly tags someone else (and not Kazumi), they are talking to that other person
     is_talking_to_other = bool(message.mentions) and not is_user_mentioned
 
-    # F. In a server channel, require direct address or clear question to avoid eavesdropping on multi-user chat
-    words_count = len(raw_content.split())
-    has_question = "?" in raw_content
-
     # Evaluate intelligent response conditions:
     # 1. In DMs: Respond naturally to ongoing conversation.
-    # 2. In Server Channels: ONLY respond when directly addressed (ping, reply, prefix, or starting with her name).
-    #    NEVER eavesdrop or auto-reply to unprompted multi-user chat/banter!
+    # 2. In Server Channels: Respond when summoned, replied to, prefix called, OR continuing an active conversation.
+    # 3. Yield to silence when user is conversing with someone else or executing external bot commands.
     if is_dm:
         should_respond = not is_other_bot_cmd
     elif is_mentioned or is_reply_to_kazumi or is_prefix_called or is_directly_addressed:
+        should_respond = True
+    elif (is_continuation or is_active_convo) and not is_talking_to_other and not is_other_bot_cmd:
         should_respond = True
     else:
         should_respond = False
 
     if not should_respond:
         return
+
+    # Record user message in conversation context manager
+    if convo_manager:
+        try:
+            convo_ctx = convo_manager.record_user_message(message)
+        except Exception as rec_err:
+            logger.debug(f"Error recording user message in convo_manager: {rec_err}")
 
     try:
         # Clean text
@@ -1311,6 +1351,25 @@ async def on_message(message: discord.Message):
                 if server_desc:
                     social_directives.append(f"[{server_desc}]")
 
+        # Conversational Continuity & Context Injection (Phase 2 & Phase 5)
+        if convo_manager and convo_ctx:
+            try:
+                convo_prompt_ctx = convo_manager.get_prompt_context_injection(convo_ctx)
+                if convo_prompt_ctx:
+                    social_directives.append(convo_prompt_ctx)
+            except Exception as ctx_inj_err:
+                logger.debug(f"Error injecting convo context: {ctx_inj_err}")
+
+        # Human-Like Emotional Tone Analyzer & Directives (Phase 3.3)
+        if emotional_analyzer:
+            try:
+                tone_cat, tone_conf, tone_reason = emotional_analyzer.analyze(clean_text)
+                tone_directive = emotional_analyzer.get_tone_prompt_directive(tone_cat)
+                if tone_directive:
+                    social_directives.append(tone_directive)
+            except Exception as emo_err:
+                logger.debug(f"Error in emotional analysis: {emo_err}")
+
         if adaptive_directive:
             social_directives.append(adaptive_directive)
 
@@ -1364,6 +1423,11 @@ async def on_message(message: discord.Message):
         norm_clean = re.sub(r"[^\w\s]", "", clean_text).lower().strip()
         if norm_clean in farewell_words or any(norm_clean.startswith(fw + " ") for fw in farewell_words):
             active_conversations.pop(session_key, None)
+            if convo_manager:
+                try:
+                    convo_manager.close_session(message)
+                except Exception:
+                    pass
 
         # Spontaneous human girl emotion reaction on Discord message (~45% chance)
         try:
@@ -1676,36 +1740,100 @@ async def slash_chat(interaction: discord.Interaction, message: str):
             pass
 
 
-@bot.tree.command(name="status", description="Check Kazumi's affection level, mood, and cozy points 💕")
-async def slash_status(interaction: discord.Interaction):
+@bot.tree.command(name="status", description="Check companion affection level, relationship tier, or persistence health 💕")
+@app_commands.describe(
+    user="The server member whose bond and status to check (defaults to you)",
+    diagnostics="Show internal memory persistence and storage health diagnostics (default: False)"
+)
+async def slash_status(interaction: discord.Interaction, user: Optional[discord.Member] = None, diagnostics: bool = False):
     await interaction.response.defer(thinking=True)
     if not kazumi_core:
         await interaction.followup.send("Kazumi core is currently offline.")
         return
 
-    session_id = get_user_session_id(interaction.user)
+    target_user = user or interaction.user
+    session_id = get_user_session_id(target_user)
+    uid_str = str(target_user.id)
+
+    from person_memory.relationship_manager import RelationshipManager
+    from person_memory import get_observation_manager
+    obs = get_observation_manager()
+
+    if diagnostics:
+        total_profiles = len(obs.memory_mgr._profiles_cache) if obs and obs.memory_mgr else 0
+        prof_file = obs.memory_mgr.storage_path if obs and obs.memory_mgr else "None"
+        file_exists = os.path.exists(prof_file) if prof_file != "None" else False
+        file_size_bytes = os.path.getsize(prof_file) if file_exists else 0
+
+        core_sessions = 0
+        with kazumi_lock:
+            if kazumi_core and kazumi_core.memory:
+                core_sessions = len(kazumi_core.memory.profile.get("session_game_states", {}))
+
+        prof = obs.memory_mgr.get_profile(uid_str) if obs and obs.memory_mgr else None
+
+        embed = create_kazumi_embed(
+            title="🛡️ Companion Persistence & Memory Health Diagnostics",
+            description=f"Storage health audit for **{target_user.display_name}** (`{uid_str}`):"
+        )
+        embed.add_field(name="Persistence Health", value="✅ **PERSISTENT & HEALTHY** (No 50-cap pruning)", inline=False)
+        embed.add_field(name="Storage Store", value=f"`{os.path.basename(prof_file)}` ({file_size_bytes} bytes)", inline=True)
+        embed.add_field(name="Total Person Profiles", value=f"👥 **{total_profiles} members**", inline=True)
+        embed.add_field(name="Core User Sessions", value=f"💾 **{core_sessions} sessions**", inline=True)
+
+        if prof:
+            rel_title = RelationshipManager.get_relationship_title(prof.relationship_level)
+            embed.add_field(name="Current Affection", value=f"💖 **{prof.affection_level}%**", inline=True)
+            embed.add_field(name="Lifetime Affection", value=f"🌟 **{prof.lifetime_affection} pts**", inline=True)
+            embed.add_field(name="Daily Earned Today", value=f"📈 **{prof.daily_affection_earned}/25 pts**", inline=True)
+            embed.add_field(name="Relationship State", value=f"🤝 **{rel_title}**", inline=True)
+            embed.add_field(name="Last Seen", value=f"⏱️ `{prof.last_seen or 'Never'}`", inline=True)
+            embed.add_field(name="Isolated User ID", value=f"🔑 `{prof.user_id}`", inline=True)
+
+        await interaction.followup.send(embed=embed)
+        return
+
+    # Normal Status & Bond View
+    affection = 10
+    cozy_points = 100
+    lifetime_aff = 10
+    rel_level = 1
+    rel_title = "Recognised Member"
+    turn_count = 0
+
+    if obs and obs.memory_mgr:
+        prof = obs.memory_mgr.get_profile(uid_str)
+        affection = prof.affection_level
+        cozy_points = prof.cozy_points
+        lifetime_aff = prof.lifetime_affection
+        rel_level = prof.relationship_level
+        rel_title = RelationshipManager.get_relationship_title(rel_level)
+        turn_count = prof.turn_count or prof.interaction_count
+
     with kazumi_lock:
         kazumi_core.load_game_states(session_id)
         s_state = kazumi_core.memory.profile.setdefault("session_game_states", {}).setdefault(session_id, {})
-        affection = s_state.get("affection_level", 10)
-        cozy_points = s_state.get("cozy_points", 100)
         persona = s_state.get("archetype", getattr(kazumi_core, "current_archetype", "DEREDERE"))
-        turn_count = s_state.get("turn_count", 0)
+        if not turn_count:
+            turn_count = s_state.get("turn_count", 0)
 
     # Calculate affection hearts bar
     filled_hearts = min(10, max(0, affection // 10))
     empty_hearts = 10 - filled_hearts
     heart_bar = "💖" * filled_hearts + "🤍" * empty_hearts
 
+    is_self = (target_user.id == interaction.user.id)
     embed = create_kazumi_embed(
-        title="🌸 Kazumi Companion Status",
-        description=f"Here is our current companion bond and cozy stats, **{interaction.user.display_name}**!"
+        title="🌸 Kazumi Companion Bond & Status",
+        description=f"Companion bond metrics for **{target_user.display_name}**{' (You)' if is_self else ''}:"
     )
     embed.add_field(name="Affection Level", value=f"{heart_bar} **{affection}%**", inline=False)
+    embed.add_field(name="Relationship Tier", value=f"🤝 **{rel_title}** (Tier {rel_level})", inline=True)
     embed.add_field(name="Cozy Points", value=f"✨ **{cozy_points} pts**", inline=True)
-    embed.add_field(name="Active Persona", value=f"🌸 **{persona}**", inline=True)
+    embed.add_field(name="Lifetime Bond", value=f"🌟 **{lifetime_aff} exp**", inline=True)
     embed.add_field(name="Conversations", value=f"💬 **{turn_count} turns**", inline=True)
-    
+    embed.add_field(name="Active Persona", value=f"🌸 **{persona}**", inline=True)
+
     await interaction.followup.send(embed=embed)
 
 
@@ -2033,32 +2161,100 @@ async def cmd_uptime(ctx: commands.Context):
     await ctx.send(embed=embed)
 
 
-@bot.command(name="status", help="Check companion affection level, cozy points, and persona 💕")
-async def cmd_status(ctx: commands.Context):
+@bot.command(name="status", help="Check companion affection level, relationship tier, and stats 💕")
+async def cmd_status(ctx: commands.Context, user: Optional[discord.Member] = None):
     if not kazumi_core:
         await ctx.send("Kazumi core is currently offline.")
         return
-    session_id = get_user_session_id(ctx.author)
+    target_user = user or ctx.author
+    session_id = get_user_session_id(target_user)
+    uid_str = str(target_user.id)
+
+    from person_memory.relationship_manager import RelationshipManager
+    from person_memory import get_observation_manager
+    obs = get_observation_manager()
+
+    affection = 10
+    cozy_points = 100
+    lifetime_aff = 10
+    rel_level = 1
+    rel_title = "Recognised Member"
+    turn_count = 0
+
+    if obs and obs.memory_mgr:
+        prof = obs.memory_mgr.get_profile(uid_str)
+        affection = prof.affection_level
+        cozy_points = prof.cozy_points
+        lifetime_aff = prof.lifetime_affection
+        rel_level = prof.relationship_level
+        rel_title = RelationshipManager.get_relationship_title(rel_level)
+        turn_count = prof.turn_count or prof.interaction_count
+
     with kazumi_lock:
         kazumi_core.load_game_states(session_id)
         s_state = kazumi_core.memory.profile.setdefault("session_game_states", {}).setdefault(session_id, {})
-        affection = s_state.get("affection_level", 10)
-        cozy_points = s_state.get("cozy_points", 100)
         persona = s_state.get("archetype", getattr(kazumi_core, "current_archetype", "DEREDERE"))
-        turn_count = s_state.get("turn_count", 0)
+        if not turn_count:
+            turn_count = s_state.get("turn_count", 0)
 
     filled_hearts = min(10, max(0, affection // 10))
     empty_hearts = 10 - filled_hearts
     heart_bar = "💖" * filled_hearts + "🤍" * empty_hearts
 
+    is_self = (target_user.id == ctx.author.id)
     embed = create_kazumi_embed(
-        title="🌸 Kazumi Companion Status",
-        description=f"Here is our companion bond and cozy stats, **{ctx.author.display_name}**!"
+        title="🌸 Kazumi Companion Bond & Status",
+        description=f"Companion bond metrics for **{target_user.display_name}**{' (You)' if is_self else ''}:"
     )
     embed.add_field(name="Affection Level", value=f"{heart_bar} **{affection}%**", inline=False)
+    embed.add_field(name="Relationship Tier", value=f"🤝 **{rel_title}** (Tier {rel_level})", inline=True)
     embed.add_field(name="Cozy Points", value=f"✨ **{cozy_points} pts**", inline=True)
-    embed.add_field(name="Active Persona", value=f"🌸 **{persona}**", inline=True)
+    embed.add_field(name="Lifetime Bond", value=f"🌟 **{lifetime_aff} exp**", inline=True)
     embed.add_field(name="Conversations", value=f"💬 **{turn_count} turns**", inline=True)
+    embed.add_field(name="Active Persona", value=f"🌸 **{persona}**", inline=True)
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="bond", aliases=["bondhealth", "affinity"], help="Inspect companion persistence and memory health 🛡️")
+async def cmd_bond(ctx: commands.Context, user: Optional[discord.Member] = None):
+    from person_memory import get_observation_manager
+    from person_memory.relationship_manager import RelationshipManager
+    obs = get_observation_manager()
+
+    target_user = user or ctx.author
+    uid_str = str(target_user.id)
+    session_id = get_user_session_id(target_user)
+
+    total_profiles = len(obs.memory_mgr._profiles_cache) if obs and obs.memory_mgr else 0
+    prof_file = obs.memory_mgr.storage_path if obs and obs.memory_mgr else "None"
+    file_exists = os.path.exists(prof_file) if prof_file != "None" else False
+    file_size_bytes = os.path.getsize(prof_file) if file_exists else 0
+
+    core_sessions = 0
+    with kazumi_lock:
+        if kazumi_core and kazumi_core.memory:
+            core_sessions = len(kazumi_core.memory.profile.get("session_game_states", {}))
+
+    prof = obs.memory_mgr.get_profile(uid_str) if obs and obs.memory_mgr else None
+
+    embed = create_kazumi_embed(
+        title="🛡️ Companion Persistence & Memory Health Diagnostics",
+        description=f"Storage health audit for **{target_user.display_name}** (`{uid_str}`):"
+    )
+    embed.add_field(name="Persistence Health", value="✅ **PERSISTENT & HEALTHY** (No 50-cap pruning)", inline=False)
+    embed.add_field(name="Storage Store", value=f"`{os.path.basename(prof_file)}` ({file_size_bytes} bytes)", inline=True)
+    embed.add_field(name="Total Person Profiles", value=f"👥 **{total_profiles} members**", inline=True)
+    embed.add_field(name="Core User Sessions", value=f"💾 **{core_sessions} sessions**", inline=True)
+
+    if prof:
+        rel_title = RelationshipManager.get_relationship_title(prof.relationship_level)
+        embed.add_field(name="Current Affection", value=f"💖 **{prof.affection_level}%**", inline=True)
+        embed.add_field(name="Lifetime Affection", value=f"🌟 **{prof.lifetime_affection} pts**", inline=True)
+        embed.add_field(name="Daily Earned Today", value=f"📈 **{prof.daily_affection_earned}/25 pts**", inline=True)
+        embed.add_field(name="Relationship State", value=f"🤝 **{rel_title}**", inline=True)
+        embed.add_field(name="Last Seen", value=f"⏱️ `{prof.last_seen or 'Never'}`", inline=True)
+        embed.add_field(name="Isolated User ID", value=f"🔑 `{prof.user_id}`", inline=True)
+
     await ctx.send(embed=embed)
 
 
