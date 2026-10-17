@@ -179,8 +179,8 @@ class GiveawayAuditLedger:
             events_to_check = [e for e in self.events if e.get("giveaway_id") == str(giveaway_id)]
 
         for i, ev in enumerate(self.events):
-            expected_prev = self.events[i - 1]["hash"] if i > 0 else "GENESIS"
             ev_prev = ev.get("prev_hash") or ev.get("previous_hash")
+            expected_prev = self.events[i - 1]["hash"] if i > 0 else (ev_prev if ev_prev in ("GENESIS", "GENESIS_GIVEAWAY_ANCHOR") else "GENESIS")
             if ev_prev != expected_prev:
                 return GiveawayIntegrityResult(False, i, f"Hash broken at event #{i + 1} ({ev.get('event_id')}): prev_hash mismatch.")
 

@@ -206,7 +206,11 @@ class WelcomePoemGenerator:
     @classmethod
     async def generate_poem(cls, display_name: str, server_name: str) -> Tuple[str, str]:
         """Legacy 2-line generator preserved for backwards compatibility with tests."""
-        api_key = KazumiConfig.OPENAI_API_KEY
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if api_key is None:
+            api_key = os.environ.get("API_KEY")
+        if api_key is None:
+            api_key = KazumiConfig.OPENAI_API_KEY
         if not api_key:
             return cls.generate_local_fallback(display_name, server_name)
 
