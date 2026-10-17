@@ -385,9 +385,13 @@ emotional_analyzer = get_emotional_analyzer()
 active_conversations = {}
 CONVERSATION_TIMEOUT_SECONDS = 180  # Stays attentive for 180 seconds for natural multi-turn conversation
 
+import collections
 # Cache of recent message IDs sent by Kazumi to accurately detect replies
 recent_bot_message_ids = set()
-_processed_message_ids = set()
+_processed_message_ids_lock = asyncio.Lock()
+_processed_message_ids_set: set[int] = set()
+_processed_message_ids_deque: collections.deque[int] = collections.deque(maxlen=3000)
+_processed_message_ids = _processed_message_ids_set
 
 # Observational Roasting & Message Activity Tracking (Sections 5 & 21)
 user_rapid_typing: dict[int, list[float]] = {}
@@ -862,12 +866,16 @@ async def on_message(message: discord.Message):
     if message.author.bot or (bot.user and message.author.id == bot.user.id):
         return
 
-    # Deduplication Guard: prevent duplicate concurrent processing of identical message events
-    if message.id in _processed_message_ids:
-        return
-    _processed_message_ids.add(message.id)
-    if len(_processed_message_ids) > 2000:
-        _processed_message_ids.difference_update(list(_processed_message_ids)[:1000])
+    # Deduplication Guard: atomic, thread-safe, bounded FIFO deduplication
+    async with _processed_message_ids_lock:
+        if message.id in _processed_message_ids_set:
+            logger.debug(f"[DEDUP] Dropping duplicate message delivery: {message.id}")
+            return
+        _processed_message_ids_set.add(message.id)
+        if len(_processed_message_ids_deque) == _processed_message_ids_deque.maxlen:
+            evicted = _processed_message_ids_deque.popleft()
+            _processed_message_ids_set.discard(evicted)
+        _processed_message_ids_deque.append(message.id)
 
     correlation_id = f"msg_{message.id}"
     start_time = time.time()
@@ -1183,20 +1191,27 @@ async def on_message(message: discord.Message):
                 except Exception:
                     pass
 
-            # When someone mentions Kazumi here, she should reply at most once:
-            # “Hey! 🌸 Let's keep this channel flowing. For a proper chat with me, come find me in #kazumi-chat! ✨”
             if is_addressed:
-                gid_val = message.guild.id if message.guild else 0
-                if channel_policy_mgr.should_redirect_mention(gid_val, channel.id, message.author.id):
-                    redirect_msg = channel_policy_mgr.get_mention_redirect_message(message.guild)
-                    try:
-                        await message.reply(redirect_msg, mention_author=False)
-                    except Exception:
+                clean_inquiry = raw_content
+                if bot.user:
+                    clean_inquiry = re.sub(rf"<@!?{bot.user.id}>", "", clean_inquiry)
+                clean_inquiry = re.sub(r"^\s*@?(?:kazumi|kasumi|zumi|kazzy)\b", "", clean_inquiry, flags=re.IGNORECASE).strip()
+                # If it's a bare ping without any content, send polite redirect
+                if not clean_inquiry:
+                    gid_val = message.guild.id if message.guild else 0
+                    if channel_policy_mgr.should_redirect_mention(gid_val, channel.id, message.author.id):
+                        redirect_msg = channel_policy_mgr.get_mention_redirect_message(message.guild)
                         try:
-                            await message.channel.send(redirect_msg)
+                            await message.reply(redirect_msg, mention_author=False)
                         except Exception:
-                            pass
-            return
+                            try:
+                                await message.channel.send(redirect_msg)
+                            except Exception:
+                                pass
+                    return
+                # If addressed with an action request, question, or greeting, proceed to natural single response
+            else:
+                return
 
         # 4. Other Non-AI-Chat Channels (#welcome, #announcements, #server-guide, #roles, #games, #giveaways, #music-commands)
         if not current_policy.allow_ai_chat and not is_dm:
@@ -1283,12 +1298,20 @@ async def on_message(message: discord.Message):
                 pass
             return
 
-    # B. Filter chat slang, laughter, and short reaction noise (unless actively answering Kazumi)
+    # B. Check ongoing conversational session with THIS specific user
+    now = time.time()
+    is_active_convo = False
+    if session_key in active_conversations:
+        if now - active_conversations[session_key] <= CONVERSATION_TIMEOUT_SECONDS:
+            is_active_convo = True
+        else:
+            active_conversations.pop(session_key, None)
+
+    # Filter chat slang, laughter, and short reaction noise (unless actively continuing or conversing with Kazumi)
     norm_reaction = re.sub(r"[^\w\s]", "", raw_content).lower().strip()
-    if norm_reaction in CHAT_REACTIONS_AND_SLANG and not is_mentioned and not is_prefix_called and not is_continuation:
-        # User is just reacting/laughing in chat (e.g. LAWL, haha, bruh)
-        # React with an emoji if recent conversation was active, but NEVER send a text message
-        if session_key in active_conversations or is_continuation:
+    if norm_reaction in CHAT_REACTIONS_AND_SLANG and not is_mentioned and not is_prefix_called and not is_continuation and not is_active_convo:
+        # User is just reacting/laughing in chat (e.g. LAWL, haha, bruh) without active conversation
+        if is_active_convo or is_continuation:
             try:
                 if norm_reaction in {"lol", "lmao", "lmfao", "lawl", "haha", "hahaha", "xd", "rofl"}:
                     await message.add_reaction("😂")
@@ -1297,15 +1320,6 @@ async def on_message(message: discord.Message):
             except Exception:
                 pass
         return
-
-    # C. Check ongoing conversational session with THIS specific user
-    now = time.time()
-    is_active_convo = False
-    if session_key in active_conversations:
-        if now - active_conversations[session_key] <= CONVERSATION_TIMEOUT_SECONDS:
-            is_active_convo = True
-        else:
-            active_conversations.pop(session_key, None)
 
     # D. Ignore other bot commands (e.g. !play, ?ban, /skip, $price, -p)
     is_other_bot_cmd = False
@@ -1403,6 +1417,11 @@ async def on_message(message: discord.Message):
             if parsed_action:
                 act_name, act_params = parsed_action
                 action_res = await action_engine.execute_action(act_name, act_params, message)
+                logger.info(
+                    f"[ROUTER_DIAGNOSTIC] msg_id={message.id} author_id={message.author.id} "
+                    f"channel=#{getattr(message.channel, 'name', 'DM')} handler=action_engine "
+                    f"action={act_name} success={action_res.success} needs_conf={action_res.needs_confirmation}"
+                )
                 if action_res.needs_confirmation:
                     from discord_features.action_engine import ActionConfirmationView
                     confirm_view = ActionConfirmationView(
@@ -1436,6 +1455,11 @@ async def on_message(message: discord.Message):
             detected_intent = intent_router.detect_intent(clean_text, message)
             if detected_intent:
                 handled, reply_text, reply_embed = await intent_router.execute_intent(detected_intent, message)
+                logger.info(
+                    f"[ROUTER_DIAGNOSTIC] msg_id={message.id} author_id={message.author.id} "
+                    f"channel=#{getattr(message.channel, 'name', 'DM')} handler=intent_router "
+                    f"intent={detected_intent.name} handled={handled}"
+                )
                 if handled:
                     active_conversations[session_key] = time.time()
                     if reply_embed:
@@ -1443,6 +1467,11 @@ async def on_message(message: discord.Message):
                     elif reply_text:
                         await message.reply(reply_text, mention_author=False)
                     return
+
+        logger.info(
+            f"[ROUTER_DIAGNOSTIC] msg_id={message.id} author_id={message.author.id} "
+            f"channel=#{getattr(message.channel, 'name', 'DM')} handler=conversational_ai intent=CONVERSATION"
+        )
 
         # Check Unhinged Comeback Engine (Sections 11, 12, 13)
         roast_engine = kazumi_features.get("roast_engine")

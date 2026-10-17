@@ -253,7 +253,7 @@ class AutonomousActionEngine:
                 risk=ActionRisk.HIGH,
                 required_user_perms=["manage_guild"],
                 param_types={"prize": str, "duration": str, "winners": int},
-                required_params=["prize", "duration"]
+                required_params=["prize"]
             ),
             self._handle_giveaway_create
         )
@@ -408,13 +408,42 @@ class AutonomousActionEngine:
         if re.search(r"\b(?:giveaway status|active giveaways|how many people entered the giveaway|check giveaway)\b", lower):
             return ("giveaway_status", {})
 
-        # 7. Create Giveaway: "start a giveaway for 24h for Discord Nitro"
-        ga_m1 = re.search(r"\b(?:start|create)\s+a?\s*giveaway\s+(?:for\s+)?(\d+[smhdwy])\s+(?:for\s+)?(.+)", lower)
-        if ga_m1:
-            return ("giveaway_create", {"duration": ga_m1.group(1), "prize": ga_m1.group(2).strip(), "winners": 1})
-        ga_m2 = re.search(r"\b(?:start|create)\s+a?\s*giveaway\s+(?:for\s+)?(.+?)\s+for\s+(\d+[smhdwy])\b", lower)
-        if ga_m2:
-            return ("giveaway_create", {"prize": ga_m2.group(1).strip(), "duration": ga_m2.group(2), "winners": 1})
+        # 7. Create Giveaway: "host a gw for 800 robux", "start a giveaway for 24h for Discord Nitro"
+        ga_match = re.search(r"\b(?:host|start|create|run|launch|set\s*up)\s+a?\s*(?:gw|giveaway)\b(?:\s+(?:for\s+)?(.+))?", lower)
+        if ga_match:
+            rest = (ga_match.group(1) or "").strip()
+            # Extract duration if present: e.g. 'for 24h', '10m', '2h', '1d'
+            dur_match = re.search(r"\b(?:for\s+)?(\d+\s*(?:s|m|h|d|w|min|mins|minutes?|hours?|days?|weeks?))\b", rest, re.IGNORECASE)
+            duration = None
+            if dur_match:
+                dur_raw = dur_match.group(1).lower().replace(" ", "")
+                m_unit = re.match(r"^(\d+)\s*([a-z]+)$", dur_raw)
+                if m_unit:
+                    val, unit = m_unit.group(1), m_unit.group(2)
+                    if unit.startswith("min"): duration = f"{val}m"
+                    elif unit.startswith("hour"): duration = f"{val}h"
+                    elif unit.startswith("day"): duration = f"{val}d"
+                    elif unit.startswith("week"): duration = f"{val}w"
+                    elif unit.startswith("s"): duration = f"{val}s"
+                    else: duration = dur_raw
+                else:
+                    duration = dur_raw
+                rest = rest[:dur_match.start()] + rest[dur_match.end():]
+                rest = re.sub(r"\s+", " ", rest).strip()
+
+            # Extract winners if present
+            w_match = re.search(r"\b(?:with\s+)?(\d+)\s*winners?\b", rest, re.IGNORECASE)
+            winners = 1
+            if w_match:
+                winners = int(w_match.group(1))
+                rest = re.sub(r"\b(?:with\s+)?\d+\s*winners?\b", "", rest, flags=re.IGNORECASE).strip()
+
+            prize = re.sub(r"^(?:for\s+)+", "", rest, flags=re.IGNORECASE).strip()
+            prize = re.sub(r"(?:\s+for)+$", "", prize, flags=re.IGNORECASE).strip()
+            if not prize:
+                prize = "Mystery Prize 🎁"
+
+            return ("giveaway_create", {"prize": prize, "duration": duration, "winners": winners})
 
         # 8. Moderation: Timeout
         timeout_m = re.search(r"\b(?:timeout|mute)\s+<@!?(\d+)>\s+(?:for\s+)?(\d+[smhd])(?:\s+(?:for\s+)?(.+))?", lower)
@@ -770,7 +799,14 @@ class AutonomousActionEngine:
             return ActionExecutionResult(success=False, action_name="giveaway_create", error="Giveaway module unavailable.")
 
         prize = params["prize"]
-        dur_str = params["duration"]
+        dur_str = params.get("duration")
+        if not dur_str:
+            return ActionExecutionResult(
+                success=True,
+                action_name="giveaway_create",
+                message=f"I'd love to set up that giveaway for **{prize}**! 🎁 How long should it run? (e.g., `10m`, `2h`, or `1d`)"
+            )
+
         winners = params.get("winners", 1)
         dur_secs = self._parse_duration_to_seconds(dur_str)
 
@@ -805,6 +841,17 @@ class AutonomousActionEngine:
             "claim_duration_seconds": 86400
         }
         self.db.save_giveaway(str(msg.id), ga_data)
+
+        # Audit ledger event
+        if hasattr(giveaway_mgr, "audit_ledger") and giveaway_mgr.audit_ledger:
+            try:
+                giveaway_mgr.audit_ledger.record_event(
+                    event_type="GIVEAWAY_CREATED_VIA_ACTION_ENGINE",
+                    payload={"giveaway_id": str(msg.id), "prize": prize, "host_id": str(message.author.id), "duration": dur_str}
+                )
+            except Exception as e:
+                logger.warning(f"Failed to record giveaway to audit ledger: {e}")
+
         return ActionExecutionResult(
             success=True,
             action_name="giveaway_create",

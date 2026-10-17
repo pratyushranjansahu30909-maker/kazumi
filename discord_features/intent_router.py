@@ -185,43 +185,60 @@ class NaturalIntentRouter:
         # =====================================================================
         # 3. GIVEAWAY INTENTS
         # =====================================================================
-        # Create giveaway: "start a giveaway for 24 hours", "start a giveaway for [prize] for [time]"
-        ga_create_1 = re.search(r"^(?:start|create)\s+a?\s*giveaway\s+(?:for\s+)?(\d+[smhdwy])\s+(?:for\s+)?(.+)$", lower)
-        if ga_create_1:
-            return {
-                "category": "giveaway",
-                "action": "create",
-                "duration": ga_create_1.group(1),
-                "prize": ga_create_1.group(2).strip()
-            }
-        ga_create_2 = re.search(r"^(?:start|create)\s+a?\s*giveaway\s+(?:for\s+)?(.+)\s+for\s+(\d+[smhdwy])$", lower)
-        if ga_create_2:
-            return {
-                "category": "giveaway",
-                "action": "create",
-                "prize": ga_create_2.group(1).strip(),
-                "duration": ga_create_2.group(2)
-            }
-        ga_create_simple = re.search(r"^(?:start|create)\s+a?\s*giveaway\s+for\s+(\d+[smhdwy])$", lower)
-        if ga_create_simple:
-            return {
-                "category": "giveaway",
-                "action": "create",
-                "duration": ga_create_simple.group(1),
-                "prize": "Mystery Surprise Prize 🎁"
-            }
-
-        # End giveaway: "end the giveaway", "end giveaway"
-        if re.search(r"^(?:end the giveaway|end giveaway|finish giveaway)$", lower):
+        # End giveaway: "end the giveaway", "end giveaway", "finish gw"
+        if re.search(r"^(?:end\s+(?:the\s+)?(?:giveaway|gw)|finish\s+(?:the\s+)?(?:giveaway|gw))$", lower):
             return {"category": "giveaway", "action": "end"}
 
-        # Reroll giveaway: "reroll the giveaway", "reroll giveaway"
-        if re.search(r"^(?:reroll the giveaway|reroll giveaway|pick a new winner)$", lower):
+        # Reroll giveaway: "reroll the giveaway", "reroll gw", "pick a new winner"
+        if re.search(r"^(?:reroll\s+(?:the\s+)?(?:giveaway|gw)|pick\s+a\s+new\s+winner)$", lower):
             return {"category": "giveaway", "action": "reroll"}
 
-        # Giveaway info / list: "how many people entered the giveaway?", "show giveaways", "list giveaways"
-        if re.search(r"^(?:how many people entered the giveaway\??|giveaway entries\??|list giveaways|show giveaways|giveaway status)$", lower):
+        # Giveaway info / list: "how many people entered the giveaway?", "show giveaways", "list giveaways", "gw status"
+        if re.search(r"\b(?:how many people entered the giveaway\??|giveaway entries\??|list (?:giveaways|gws)|show (?:giveaways|gws)|(?:giveaway|gw) status)\b", lower):
             return {"category": "giveaway", "action": "list"}
+
+        # Create/Host giveaway: "host a gw for 800 robux", "start a giveaway for 24h for 800 robux", "create a gw for Nitro"
+        ga_match = re.search(r"\b(?:host|start|create|run|launch|set\s*up)\s+a?\s*(?:gw|giveaway)\b(?:\s+(?:for\s+)?(.+))?", lower)
+        if ga_match:
+            rest = (ga_match.group(1) or "").strip()
+            # Extract duration if present: e.g. 'for 24h', '10m', '2h', '1d', '24 hours', '1 day'
+            dur_match = re.search(r"\b(?:for\s+)?(\d+\s*(?:s|m|h|d|w|min|mins|minutes?|hours?|days?|weeks?))\b", rest, re.IGNORECASE)
+            duration = None
+            if dur_match:
+                dur_raw = dur_match.group(1).lower().replace(" ", "")
+                m_unit = re.match(r"^(\d+)\s*([a-z]+)$", dur_raw)
+                if m_unit:
+                    val, unit = m_unit.group(1), m_unit.group(2)
+                    if unit.startswith("min"): duration = f"{val}m"
+                    elif unit.startswith("hour"): duration = f"{val}h"
+                    elif unit.startswith("day"): duration = f"{val}d"
+                    elif unit.startswith("week"): duration = f"{val}w"
+                    elif unit.startswith("s"): duration = f"{val}s"
+                    else: duration = dur_raw
+                else:
+                    duration = dur_raw
+                rest = rest[:dur_match.start()] + rest[dur_match.end():]
+                rest = re.sub(r"\s+", " ", rest).strip()
+
+            # Extract winners if present: e.g. 'with 2 winners', '3 winners'
+            w_match = re.search(r"\b(?:with\s+)?(\d+)\s*winners?\b", rest, re.IGNORECASE)
+            winners = 1
+            if w_match:
+                winners = int(w_match.group(1))
+                rest = re.sub(r"\b(?:with\s+)?\d+\s*winners?\b", "", rest, flags=re.IGNORECASE).strip()
+
+            prize = re.sub(r"^(?:for\s+)+", "", rest, flags=re.IGNORECASE).strip()
+            prize = re.sub(r"(?:\s+for)+$", "", prize, flags=re.IGNORECASE).strip()
+            if not prize:
+                prize = "Mystery Prize 🎁"
+
+            return {
+                "category": "giveaway",
+                "action": "create",
+                "prize": prize,
+                "duration": duration,
+                "winners": winners
+            }
 
         # =====================================================================
         # 4. CAPABILITY & COMMAND INTELLIGENCE INTENTS (PHASE 6)
@@ -241,6 +258,16 @@ class NaturalIntentRouter:
         # Query 4: Can you join voice and talk?
         if re.search(r"\b(?:can you join voice and talk|can you speak in voice|can you talk in voice|join voice and talk|voice chat capability)\b", lower):
             return {"category": "capability", "action": "voice_capability"}
+
+        # Query 5: What powers / capabilities do you have?
+        if re.search(r"\b(?:what (?:powers do you have|capabilities do you have|can you do|powers have you got)|list (?:your )?(?:powers|capabilities|features)|show (?:your )?(?:powers|capabilities)|what are your powers)\b", lower):
+            return {"category": "capability", "action": "list_capabilities"}
+
+        # =====================================================================
+        # 5. CONVERSATION MEMORY & CONTINUITY INTENTS
+        # =====================================================================
+        if re.search(r"\b(?:what were we talking about\??|what was our topic\??|what did we just talk about\??|what were we discussing\??)\b", lower):
+            return {"category": "memory", "action": "recall_topic"}
 
         # No action intent detected -> Standard conversation flow
         return None
@@ -583,27 +610,37 @@ class NaturalIntentRouter:
                 return True, denial, None
 
             if action == "create":
-                dur_str = intent.get("duration", "24h")
+                prize = intent.get("prize", "Mystery Prize 🎁")
+                dur_str = intent.get("duration")
+                winners_count = max(1, min(20, int(intent.get("winners", 1))))
+
+                if not dur_str:
+                    return True, (
+                        f"I'd love to host a giveaway for **{prize}**! 🎉 How long should it run (e.g. `10m`, `2h`, `1d`), "
+                        f"and how many winners? You can also use the `/giveaway action:create` slash command!\n\n"
+                        f"*(Note: I manage entries and draw winners cryptographically, but prize distribution must be handled by server staff).* 🌸"
+                    ), None
+
                 secs = parse_duration(dur_str)
                 if not secs or secs < 10:
                     return True, "❌ Invalid duration. Please provide a duration like `10m`, `2h`, or `24h`.", None
 
-                prize = intent.get("prize", "Mystery Prize 🎁")
                 end_timestamp = time.time() + secs
 
                 embed = discord.Embed(
                     title=f"🎉 GIVEAWAY: {prize}!",
                     description=(
                         f"Click **Enter Giveaway** below to participate!\n\n"
-                        f"**Winners:** 1\n"
+                        f"**Winners:** `{winners_count}`\n"
                         f"**Ends:** <t:{int(end_timestamp)}:R> (<t:{int(end_timestamp)}:f>)\n"
-                        f"**Hosted by:** {author.mention}"
+                        f"**Hosted by:** {author.mention}\n"
+                        f"**Mode:** Claim Deadline (24h window + automatic replacement rerolls)"
                     ),
                     color=0xf43f5e
                 )
-                embed.set_footer(text="Kazumi Giveaway System 🌸")
+                embed.set_footer(text="Kazumi Giveaway System 🌸 • Cryptographically Fair")
 
-                from .giveaways import GiveawayEntryView
+                from .giveaways import GiveawayEntryView, audit_ledger
                 view = GiveawayEntryView("pending")
                 msg = await message.channel.send(embed=embed, view=view)
 
@@ -613,7 +650,7 @@ class NaturalIntentRouter:
                     "guild_id": str(guild.id),
                     "host_id": str(author.id),
                     "prize": prize,
-                    "winners_count": 1,
+                    "winners_count": winners_count,
                     "end_time": end_timestamp,
                     "required_role_id": None,
                     "min_account_days": 0,
@@ -621,9 +658,12 @@ class NaturalIntentRouter:
                     "entries": [],
                     "ended": False,
                     "paused": False,
-                    "winners": []
+                    "winners": [],
+                    "claim_deadline_enabled": True,
+                    "claim_duration_seconds": 86400
                 }
                 self.db.set_giveaway(str(msg.id), ga_data)
+                audit_ledger.record_event(str(msg.id), "CREATED", str(author.id), {"prize": prize, "duration": dur_str, "winners": winners_count})
                 return True, f"🎉 Giveaway for **{prize}** created successfully in {message.channel.mention}!", None
 
             elif action == "list":
@@ -736,5 +776,44 @@ class NaturalIntentRouter:
                     color=0xa855f7
                 )
                 return True, None, embed
+
+            elif action == "list_capabilities":
+                embed = discord.Embed(
+                    title="🌸 Kazumi Implemented Powers & Capabilities",
+                    description=(
+                        "Here are the genuine capabilities currently active and running in my system:\n\n"
+                        "💬 **AI Chat & Companion Bond**: Multi-turn contextual conversation, per-user affection tracking, personal memory profiles, and empathetic mood adaptation.\n"
+                        "🎉 **Cryptographic Giveaways**: Provably fair winner selection, 24-hour claim timers, auto-reroll protection, and an append-only SHA-256 audit ledger (`/giveaway`).\n"
+                        "🎵 **Music & Audio**: High-fidelity YouTube/SoundCloud streaming with queueing, pause, resume, skip, loop, volume, and voice cleanup (`/play`).\n"
+                        "🛡️ **Moderation & Multilingual AutoMod**: Warn, timeout, kick, ban, purge, slowmode, channel lockdown, invite blocking, and multilingual profanity detection.\n"
+                        "🏆 **Leveling & Rank Cards**: Server activity XP progression, customizable level-up announcements, and leaderboards (`/rank`, `/leaderboard`).\n"
+                        "🎮 **Mini-Games & Roasts**: Interactive Trivia, Tic-Tac-Toe, Hangman, Connect 4, and savage Unhinged roasts (`/roast`, `/game`).\n"
+                        "📢 **Server Utilities**: Dynamic welcome poems, scheduled announcements, and Community Stage event management."
+                    ),
+                    color=0xFFB6C1
+                )
+                embed.set_footer(text="Kazumi Companion System • All features verified and operational.")
+                return True, None, embed
+
+        # ---------------------------------------------------------------------
+        # E. CONVERSATION MEMORY & CONTINUITY EXECUTION
+        # ---------------------------------------------------------------------
+        if category == "memory" and action == "recall_topic":
+            convo_mgr = self.features.get("convo_manager")
+            if not convo_mgr:
+                try:
+                    from .conversation_context import get_conversation_manager
+                    convo_mgr = get_conversation_manager()
+                except Exception:
+                    convo_mgr = None
+
+            if convo_mgr:
+                ctx = convo_mgr.get_context(convo_mgr.make_key(message))
+                if ctx and ctx.recent_messages:
+                    last_turns = [f"{m['speaker'].capitalize()}: {m['text'][:50]}" for m in ctx.recent_messages[-3:]]
+                    recalled = "\n".join(last_turns)
+                    return True, f"We were just talking about this:\n{recalled}\n\nWhat were your thoughts on that? 🌸", None
+
+            return True, "We haven't started talking about anything specific yet! 🌸 What's on your mind?", None
 
         return False, None, None
