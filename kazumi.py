@@ -35,7 +35,8 @@ if hasattr(sys.stderr, 'reconfigure'):
     sys.stderr.reconfigure(encoding='utf-8')
 
 # 🔑 API Configuration & Constants
-API_KEY = (os.environ.get("API_KEY") or os.environ.get("OPENAI_API_KEY", "")).strip()
+# Canonical OPENAI_API_KEY with legacy API_KEY alias fallback
+API_KEY = (os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY", "")).strip()
 
 # Load from local .env files if not set in environment
 if not API_KEY:
@@ -44,11 +45,16 @@ if not API_KEY:
             try:
                 with open(env_path, "r", encoding="utf-8") as f:
                     for line in f:
-                        if line.strip() and not line.strip().startswith("#") and "=" in line:
-                            k, v = line.strip().split("=", 1)
-                            if k.strip() == "API_KEY":
-                                API_KEY = v.strip().strip('"').strip("'")
-                                break
+                        line_s = line.strip()
+                        if line_s and not line_s.startswith("#") and "=" in line_s:
+                            k, v = line_s.split("=", 1)
+                            key_name = k.strip()
+                            if key_name in ("OPENAI_API_KEY", "API_KEY"):
+                                val = v.strip().strip('"').strip("'")
+                                if val:
+                                    API_KEY = val
+                                    if key_name == "OPENAI_API_KEY":
+                                        break
             except Exception:
                 pass
         if API_KEY:

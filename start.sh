@@ -37,11 +37,23 @@ cleanup() {
 }
 trap cleanup SIGTERM SIGINT
 
-# Check and pull latest GitHub updates if container runs from a git clone
+# Check and pull latest GitHub updates safely if container runs from a git clone
 if [ -d "$SCRIPT_DIR/.git" ] && command -v git &>/dev/null; then
-    echo "🔄 Checking for latest repository updates from GitHub main..."
-    git fetch origin main 2>/dev/null || true
-    git reset --hard origin/main 2>/dev/null || git pull --rebase origin main 2>/dev/null || true
+    TARGET_REMOTE="origin"
+    if git remote | grep -q "^github$"; then
+        TARGET_REMOTE="github"
+    elif git remote | grep -q "^origin$"; then
+        TARGET_REMOTE="origin"
+    fi
+    echo "🔄 Checking for latest repository updates from $TARGET_REMOTE/main..."
+    if git fetch "$TARGET_REMOTE" main 2>/dev/null; then
+        if git diff-index --quiet HEAD -- 2>/dev/null; then
+            # Working tree is clean: safe fast-forward
+            git merge --ff-only "$TARGET_REMOTE/main" 2>/dev/null || git reset --hard "$TARGET_REMOTE/main" 2>/dev/null || true
+        else
+            echo "⚠️ Local uncommitted modifications detected in working tree; skipping automatic reset to protect data."
+        fi
+    fi
     ACTIVE_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
     echo "📌 Active deployment commit: $ACTIVE_COMMIT"
 fi

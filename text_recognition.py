@@ -14,20 +14,24 @@ from typing import Optional, Union, Dict, Any
 
 logger = logging.getLogger("TextRecognition")
 
-# Try to load API_KEY from environment or .env
-API_KEY = (os.environ.get("API_KEY") or os.environ.get("OPENAI_API_KEY", "")).strip()
+# Canonical OPENAI_API_KEY with legacy API_KEY alias fallback
+API_KEY = (os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY", "")).strip()
 if not API_KEY:
     for env_path in [".env", "../.env"]:
         if os.path.exists(env_path):
             try:
                 with open(env_path, "r", encoding="utf-8") as f:
                     for line in f:
-                        line = line.strip()
-                        if line and not line.startswith("#") and "=" in line:
-                            k, v = line.split("=", 1)
-                            if k.strip() == "API_KEY":
-                                API_KEY = v.strip().strip('"').strip("'")
-                                break
+                        line_s = line.strip()
+                        if line_s and not line_s.startswith("#") and "=" in line_s:
+                            k, v = line_s.split("=", 1)
+                            key_name = k.strip()
+                            if key_name in ("OPENAI_API_KEY", "API_KEY"):
+                                val = v.strip().strip('"').strip("'")
+                                if val:
+                                    API_KEY = val
+                                    if key_name == "OPENAI_API_KEY":
+                                        break
             except Exception:
                 pass
         if API_KEY:
