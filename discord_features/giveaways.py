@@ -261,6 +261,8 @@ class GiveawayEntryView(discord.ui.View):
             await interaction.response.send_message(f"🎉 You have entered the giveaway for **{giveaway['prize']}**! Total entries: **{len(entries)}**", ephemeral=True)
 
 
+_claim_locks = set()
+
 class GiveawayClaimView(discord.ui.View):
     """Interactive button allowing the selected winner to securely claim their prize."""
     def __init__(self, message_id: str):
@@ -269,42 +271,51 @@ class GiveawayClaimView(discord.ui.View):
 
     @discord.ui.button(label="Claim Prize 🎁", style=discord.ButtonStyle.primary, emoji="✨", custom_id="kazumi:giveaway:claim")
     async def claim_prize(self, interaction: discord.Interaction, button: discord.ui.Button):
-        db = get_feature_db()
-        giveaway = db.get_giveaway(self.message_id)
-        if not giveaway:
-            await interaction.response.send_message("❌ Giveaway record not found.", ephemeral=True)
-            return
-
         uid = str(interaction.user.id)
-        current_winners = giveaway.get("current_pending_winners", giveaway.get("winners", []))
-
-        if uid not in current_winners:
-            await interaction.response.send_message("❌ Only the drawn winner can claim this prize!", ephemeral=True)
+        lock_key = f"{self.message_id}:{uid}"
+        if lock_key in _claim_locks:
+            await interaction.response.send_message("⏳ Your claim is already being processed, please wait a moment.", ephemeral=True)
             return
 
-        claimed_users = set(giveaway.get("claimed_winners", []))
-        if uid in claimed_users:
-            await interaction.response.send_message("✅ You have already claimed this prize! Contact server staff to receive it.", ephemeral=True)
-            return
+        _claim_locks.add(lock_key)
+        try:
+            db = get_feature_db()
+            giveaway = db.get_giveaway(self.message_id)
+            if not giveaway:
+                await interaction.response.send_message("❌ Giveaway record not found.", ephemeral=True)
+                return
 
-        # Check claim deadline
-        deadline = giveaway.get("claim_deadline")
-        now = time.time()
-        if giveaway.get("claim_deadline_enabled", True) and deadline and now > deadline:
-            await interaction.response.send_message("⏱️ The claim deadline has expired. This prize has been scheduled for a reroll.", ephemeral=True)
-            return
+            current_winners = giveaway.get("current_pending_winners", giveaway.get("winners", []))
 
-        # Mark claimed
-        giveaway.setdefault("claimed_winners", []).append(uid)
-        giveaway["status"] = "CLAIMED"
-        db.save_giveaway(self.message_id, giveaway)
+            if uid not in current_winners:
+                await interaction.response.send_message("❌ Only the drawn winner can claim this prize!", ephemeral=True)
+                return
 
-        audit_ledger.record_event(self.message_id, "CLAIMED", uid, {"prize": giveaway["prize"]})
+            claimed_users = set(giveaway.get("claimed_winners", []))
+            if uid in claimed_users:
+                await interaction.response.send_message("✅ You have already claimed this prize! Contact server staff to receive it.", ephemeral=True)
+                return
 
-        button.disabled = True
-        button.label = "Claimed! ✅"
-        await interaction.response.edit_message(view=self)
-        await interaction.followup.send(f"🎉 Congratulations {interaction.user.mention}! Your claim for **{giveaway['prize']}** is confirmed! Server staff have been notified. 🌸")
+            # Check claim deadline
+            deadline = giveaway.get("claim_deadline")
+            now = time.time()
+            if giveaway.get("claim_deadline_enabled", True) and deadline and now > deadline:
+                await interaction.response.send_message("⏱️ The claim deadline has expired. This prize has been scheduled for a reroll.", ephemeral=True)
+                return
+
+            # Mark claimed
+            giveaway.setdefault("claimed_winners", []).append(uid)
+            giveaway["status"] = "CLAIMED"
+            db.save_giveaway(self.message_id, giveaway)
+
+            audit_ledger.record_event(self.message_id, "CLAIMED", uid, {"prize": giveaway["prize"]})
+
+            button.disabled = True
+            button.label = "Claimed! ✅"
+            await interaction.response.edit_message(view=self)
+            await interaction.followup.send(f"🎉 Congratulations {interaction.user.mention}! Your claim for **{giveaway['prize']}** is confirmed! Server staff have been notified. 🌸")
+        finally:
+            _claim_locks.discard(lock_key)
 
 
 # -----------------------------------------------------------------------------
@@ -496,96 +507,105 @@ class GiveawayManager:
         num_picks = min(count, len(unique_pool))
         return sys_random.sample(unique_pool, num_picks)
 
+    _finalizing_locks = set()
+
     @classmethod
     async def finish_giveaway(cls, bot: commands.Bot, message_id: str):
         """Concludes giveaway, selects winner cryptographically, and begins claim window."""
-        db = get_feature_db()
-        giveaway = db.get_giveaway(message_id)
-        if not giveaway or giveaway.get("ended", False):
+        mid_str = str(message_id)
+        if mid_str in cls._finalizing_locks:
             return
-
-        giveaway["ended"] = True
-        giveaway["status"] = "DRAWING"
-        db.save_giveaway(message_id, giveaway)
-
+        cls._finalizing_locks.add(mid_str)
         try:
-            guild = bot.get_guild(int(giveaway["guild_id"]))
-            if not guild:
+            db = get_feature_db()
+            giveaway = db.get_giveaway(mid_str)
+            if not giveaway or giveaway.get("ended", False):
                 return
-            channel = guild.get_channel(int(giveaway["channel_id"]))
-            if not channel:
+
+            giveaway["ended"] = True
+            giveaway["status"] = "DRAWING"
+            db.save_giveaway(mid_str, giveaway)
+
+            try:
+                guild = bot.get_guild(int(giveaway["guild_id"]))
+                if not guild:
+                    return
+                channel = guild.get_channel(int(giveaway["channel_id"]))
+                if not channel:
+                    return
+                message = await channel.fetch_message(int(message_id))
+            except Exception as e:
+                logger.warning(f"Failed to fetch giveaway message {message_id}: {e}")
                 return
-            message = await channel.fetch_message(int(message_id))
-        except Exception as e:
-            logger.warning(f"Failed to fetch giveaway message {message_id}: {e}")
-            return
 
-        entries = list(dict.fromkeys(giveaway.get("entries", [])))
-        num_winners = max(1, giveaway.get("winners_count", 1))
-        prize = giveaway.get("prize", "Surprise Gift")
+            entries = list(dict.fromkeys(giveaway.get("entries", [])))
+            num_winners = max(1, giveaway.get("winners_count", 1))
+            prize = giveaway.get("prize", "Surprise Gift")
 
-        if not entries:
-            giveaway["status"] = "COMPLETED_NO_ENTRIES"
+            if not entries:
+                giveaway["status"] = "COMPLETED_NO_ENTRIES"
+                db.save_giveaway(message_id, giveaway)
+                embed = discord.Embed(
+                    title=f"🎉 Giveaway Concluded: {prize}",
+                    description="Unfortunately, no eligible members entered the giveaway.",
+                    color=0x94a3b8
+                )
+                embed.set_footer(text="Kazumi Giveaway System 🌸 • Cryptographically Fair")
+                try:
+                    await message.edit(embed=embed, view=None)
+                    await channel.send(f"🎉 The giveaway for **{prize}** ended with zero entries.")
+                except Exception:
+                    pass
+                audit_ledger.record_event(message_id, "CLOSED", "SYSTEM", {"reason": "No entries"})
+                return
+
+            # Select initial winners cryptographically
+            winners = cls.draw_cryptographic_winner(entries, num_winners)
+            giveaway["winners"] = winners
+            giveaway["current_pending_winners"] = list(winners)
+            giveaway["disqualified_winners"] = []
+            giveaway["claimed_winners"] = []
+
+            # Claim deadline calculation (Mode A vs Mode B)
+            deadline_enabled = giveaway.get("claim_deadline_enabled", True)
+            claim_dur = giveaway.get("claim_duration_seconds", 86400)  # Default 24 hours
+            claim_deadline = time.time() + claim_dur if deadline_enabled else None
+            giveaway["claim_deadline"] = claim_deadline
+            giveaway["status"] = "AWAITING_CLAIM"
             db.save_giveaway(message_id, giveaway)
+
+            audit_ledger.record_event(message_id, "DRAWN", "SYSTEM", {
+                "winners": winners,
+                "claim_deadline_enabled": deadline_enabled,
+                "claim_deadline": claim_deadline
+            })
+
+            winner_mentions = [f"<@{w}>" for w in winners]
+            claim_desc = f"\n\n⏳ **Claim Deadline:** <t:{int(claim_deadline)}:R> (<t:{int(claim_deadline)}:f>)" if claim_deadline else "\n\n*(No automatic claim expiry)*"
+
             embed = discord.Embed(
-                title=f"🎉 Giveaway Concluded: {prize}",
-                description="Unfortunately, no eligible members entered the giveaway.",
-                color=0x94a3b8
+                title=f"🎉 Giveaway Winner Drawn: {prize}!",
+                description=(
+                    f"**Congratulations:** {', '.join(winner_mentions)}!\n"
+                    f"**Total Valid Entries:** `{len(entries)}`"
+                    f"{claim_desc}\n\n"
+                    f"Please click the **Claim Prize** button below to confirm your prize! 🌸"
+                ),
+                color=0xf59e0b
             )
             embed.set_footer(text="Kazumi Giveaway System 🌸 • Cryptographically Fair")
+
+            claim_view = GiveawayClaimView(message_id)
             try:
-                await message.edit(embed=embed, view=None)
-                await channel.send(f"🎉 The giveaway for **{prize}** ended with zero entries.")
-            except Exception:
-                pass
-            audit_ledger.record_event(message_id, "CLOSED", "SYSTEM", {"reason": "No entries"})
-            return
-
-        # Select initial winners cryptographically
-        winners = cls.draw_cryptographic_winner(entries, num_winners)
-        giveaway["winners"] = winners
-        giveaway["current_pending_winners"] = list(winners)
-        giveaway["disqualified_winners"] = []
-        giveaway["claimed_winners"] = []
-
-        # Claim deadline calculation (Mode A vs Mode B)
-        deadline_enabled = giveaway.get("claim_deadline_enabled", True)
-        claim_dur = giveaway.get("claim_duration_seconds", 86400)  # Default 24 hours
-        claim_deadline = time.time() + claim_dur if deadline_enabled else None
-        giveaway["claim_deadline"] = claim_deadline
-        giveaway["status"] = "AWAITING_CLAIM"
-        db.save_giveaway(message_id, giveaway)
-
-        audit_ledger.record_event(message_id, "DRAWN", "SYSTEM", {
-            "winners": winners,
-            "claim_deadline_enabled": deadline_enabled,
-            "claim_deadline": claim_deadline
-        })
-
-        winner_mentions = [f"<@{w}>" for w in winners]
-        claim_desc = f"\n\n⏳ **Claim Deadline:** <t:{int(claim_deadline)}:R> (<t:{int(claim_deadline)}:f>)" if claim_deadline else "\n\n*(No automatic claim expiry)*"
-
-        embed = discord.Embed(
-            title=f"🎉 Giveaway Winner Drawn: {prize}!",
-            description=(
-                f"**Congratulations:** {', '.join(winner_mentions)}!\n"
-                f"**Total Valid Entries:** `{len(entries)}`"
-                f"{claim_desc}\n\n"
-                f"Please click the **Claim Prize** button below to confirm your prize! 🌸"
-            ),
-            color=0xf59e0b
-        )
-        embed.set_footer(text="Kazumi Giveaway System 🌸 • Cryptographically Fair")
-
-        claim_view = GiveawayClaimView(message_id)
-        try:
-            await message.edit(embed=embed, view=claim_view)
-            await channel.send(
-                f"🎉 Congratulations {', '.join(winner_mentions)}! You have won **{prize}**! Please claim before your window expires: 🎁",
-                view=claim_view
-            )
-        except Exception as e:
-            logger.warning(f"Failed to post giveaway winner announcement: {e}")
+                await message.edit(embed=embed, view=claim_view)
+                await channel.send(
+                    f"🎉 Congratulations {', '.join(winner_mentions)}! You have won **{prize}**! Please claim before your window expires: 🎁",
+                    view=claim_view
+                )
+            except Exception as e:
+                logger.warning(f"Failed to post giveaway winner announcement: {e}")
+        finally:
+            cls._finalizing_locks.discard(mid_str)
 
     @classmethod
     async def process_expired_claim_reroll(cls, bot: commands.Bot, message_id: str):

@@ -360,6 +360,45 @@ def test_giveaway_audit_ledger_hash_chaining(tmp_path):
     assert integrity["events_verified"] == 3
 
 
+@pytest.mark.asyncio
+async def test_giveaway_concurrent_finalization(tmp_path):
+    """Concurrent finalization attempts are strictly serialized and idempotent."""
+    mock_bot = MagicMock()
+    mock_channel = AsyncMock()
+    mock_msg = AsyncMock()
+    mock_channel.fetch_message.return_value = mock_msg
+    mock_bot.get_channel.return_value = mock_channel
+    mock_guild = MagicMock()
+    mock_guild.get_channel.return_value = mock_channel
+    mock_bot.get_guild.return_value = mock_guild
+
+    db_file = os.path.join(tmp_path, "concurrent_gw.json")
+    mgr = GiveawayManager(bot=mock_bot, storage_file=db_file)
+
+    gw_id = "concurrent_100"
+    mgr.db.set_giveaway(gw_id, {
+        "message_id": gw_id,
+        "guild_id": "111",
+        "channel_id": "222",
+        "prize": "Nitro",
+        "winners_count": 1,
+        "entries": ["u1", "u2", "u3"],
+        "ended": False,
+        "winners": []
+    })
+
+    # Launch concurrent finalizations
+    t1 = asyncio.create_task(mgr.end_giveaway(gw_id))
+    t2 = asyncio.create_task(mgr.end_giveaway(gw_id))
+    r1, r2 = await asyncio.gather(t1, t2)
+
+    assert len(r1) == 1 or len(r2) == 1
+    # Check that ended state is persisted and winner drawn
+    gw_final = mgr.db.get_giveaway(gw_id)
+    assert gw_final["ended"] is True
+    assert len(gw_final["winners"]) == 1
+
+
 # =============================================================================
 # TEST F — MUSIC SYSTEM SPOTIFY METADATA RESOLUTION
 # =============================================================================
