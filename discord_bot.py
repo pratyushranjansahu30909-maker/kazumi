@@ -91,6 +91,40 @@ BOT_START_TIME = time.time()
 _tree_synced = False
 _background_feature_task: Optional[asyncio.Task] = None
 
+def get_git_commit() -> str:
+    """Safe build identifier returning current Git commit hash or fallback without secrets."""
+    commit = os.environ.get("GIT_COMMIT") or os.environ.get("COMMIT_SHA")
+    if commit:
+        return commit.strip()
+    try:
+        import subprocess
+        res = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=ROOT_DIR,
+            capture_output=True,
+            text=True,
+            timeout=3
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return res.stdout.strip()
+    except Exception:
+        pass
+    try:
+        head_path = os.path.join(ROOT_DIR, ".git", "HEAD")
+        if os.path.exists(head_path):
+            with open(head_path, "r", encoding="utf-8") as f:
+                ref = f.read().strip()
+            if ref.startswith("ref: "):
+                ref_file = os.path.join(ROOT_DIR, ".git", ref[5:].replace("/", os.sep))
+                if os.path.exists(ref_file):
+                    with open(ref_file, "r", encoding="utf-8") as f:
+                        return f.read().strip()
+            else:
+                return ref
+    except Exception:
+        pass
+    return "unknown"
+
 def write_health_status(status: str, connected: bool = False, extra: Optional[dict] = None):
     """Atomically records bot health telemetry for HTTP monitoring endpoints."""
     try:
@@ -102,7 +136,8 @@ def write_health_status(status: str, connected: bool = False, extra: Optional[di
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "environment": DEPLOY_ENV.get("name", "Unknown"),
             "pid": os.getpid(),
-            "uptime_seconds": round(time.time() - BOT_START_TIME, 1)
+            "uptime_seconds": round(time.time() - BOT_START_TIME, 1),
+            "commit": get_git_commit()
         }
         if extra:
             payload.update(extra)
@@ -228,6 +263,17 @@ class CloudHealthCheckHandler(http.server.BaseHTTPRequestHandler):
 
         is_ready = bool(is_conn and health_data.get("readiness", is_conn))
         overall_status = "healthy" if is_ready else ("degraded" if is_conn else ("starting" if DISCORD_BOT_TOKEN else "offline"))
+        path_clean = getattr(self, "path", "/").split("?")[0]
+        if path_clean in ("/version", "/commit", "/build"):
+            payload = {
+                "status": overall_status,
+                "commit": get_git_commit(),
+                "version": "2.4.0",
+                "uptime_seconds": round(time.time() - BOT_START_TIME, 1)
+            }
+            self.wfile.write(json.dumps(payload, indent=2).encode("utf-8"))
+            return
+
         payload = {
             "status": overall_status,
             "liveness": health_data.get("liveness", True),
@@ -667,6 +713,7 @@ async def on_ready():
     bot_id = bot.user.id if bot.user else 0
     logger.info(f"[CONNECTION] Discord Gateway connected as {bot_name}#{bot_disc} (ID: {bot_id})")
     logger.info(f"[CONNECTION] Connected to {len(bot.guilds) if getattr(bot, 'guilds', None) else 0} server(s).")
+    logger.info(f"[BUILD] Kazumi active build commit: {get_git_commit()}")
 
     # Record Gateway Ready & Launch Background Health Monitor Loop (initial startup only)
     if "kazumi_features" in globals() and kazumi_features and kazumi_features.get("monitoring"):
@@ -1869,6 +1916,7 @@ async def slash_status(interaction: discord.Interaction, user: Optional[discord.
         embed.add_field(name="Storage Store", value=f"`{os.path.basename(prof_file)}` ({file_size_bytes} bytes)", inline=True)
         embed.add_field(name="Total Person Profiles", value=f"👥 **{total_profiles} members**", inline=True)
         embed.add_field(name="Core User Sessions", value=f"💾 **{core_sessions} sessions**", inline=True)
+        embed.add_field(name="Build Commit", value=f"`{get_git_commit()[:12]}`", inline=True)
 
         if prof:
             rel_title = RelationshipManager.get_relationship_title(prof.relationship_level)
@@ -1922,6 +1970,7 @@ async def slash_status(interaction: discord.Interaction, user: Optional[discord.
     embed.add_field(name="Lifetime Bond", value=f"🌟 **{lifetime_aff} exp**", inline=True)
     embed.add_field(name="Conversations", value=f"💬 **{turn_count} turns**", inline=True)
     embed.add_field(name="Active Persona", value=f"🌸 **{persona}**", inline=True)
+    embed.set_footer(text=f"Kazumi v2.4.0 • Build: {get_git_commit()[:8]}")
 
     await interaction.followup.send(embed=embed)
 

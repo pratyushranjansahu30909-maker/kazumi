@@ -698,7 +698,7 @@ class GiveawayManager:
                 await cls.finish_giveaway(bot, mid)
 
             # Check claim deadline
-            elif g.get("ended", False) and g.get("claim_deadline_enabled", True) and g.get("status") == "AWAITING_CLAIM":
+            elif g.get("ended", False) and g.get("claim_deadline_enabled", True) and g.get("status") in ("AWAITING_CLAIM", "REROLLING"):
                 deadline = g.get("claim_deadline")
                 if deadline and now > deadline:
                     await cls.process_expired_claim_reroll(bot, mid)
@@ -947,3 +947,8 @@ def register_giveaway_commands(tree: app_commands.CommandTree, bot: commands.Bot
             embed.add_field(name="Recorded Audit Events", value=f"`{audit_info['verified_events']}` events in immutable ledger", inline=True)
             embed.set_footer(text="Kazumi Append-Only SHA-256 Event Chain 🌸")
             await interaction.response.send_message(embed=embed)
+
+
+# Alias for background supervisor functionality
+GiveawaySupervisor = GiveawayManager
+

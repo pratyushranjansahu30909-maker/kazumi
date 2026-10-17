@@ -37,6 +37,15 @@ cleanup() {
 }
 trap cleanup SIGTERM SIGINT
 
+# Check and pull latest GitHub updates if container runs from a git clone
+if [ -d "$SCRIPT_DIR/.git" ] && command -v git &>/dev/null; then
+    echo "🔄 Checking for latest repository updates from GitHub main..."
+    git fetch origin main 2>/dev/null || true
+    git reset --hard origin/main 2>/dev/null || git pull --rebase origin main 2>/dev/null || true
+    ACTIVE_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+    echo "📌 Active deployment commit: $ACTIVE_COMMIT"
+fi
+
 # Run discord_bot.py with supervisor loop in foreground
 while true; do
     echo "[$(date)] 🌸 Launching Kazumi Discord Bot..."

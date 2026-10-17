@@ -427,3 +427,111 @@ def test_companion_personality_and_memory_retention():
     tone, conf, _ = analyzer.analyze("I had such a wonderful day today!")
     assert tone == "HAPPY"
     assert conf >= 0.70
+
+
+# =============================================================================
+# TEST H — CRASH RECOVERY, RESTART PERSISTENCE & SAFE BUILD IDENTIFIERS
+# =============================================================================
+
+@pytest.mark.asyncio
+async def test_giveaway_restart_recovery_and_expired_deadline_reroll(tmp_path):
+    """Verify active giveaways and claim deadlines survive process restart and reroll properly."""
+    from discord_features.database import FeatureDatabase
+    from discord_features.giveaways import GiveawaySupervisor, audit_ledger
+
+    audit_path = os.path.join(tmp_path, "restart_test_audit.json")
+    audit_ledger.audit_path = audit_path
+    audit_ledger.events = []
+
+    # Process 1: Create giveaway and set into AWAITING_CLAIM with expired deadline
+    db_inst1 = FeatureDatabase(persist_dir=str(tmp_path))
+
+    gw_id = "restart_gw_99"
+    past_time = time.time() - 3600  # 1 hour ago
+    initial_giveaway = {
+        "message_id": gw_id,
+        "guild_id": "1554152397327044729",
+        "channel_id": "111222333",
+        "host_id": "999",
+        "prize": "Discord Nitro (1 Month)",
+        "winners_count": 1,
+        "entries": ["user_101", "user_102", "user_103"],
+        "ended": True,
+        "status": "AWAITING_CLAIM",
+        "claim_deadline_enabled": True,
+        "claim_duration_seconds": 86400,
+        "claim_deadline": past_time,
+        "current_pending_winners": ["user_101"],
+        "winners": ["user_101"],
+        "claimed_winners": [],
+        "disqualified_winners": []
+    }
+    db_inst1.save_giveaway(gw_id, initial_giveaway)
+    audit_ledger.record_event(gw_id, "WINNER_DRAWN", "user_101", {"round": 1})
+
+    # SIMULATE PROCESS RESTART: Fresh database instance automatically reloading from disk
+    db_inst2 = FeatureDatabase(persist_dir=str(tmp_path))
+
+    # 1. Verify giveaway is discovered by active supervisor query after restart
+    active_gws = [g for g in db_inst2.get_active_giveaways() if g.get("message_id") == gw_id]
+    assert len(active_gws) == 1
+    recovered_gw = active_gws[0]
+    assert recovered_gw["status"] == "AWAITING_CLAIM"
+    assert recovered_gw["current_pending_winners"] == ["user_101"]
+
+    # 2. Patch database and run supervisor check
+    mock_bot = MagicMock()
+    mock_guild = MagicMock()
+    mock_channel = AsyncMock()
+    mock_bot.get_guild.return_value = mock_guild
+    mock_guild.get_channel.return_value = mock_channel
+
+    with patch("discord_features.giveaways.get_feature_db", return_value=db_inst2):
+        await GiveawaySupervisor.check_active_giveaways(mock_bot)
+
+    # 3. Verify expired winner was recorded and rerolled to a replacement
+    updated_gw = db_inst2.get_giveaway(gw_id)
+    assert updated_gw["status"] == "AWAITING_CLAIM"
+    assert "user_101" in updated_gw["disqualified_winners"]
+    assert len(updated_gw["current_pending_winners"]) == 1
+    new_winner = updated_gw["current_pending_winners"][0]
+    assert new_winner in ["user_102", "user_103"]
+    assert new_winner != "user_101"
+    assert updated_gw["claim_deadline"] > time.time()  # Fresh deadline
+
+    # 4. Verify audit ledger hash-chain integrity after recovery
+    is_valid, count, err = audit_ledger.verify_integrity(gw_id)
+    assert is_valid is True
+    assert count >= 3
+    assert err is None
+
+
+def test_safe_build_identifier_and_version_endpoint():
+    """Verify safe git commit resolution and health /version endpoint."""
+    import io
+    from discord_bot import get_git_commit, CloudHealthCheckHandler
+
+    commit = get_git_commit()
+    assert isinstance(commit, str)
+    assert len(commit) > 0
+    # Must NOT expose tokens, passwords, or invalid characters
+    assert "token" not in commit.lower()
+    assert "bot" not in commit.lower()
+
+    # Test /version endpoint
+    handler = CloudHealthCheckHandler.__new__(CloudHealthCheckHandler)
+    handler.path = "/version"
+    handler.wfile = io.BytesIO()
+    handler.send_response = MagicMock()
+    handler.send_header = MagicMock()
+    handler.end_headers = MagicMock()
+
+    handler.do_GET()
+
+    output = handler.wfile.getvalue().decode("utf-8")
+    data = json.loads(output)
+    assert "commit" in data
+    assert data["commit"] == commit
+    assert "status" in data
+    assert "uptime_seconds" in data
+

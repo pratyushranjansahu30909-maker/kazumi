@@ -273,7 +273,10 @@ class FeatureDatabase:
 
     def get_active_giveaways(self) -> List[Dict[str, Any]]:
         with self._lock:
-            return [g for g in self.giveaways.values() if not g.get("ended", False)]
+            return [
+                g for g in self.giveaways.values()
+                if not g.get("ended", False) or g.get("status") in ("AWAITING_CLAIM", "DRAWING", "REROLLING")
+            ]
 
     def get_guild_giveaways(self, guild_id: str) -> List[Dict[str, Any]]:
         with self._lock:
