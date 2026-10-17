@@ -613,76 +613,87 @@ class GiveawayManager:
         Handles automatic winner replacement when claim deadline expires in Mode A.
         Marks expired winner, selects new winner from remaining pool, and grants fresh claim window.
         """
-        db = get_feature_db()
-        giveaway = db.get_giveaway(message_id)
-        if not giveaway or not giveaway.get("claim_deadline_enabled", True):
+        mid_str = str(message_id)
+        if mid_str in cls._finalizing_locks:
             return
-
-        now = time.time()
-        deadline = giveaway.get("claim_deadline")
-        if not deadline or now <= deadline:
-            return
-
-        pending = list(giveaway.get("current_pending_winners", []))
-        claimed = set(giveaway.get("claimed_winners", []))
-        unclaimed = [u for u in pending if u not in claimed]
-
-        if not unclaimed:
-            giveaway["status"] = "COMPLETED"
-            db.save_giveaway(message_id, giveaway)
-            return
-
-        # Mark unclaimed as disqualified / expired
-        disqualified = giveaway.setdefault("disqualified_winners", [])
-        disqualified.extend(unclaimed)
-        for u in unclaimed:
-            audit_ledger.record_event(message_id, "EXPIRED", u, {"reason": "Claim window expired"})
-
-        # Pick replacement winners from remaining pool
-        all_entries = list(dict.fromkeys(giveaway.get("entries", [])))
-        all_past_winners = set(giveaway.get("winners", []) + disqualified + list(claimed))
-        remaining_pool = [uid for uid in all_entries if uid not in all_past_winners]
-
+        cls._finalizing_locks.add(mid_str)
         try:
-            guild = bot.get_guild(int(giveaway["guild_id"]))
-            channel = guild.get_channel(int(giveaway["channel_id"])) if guild else None
-        except Exception:
-            channel = None
+            db = get_feature_db()
+            giveaway = db.get_giveaway(mid_str)
+            if not giveaway or not giveaway.get("claim_deadline_enabled", True):
+                return
 
-        if not remaining_pool:
-            giveaway["status"] = "COMPLETED_EXHAUSTED"
-            db.save_giveaway(message_id, giveaway)
-            audit_ledger.record_event(message_id, "REROLL_FAILED", "SYSTEM", {"reason": "Eligible pool exhausted"})
+            now = time.time()
+            deadline = giveaway.get("claim_deadline")
+            if not deadline or now <= deadline:
+                return
+
+            # Mark state as actively rerolling to prevent concurrent tasks
+            giveaway["status"] = "REROLLING"
+            db.save_giveaway(mid_str, giveaway)
+
+            pending = list(giveaway.get("current_pending_winners", []))
+            claimed = set(giveaway.get("claimed_winners", []))
+            unclaimed = [u for u in pending if u not in claimed]
+
+            if not unclaimed:
+                giveaway["status"] = "COMPLETED"
+                db.save_giveaway(mid_str, giveaway)
+                return
+
+            # Mark unclaimed as disqualified / expired
+            disqualified = giveaway.setdefault("disqualified_winners", [])
+            disqualified.extend(unclaimed)
+            for u in unclaimed:
+                audit_ledger.record_event(mid_str, "EXPIRED", u, {"reason": "Claim window expired"})
+
+            # Pick replacement winners from remaining pool
+            all_entries = list(dict.fromkeys(giveaway.get("entries", [])))
+            all_past_winners = set(giveaway.get("winners", []) + disqualified + list(claimed))
+            remaining_pool = [uid for uid in all_entries if uid not in all_past_winners]
+
+            try:
+                guild = bot.get_guild(int(giveaway["guild_id"]))
+                channel = guild.get_channel(int(giveaway["channel_id"])) if guild else None
+            except Exception:
+                channel = None
+
+            if not remaining_pool:
+                giveaway["status"] = "COMPLETED_EXHAUSTED"
+                db.save_giveaway(mid_str, giveaway)
+                audit_ledger.record_event(mid_str, "REROLL_FAILED", "SYSTEM", {"reason": "Eligible pool exhausted"})
+                if channel:
+                    await channel.send(f"⚠️ Unclaimed prize for **{giveaway['prize']}** expired, but no eligible replacement entrants remain.")
+                return
+
+            # Draw replacement
+            new_picks = cls.draw_cryptographic_winner(remaining_pool, len(unclaimed))
+            giveaway["current_pending_winners"] = new_picks
+            giveaway["winners"].extend(new_picks)
+
+            # Fresh claim window
+            claim_dur = giveaway.get("claim_duration_seconds", 86400)
+            new_deadline = time.time() + claim_dur
+            giveaway["claim_deadline"] = new_deadline
+            giveaway["status"] = "AWAITING_CLAIM"
+            db.save_giveaway(mid_str, giveaway)
+
+            audit_ledger.record_event(mid_str, "REROLLED", "SYSTEM", {
+                "replacement_winners": new_picks,
+                "new_deadline": new_deadline
+            })
+
             if channel:
-                await channel.send(f"⚠️ Unclaimed prize for **{giveaway['prize']}** expired, but no eligible replacement entrants remain.")
-            return
-
-        # Draw replacement
-        new_picks = cls.draw_cryptographic_winner(remaining_pool, len(unclaimed))
-        giveaway["current_pending_winners"] = new_picks
-        giveaway["winners"].extend(new_picks)
-
-        # Fresh claim window
-        claim_dur = giveaway.get("claim_duration_seconds", 86400)
-        new_deadline = time.time() + claim_dur
-        giveaway["claim_deadline"] = new_deadline
-        giveaway["status"] = "AWAITING_CLAIM"
-        db.save_giveaway(message_id, giveaway)
-
-        audit_ledger.record_event(message_id, "REROLLED", "SYSTEM", {
-            "replacement_winners": new_picks,
-            "new_deadline": new_deadline
-        })
-
-        if channel:
-            mentions = ", ".join([f"<@{w}>" for w in new_picks])
-            claim_view = GiveawayClaimView(message_id)
-            await channel.send(
-                f"🔄 **Replacement Winner Drawn!**\n"
-                f"The previous claim expired. Congratulations {mentions}! You are the new winner for **{giveaway['prize']}**!\n"
-                f"⏳ Claim Deadline: <t:{int(new_deadline)}:R>",
-                view=claim_view
-            )
+                mentions = ", ".join([f"<@{w}>" for w in new_picks])
+                claim_view = GiveawayClaimView(mid_str)
+                await channel.send(
+                    f"🔄 **Replacement Winner Drawn!**\n"
+                    f"The previous claim expired. Congratulations {mentions}! You are the new winner for **{giveaway['prize']}**!\n"
+                    f"⏳ Claim Deadline: <t:{int(new_deadline)}:R>",
+                    view=claim_view
+                )
+        finally:
+            cls._finalizing_locks.discard(mid_str)
 
     @classmethod
     async def check_active_giveaways(cls, bot: commands.Bot):
