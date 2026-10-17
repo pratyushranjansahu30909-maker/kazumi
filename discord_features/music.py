@@ -110,6 +110,51 @@ def is_ffmpeg_installed() -> bool:
     return get_ffmpeg_executable() is not None
 
 
+async def resolve_spotify_metadata(url: str) -> Optional[Dict[str, Any]]:
+    """
+    Compliantly queries Spotify's public oEmbed API to retrieve song title and artist.
+    Constructs a search query to locate a permitted playback stream via YouTube/SoundCloud.
+    Direct Spotify audio streaming into Discord voice channels is not supported by Spotify's terms;
+    this metadata bridge provides legal, compliant playback.
+    """
+    try:
+        import aiohttp
+        import urllib.parse
+        clean_url = url.split("?")[0]
+        oembed_url = f"https://open.spotify.com/oembed?url={urllib.parse.quote(clean_url, safe='')}"
+        connector = aiohttp.TCPConnector(ssl=False)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            async with session.get(oembed_url, timeout=aiohttp.ClientTimeout(total=5.0)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    title = data.get("title", "")
+                    artist = data.get("author_name", "")
+                    search_query = f"{title} {artist}".strip()
+                    return {
+                        "title": title,
+                        "artist": artist,
+                        "search_query": search_query or title,
+                        "thumbnail": data.get("thumbnail_url"),
+                        "source": "spotify"
+                    }
+    except Exception as e:
+        logger.warning(f"[Music] Spotify metadata lookup failed: {e}")
+
+    # Offline / network fallback
+    import re
+    match = re.search(r"spotify\.com/(track|album|playlist)/([a-zA-Z0-9]+)", url)
+    if match:
+        type_name = match.group(1).title()
+        item_id = match.group(2)
+        return {
+            "title": f"Spotify {type_name} {item_id}",
+            "artist": "Spotify Artist",
+            "search_query": f"Spotify {type_name} {item_id}",
+            "source": "spotify_fallback"
+        }
+    return None
+
+
 YTDL_OPTIONS = {
     'format': 'bestaudio/best',
     'extractaudio': True,
@@ -468,7 +513,29 @@ def setup_music_commands(tree: app_commands.CommandTree, bot: commands.Bot, guil
                 provider="Local Audio"
             ), None
 
-        # 2. Direct HTTP/HTTPS audio stream
+        # 2B. Spotify URL Support (track, album, playlist metadata resolution)
+        if clean_query.startswith(("http://", "https://")) and ("open.spotify.com" in clean_query or "spotify.link" in clean_query):
+            try:
+                import urllib.parse
+                oembed_url = f"https://open.spotify.com/oembed?url={urllib.parse.quote(clean_query, safe='')}"
+                req = urllib.request.Request(oembed_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+                def fetch_spotify_meta():
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        return json.loads(resp.read().decode('utf-8', errors='replace'))
+                sp_data = await loop.run_in_executor(None, fetch_spotify_meta)
+                if sp_data and sp_data.get('title'):
+                    sp_title = sp_data.get('title', '')
+                    logger.info(f"[Music] Resolved Spotify URL to title via oEmbed: '{sp_title}'")
+                    # Note: Spotify terms prohibit direct audio streaming into Discord.
+                    # We resolve track metadata and stream equivalent via permitted audio provider.
+                    matched_track, err = await resolve_audio_track(sp_title, requester, loop)
+                    if matched_track:
+                        matched_track.provider = f"Spotify (via {matched_track.provider})"
+                        return matched_track, None
+            except Exception as sp_err:
+                logger.warning(f"[Music] Spotify metadata resolution error: {sp_err}")
+
+        # 2C. Direct HTTP/HTTPS audio stream
         if clean_query.startswith(("http://", "https://")):
             url_without_params = clean_query.split("?")[0].lower()
             if any(url_without_params.endswith(ext) for ext in [".mp3", ".ogg", ".wav", ".flac", ".m4a", ".aac"]):

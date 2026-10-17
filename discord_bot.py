@@ -854,46 +854,101 @@ async def on_message(message: discord.Message):
                 pass
 
     # =========================================================================
-    # 0A. AUTOMOD ENFORCEMENT (Section 2)
+    # 0A. MULTILINGUAL AUTOMOD & MEDIA SAFETY (PHASES 3 & 4)
     # =========================================================================
-    if message.guild and kazumi_features.get("automod"):
-        gid_str = str(message.guild.id)
-        db_inst = kazumi_features["db"]
-        g_settings = db_inst.get_guild_settings(gid_str)
-        automod_cfg = g_settings.get("automod", {})
-        if automod_cfg.get("enabled", False):
-            is_staff = False
-            if hasattr(message.author, "guild_permissions"):
-                is_staff = message.author.guild_permissions.manage_messages or message.author.guild_permissions.administrator
-            if not is_staff:
-                violated, rule_name, evidence = kazumi_features["automod"].record_and_evaluate(message, automod_cfg)
+    if message.guild:
+        is_staff = False
+        if hasattr(message.author, "guild_permissions"):
+            is_staff = message.author.guild_permissions.manage_messages or message.author.guild_permissions.administrator
+
+        # 1. Media Safety Moderation (Images, Videos, GIFs, External Links, SSRF)
+        media_mod = kazumi_features.get("media_moderator")
+        if media_mod and not is_staff:
+            is_media_violation, media_reason, media_conf = await media_mod.evaluate_message_media(message)
+            if is_media_violation:
+                await media_mod.handle_media_violation(message, media_reason, media_conf)
+                if kazumi_features.get("logging"):
+                    log_embed = discord.Embed(
+                        title="🛡️ Media AutoMod Enforced",
+                        description=f"**User:** {message.author.mention} (`{message.author.id}`)\n**Reason:** `{media_reason}`\n**Channel:** {message.channel.mention}",
+                        color=0xf43f5e
+                    )
+                    log_embed.timestamp = datetime.now(timezone.utc)
+                    await kazumi_features["logging"].log_event(message.guild, log_embed)
+                return
+
+        # 2. Advanced Multilingual AutoMod (English, Hindi, Hinglish, Odia, Slang)
+        multi_automod = kazumi_features.get("multilingual_automod")
+        if multi_automod and not is_staff:
+            violated, cat, sample, severity = multi_automod.evaluate_message(raw_content)
+            if violated:
+                mod_res = await multi_automod.handle_violation(message, cat, severity, sample)
+                if kazumi_features.get("logging"):
+                    case_id = mod_res.get("case_id", 0)
+                    log_embed = discord.Embed(
+                        title=f"🛡️ Multilingual AutoMod Enforced • Case #{case_id}",
+                        description=f"**User:** {message.author.mention} (`{message.author.id}`)\n**Category:** `{cat}`\n**Severity:** `{severity.value}`\n**Channel:** {message.channel.mention}",
+                        color=0xf43f5e
+                    )
+                    log_embed.timestamp = datetime.now(timezone.utc)
+                    await kazumi_features["logging"].log_event(message.guild, log_embed)
+                return
+
+        # 3. Standard AutoMod Tracker (Invites, Mention Limits, Anti-Spam)
+        automod_tracker = kazumi_features.get("automod")
+        db_inst = kazumi_features.get("db")
+        if automod_tracker and db_inst and not is_staff:
+            g_settings = db_inst.get_guild_settings(str(message.guild.id))
+            automod_cfg = g_settings.get("automod", {})
+            if automod_cfg.get("enabled", False):
+                violated, rule_name, evidence = automod_tracker.record_and_evaluate(message, automod_cfg)
                 if violated:
                     case_id = db_inst.create_case(message.guild.id, message.author.id, bot.user.id if bot.user else 0, "AUTOMOD", rule_name, evidence=evidence)
                     try:
                         await message.delete()
                     except Exception:
                         pass
-                    mod_embed = discord.Embed(
-                        title=f"🛡️ AutoMod Rule Enforced • Case #{case_id}",
-                        description=(
-                            f"**User:** {message.author.mention} (`{message.author.id}`)\n"
-                            f"**Rule Violated:** `{rule_name}`\n"
-                            f"**Evidence:** {evidence}\n"
-                            f"**Case ID:** `#{case_id}`\n"
-                            f"**Channel:** {message.channel.mention}"
-                        ),
-                        color=0xf43f5e
-                    )
-                    mod_embed.timestamp = datetime.now(timezone.utc)
-                    await kazumi_features["logging"].log_event(message.guild, mod_embed)
+                    # Private DM warning to respect privacy without public embarrassment
                     try:
-                        await message.channel.send(
-                            f"⚠️ {message.author.mention}, your message violated server rules (**{rule_name}** - Case `#{case_id}`) and was removed.",
-                            delete_after=8
+                        await message.author.send(
+                            f"Hey, please keep the chat respectful. 🌸 Your message in **{message.guild.name}** violated the rule `{rule_name}` and was removed. Let's keep the server welcoming for everyone."
                         )
                     except Exception:
                         pass
+                    if kazumi_features.get("logging"):
+                        mod_embed = discord.Embed(
+                            title=f"🛡️ AutoMod Rule Enforced • Case #{case_id}",
+                            description=(
+                                f"**User:** {message.author.mention} (`{message.author.id}`)\n"
+                                f"**Rule Violated:** `{rule_name}`\n"
+                                f"**Evidence:** {evidence}\n"
+                                f"**Case ID:** `#{case_id}`\n"
+                                f"**Channel:** {message.channel.mention}"
+                            ),
+                            color=0xf43f5e
+                        )
+                        mod_embed.timestamp = datetime.now(timezone.utc)
+                        await kazumi_features["logging"].log_event(message.guild, mod_embed)
                     return
+
+    # =========================================================================
+    # 0A-2. PERSISTENT SERVER LEVELING & CHAT ACTIVITY (PHASE 5)
+    # =========================================================================
+    if message.guild and kazumi_features.get("leveling"):
+        try:
+            level_res = await kazumi_features["leveling"].process_message_activity(message)
+            if level_res:
+                new_lvl, reward_role_id = level_res
+                cfg = kazumi_features["leveling"].get_guild_config(message.guild.id)
+                target_ch_id = cfg.get("announcement_channel_id")
+                ann_ch = message.guild.get_channel(int(target_ch_id)) if target_ch_id else message.channel
+                congrats_text = f"Hey, congrats {message.author.mention}! You've reached **Level {new_lvl}**. Keep hanging out with us! 🌸"
+                try:
+                    await ann_ch.send(congrats_text)
+                except Exception:
+                    pass
+        except Exception as lvl_err:
+            logger.debug(f"Error in leveling tracker: {lvl_err}")
 
     # =========================================================================
     # 0B. CUSTOM COMMANDS DISPATCHER (Section 9)
@@ -1293,8 +1348,42 @@ async def on_message(message: discord.Message):
         creator_title, creator_ctx = detect_creator_relationship(message.author)
         display_author = creator_title if creator_title else author_name
         # =========================================================================
-        # 🧠 NATURAL LANGUAGE INTENT DISPATCHER (Dyno, Giveaways, Jockie Music)
+        # 🧠 AUTONOMOUS KAZUMI ACTION ENGINE & INTENT DISPATCHER (PHASE 2)
         # =========================================================================
+        action_engine = kazumi_features.get("action_engine")
+        if action_engine:
+            parsed_action = action_engine.parse_action_intent(clean_text, message)
+            if parsed_action:
+                act_name, act_params = parsed_action
+                action_res = await action_engine.execute_action(act_name, act_params, message)
+                if action_res.needs_confirmation:
+                    from discord_features.action_engine import ActionConfirmationView
+                    confirm_view = ActionConfirmationView(
+                        engine=action_engine,
+                        action_name=act_name,
+                        params=act_params,
+                        requester_id=message.author.id,
+                        original_message=message
+                    )
+                    active_conversations[session_key] = time.time()
+                    await message.reply(
+                        action_res.message,
+                        view=confirm_view,
+                        mention_author=False
+                    )
+                    return
+                elif action_res.success:
+                    active_conversations[session_key] = time.time()
+                    if action_res.embed:
+                        await message.reply(content=action_res.message or None, embed=action_res.embed, mention_author=False)
+                    elif action_res.message:
+                        await message.reply(action_res.message, mention_author=False)
+                    return
+                elif action_res.error:
+                    active_conversations[session_key] = time.time()
+                    await message.reply(f"⚠️ {action_res.error}", mention_author=False)
+                    return
+
         intent_router = kazumi_features.get("intent_router")
         if intent_router:
             detected_intent = intent_router.detect_intent(clean_text, message)

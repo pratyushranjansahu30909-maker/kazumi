@@ -38,7 +38,16 @@ from .tickets import (
     TicketClosedActionsView,
     register_ticket_commands
 )
-from .giveaways import GiveawayManager, GiveawayEntryView, register_giveaway_commands
+from .giveaways import (
+    GiveawayManager,
+    GiveawayEntryView,
+    GiveawayClaimView,
+    register_giveaway_commands
+)
+from .action_engine import AutonomousActionEngine
+from .multilingual_automod import MultilingualAutoMod
+from .media_moderator import MediaSafetyModerator
+from .leveling import LevelingManager, register_leveling_commands
 from .reaction_roles import register_reaction_role_commands, DynamicRolePanelView
 from .custom_commands import CustomCommandDispatcher, register_custom_command_slash
 from .server_info import register_info_and_utility_commands
@@ -150,12 +159,21 @@ def setup_all_features(bot: commands.Bot, tree: app_commands.CommandTree) -> Dic
     # 16. Human Interaction Engine (Social decision layer)
     human_interaction = HumanInteractionEngine(db, bot.user.id if bot.user else 0)
 
+    # 17. Server Leveling & Activity System
+    leveling_manager = LevelingManager(db)
+    register_leveling_commands(tree, bot, leveling_manager)
+
+    # 18. Multilingual AutoMod & Media Safety Pipeline
+    multilingual_automod = MultilingualAutoMod(db)
+    media_moderator = MediaSafetyModerator(db)
+
     # Register persistent views for button listeners across bot reboots
     try:
         bot.add_view(TicketLaunchView())
         bot.add_view(TicketControlView())
         bot.add_view(TicketClosedActionsView())
         bot.add_view(GiveawayEntryView())
+        bot.add_view(GiveawayClaimView("pending"))
     except Exception as e:
         logger.debug(f"Note on initial persistent view registration: {e}")
 
@@ -171,16 +189,24 @@ def setup_all_features(bot: commands.Bot, tree: app_commands.CommandTree) -> Dic
     channel_policy_mgr = get_channel_policy_manager(db)
     register_channel_policy_commands(tree, bot, db)
 
-    intent_router = NaturalIntentRouter(bot, {
+    action_engine_features = {
         "db": db,
         "automod": automod_tracker,
+        "multilingual_automod": multilingual_automod,
+        "media_moderator": media_moderator,
+        "leveling": leveling_manager,
         "logging": server_logging,
         "giveaways": giveaway_manager,
         "music": music,
         "roast_engine": roast_engine,
         "case_manager": case_manager,
-        "channel_policy": channel_policy_mgr
-    })
+        "channel_policy": channel_policy_mgr,
+        "game_engine": game_engine
+    }
+
+    action_engine = AutonomousActionEngine(bot, action_engine_features)
+
+    intent_router = NaturalIntentRouter(bot, action_engine_features)
 
     bot_monitor = BotMonitor.get_instance(bot)
 
@@ -189,6 +215,10 @@ def setup_all_features(bot: commands.Bot, tree: app_commands.CommandTree) -> Dic
     return {
         "db": db,
         "automod": automod_tracker,
+        "multilingual_automod": multilingual_automod,
+        "media_moderator": media_moderator,
+        "leveling": leveling_manager,
+        "action_engine": action_engine,
         "logging": server_logging,
         "welcome": welcome_system,
         "monitoring": bot_monitor,
