@@ -65,7 +65,9 @@ def validate_openai_config() -> Tuple[bool, str, Optional[str]]:
     source = "OPENAI_API_KEY"
     if not raw_key:
         raw_key = os.environ.get("API_KEY")
-        source = "API_KEY (legacy alias)"
+        if raw_key:
+            source = "API_KEY (legacy alias)"
+            logger.warning("API_KEY is deprecated; use OPENAI_API_KEY instead.")
 
     # Fallback to local .env if not found in environment
     if not raw_key:
@@ -83,6 +85,8 @@ def validate_openai_config() -> Tuple[bool, str, Optional[str]]:
                                     if candidate and not is_placeholder_key(candidate):
                                         raw_key = candidate
                                         source = f".env ({k_s})"
+                                        if k_s == "API_KEY":
+                                            logger.warning("API_KEY is deprecated; use OPENAI_API_KEY instead.")
                                         if k_s == "OPENAI_API_KEY":
                                             break
                 except Exception:
@@ -101,6 +105,12 @@ def validate_openai_config() -> Tuple[bool, str, Optional[str]]:
     # Harmonize canonical and legacy variables
     os.environ["OPENAI_API_KEY"] = clean_key
     os.environ["API_KEY"] = clean_key
+
+    try:
+        from discord_features.config import register_secret
+        register_secret(clean_key)
+    except Exception:
+        pass
 
     masked_prefix = clean_key[:7] + "..." if len(clean_key) >= 7 else "sk-..."
     return True, f"Valid OpenAI API key configured via {source} ({masked_prefix}, len={len(clean_key)}).", clean_key
@@ -277,9 +287,11 @@ class OpenAIReliabilityGuard:
             except openai.AuthenticationError as e:
                 with self._state_lock:
                     self.stats["auth_errors"] += 1
+                    should_log = not self._auth_broken
                     self._auth_broken = True
                     self.stats["circuit_breaker_trips"] += 1
-                logger.error("🛑 [OPENAI_AUTH_ERROR] HTTP 401 Unauthorized. Key is invalid or revoked. Tripping circuit breaker to prevent repeated failures.")
+                if should_log:
+                    logger.error("🛑 [OPENAI_AUTH_ERROR] HTTP 401 Unauthorized. Key is invalid or revoked. Tripping circuit breaker to prevent repeated failures.")
                 return None
 
             except openai.PermissionDeniedError as e:
@@ -386,6 +398,31 @@ class OpenAIReliabilityGuard:
             "transient_cooldown_seconds": transient_cooldown,
             "stats": dict(self.stats)
         }
+
+    def is_auth_broken(self) -> bool:
+        """Returns True if OpenAI API is disabled due to invalid credentials (HTTP 401)."""
+        return self._auth_broken
+
+    def get_degraded_reason(self) -> Optional[str]:
+        """Returns a sanitized description of current degradation if unavailable."""
+        if not self.is_valid:
+            return "Configuration missing or placeholder"
+        if self._auth_broken:
+            return "Authentication failure (invalid or revoked API key)"
+        now = time.time()
+        if now < self._quota_cooldown_until:
+            return f"Quota exhausted (cooldown remaining: {int(self._quota_cooldown_until - now)}s)"
+        if now < self._transient_cooldown_until:
+            return f"Transient connection errors (backoff remaining: {int(self._transient_cooldown_until - now)}s)"
+        return None
+
+    def get_user_facing_status_message(self) -> str:
+        """Returns a user-friendly, safe message explaining degraded status without secrets."""
+        if self._auth_broken:
+            return "🌸 My AI thoughts are temporarily resting due to an authentication setup issue. Non-AI commands and server features remain fully active!"
+        if time.time() < self._quota_cooldown_until:
+            return "🌸 My AI mind is resting due to high activity quota limits. Non-AI commands remain fully active!"
+        return "🌸 My AI thoughts are temporarily resting. Non-AI commands and server features remain fully active!"
 
 
 # Singleton accessor

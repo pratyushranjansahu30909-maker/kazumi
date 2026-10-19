@@ -159,8 +159,8 @@ def write_health_status(status: str, connected: bool = False, extra: Optional[di
     except Exception as e:
         logger.warning(f"Failed to write bot health telemetry: {e}")
 
-from discord_features.config import SanitizedLogFormatter
-log_handler.setFormatter(SanitizedLogFormatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+from discord_features.config import SanitizedLogFormatter, install_global_redactor, register_secret, KazumiConfig
+install_global_redactor()
 
 # Import Kazumi Core
 try:
@@ -206,6 +206,8 @@ args, _ = parser.parse_known_args()
 
 # Discord Configuration
 DISCORD_BOT_TOKEN = (args.token or os.environ.get("DISCORD_BOT_TOKEN", "")).strip()
+if DISCORD_BOT_TOKEN:
+    register_secret(DISCORD_BOT_TOKEN)
 DISCORD_CHANNEL_ID = (args.channel or os.environ.get("DISCORD_CHANNEL_ID", "")).strip()
 PREFIX = args.prefix or os.environ.get("DISCORD_PREFIX", "!k ")
 CREATOR_USER_IDS = set(x.strip() for x in os.environ.get("CREATOR_USER_IDS", "").split(",") if x.strip())
@@ -246,6 +248,28 @@ try:
         bot._connection.user = _placeholder_user
 except Exception:
     pass
+
+@bot.event
+async def on_command_error(ctx: commands.Context, error: Exception):
+    """Sanitizes command errors to ensure no secrets or stack traces leak to Discord."""
+    logger.error(f"Command error in {getattr(ctx, 'command', 'unknown')}: {error}", exc_info=error)
+    try:
+        await ctx.send("🌸 An unexpected error occurred while processing this command. The issue has been safely logged.")
+    except Exception:
+        pass
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    """Sanitizes slash command errors to ensure no secrets or stack traces leak to Discord."""
+    logger.error(f"Slash command error in {getattr(interaction, 'command', 'unknown')}: {error}", exc_info=error)
+    try:
+        msg = "🌸 An unexpected error occurred while executing this command. The issue has been safely logged."
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
+    except Exception:
+        pass
 
 # ---------------------------------------------------------------------------
 # Cloud Deployment Health Check Server (Hugging Face Spaces / Render / VPS)
@@ -2927,8 +2951,10 @@ def main():
     global DISCORD_BOT_TOKEN
     logger.info(f"[HOST] Runtime Host: {DEPLOY_ENV['name']} (Remote: {DEPLOY_ENV['is_remote']})")
     logger.info(f"[STARTUP] Kazumi Discord Bot process started. DISCORD_BOT_TOKEN configured: {bool(DISCORD_BOT_TOKEN)}")
-    if not DISCORD_BOT_TOKEN or DISCORD_BOT_TOKEN == "your_discord_bot_token_here":
-        logger.error("❌ DISCORD_BOT_TOKEN is missing or empty! Bot cannot connect to Discord.")
+    is_valid_cfg, config_errors = KazumiConfig.validate_startup_config()
+    if not is_valid_cfg:
+        for err in config_errors:
+            logger.error(f"❌ [STARTUP_CONFIG_ERROR] {err}")
         print_discord_setup_guide()
         if DEPLOY_ENV["is_remote"]:
             logger.info("🌸 Running on remote cloud host. Starting HTTP health server and waiting for DISCORD_BOT_TOKEN...")
