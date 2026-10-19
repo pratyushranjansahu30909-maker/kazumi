@@ -21,6 +21,7 @@ import hashlib
 import asyncio
 import logging
 from enum import Enum
+from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime, timezone
 
@@ -37,24 +38,216 @@ sys_random = secrets.SystemRandom()
 class GiveawayState(str, Enum):
     DRAFT = "DRAFT"
     ACTIVE = "ACTIVE"
-    CLOSED = "CLOSED"
     DRAWING = "DRAWING"
+    CLAIM_PENDING = "CLAIM_PENDING"
     AWAITING_CLAIM = "AWAITING_CLAIM"
-    CLAIMED = "CLAIMED"
-    EXPIRED = "EXPIRED"
-    REROLLING = "REROLLING"
     COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"
+    NO_ELIGIBLE_ENTRANTS = "NO_ELIGIBLE_ENTRANTS"
+    EXPIRED = "EXPIRED"
+    # Backward compatibility aliases
+    CLOSED = "COMPLETED"
+    CLAIMED = "COMPLETED"
+    REROLLING = "DRAWING"
 
 
 def parse_duration(duration_str: str) -> Optional[float]:
-    """Parses duration strings like 10m, 2h, 1d, 30s into seconds."""
-    match = re.match(r"^(\d+)\s*([smhdw])$", str(duration_str).strip().lower())
+    """
+    Parses duration strings into seconds.
+    Supports:
+    - 30s, 30 sec, 30 seconds
+    - 10m, 10 min, 10 minutes
+    - 2h, 2 hr, 2 hours
+    - 1d, 1 day, 1 days
+    - 1w, 1 week, 1 weeks
+    Also tolerates leading 'for' (e.g. 'for 2h', 'for 15 minutes').
+    Returns float seconds or None.
+    """
+    if not duration_str:
+        return None
+    raw = str(duration_str).strip().lower()
+    raw = re.sub(r"^(?:for\s+)+", "", raw).strip()
+    match = re.match(r"^(\d+)\s*([a-z]+)$", raw)
     if not match:
         return None
     val = int(match.group(1))
     unit = match.group(2)
-    multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
-    return float(val * multipliers[unit])
+
+    if unit in ("s", "sec", "secs", "second", "seconds"):
+        return float(val)
+    elif unit in ("m", "min", "mins", "minute", "minutes"):
+        return float(val * 60)
+    elif unit in ("h", "hr", "hrs", "hour", "hours"):
+        return float(val * 3600)
+    elif unit in ("d", "day", "days"):
+        return float(val * 86400)
+    elif unit in ("w", "wk", "wks", "week", "weeks"):
+        return float(val * 604800)
+    return None
+
+
+def resolve_target_channel(
+    guild: discord.Guild,
+    channel_query: Optional[Any],
+    default_channel: Optional[discord.TextChannel] = None
+) -> Tuple[Optional[discord.TextChannel], Optional[str]]:
+    """
+    Resolves a channel from a mention (<#123>), an ID ('123'), a prefixed name ('#giveaways'),
+    or plain name ('giveaways') against the current guild.
+    Returns (resolved_channel, error_message).
+    """
+    if not guild:
+        return default_channel, None
+    if not channel_query:
+        return default_channel, None
+
+    query_str = str(channel_query).strip()
+
+    # 1. Mention: <#123456789>
+    m_mention = re.search(r"<#(\d+)>", query_str)
+    if m_mention:
+        cid = int(m_mention.group(1))
+        ch = guild.get_channel(cid)
+        if ch and isinstance(ch, discord.TextChannel):
+            return ch, None
+        return None, f"Channel <#{cid}> not found in this server."
+
+    # 2. Raw digits ID: 123456789
+    clean_digits = query_str.lstrip("#")
+    if clean_digits.isdigit():
+        cid = int(clean_digits)
+        ch = guild.get_channel(cid)
+        if ch and isinstance(ch, discord.TextChannel):
+            return ch, None
+
+    # 3. Channel Name (exact match case-insensitive, with or without leading #)
+    name_clean = query_str.lstrip("#").strip().lower()
+    text_channels = getattr(guild, "text_channels", [])
+    for ch in text_channels:
+        if ch.name.lower() == name_clean:
+            return ch, None
+
+    # 4. Partial substring match among text channels if unique
+    matches = [ch for ch in text_channels if name_clean in ch.name.lower()]
+    if len(matches) == 1:
+        return matches[0], None
+
+    return None, f"Could not find a text channel matching '{query_str}' in this server."
+
+
+@dataclass
+class GiveawayDraft:
+    user_id: int
+    guild_id: int
+    conversation_channel_id: int
+    prize: str
+    target_channel_id: Optional[int] = None
+    winners: int = 1
+    duration: Optional[str] = None
+    claim_duration_seconds: int = 900
+    created_at: float = field(default_factory=time.time)
+    timeout_seconds: float = 300.0
+
+    def is_expired(self) -> bool:
+        return (time.time() - self.created_at) > self.timeout_seconds
+
+
+class GiveawayDraftManager:
+    """Tracks active conversational giveaway drafts per guild, channel, and user."""
+    def __init__(self, default_ttl: float = 300.0):
+        self.default_ttl = default_ttl
+        self._drafts: Dict[Tuple[int, int, int], GiveawayDraft] = {}
+
+    def _resolve_key(self, arg1: int, arg2: int, arg3: Optional[int] = None) -> Tuple[int, int, int]:
+        if arg3 is not None:
+            return (int(arg1), int(arg2), int(arg3))
+        # Legacy fallback: (user_id, guild_id)
+        for (g_id, c_id, u_id) in list(self._drafts.keys()):
+            if g_id == int(arg2) and u_id == int(arg1):
+                return (g_id, c_id, u_id)
+        return (int(arg2), 0, int(arg1))
+
+    def create_draft(
+        self,
+        *args,
+        user_id: Optional[int] = None,
+        guild_id: Optional[int] = None,
+        channel_id: Optional[int] = None,
+        conversation_channel_id: Optional[int] = None,
+        prize: str = "Prize",
+        target_channel_id: Optional[int] = None,
+        winners: int = 1,
+        claim_duration_seconds: int = 900,
+        timeout_seconds: Optional[float] = None,
+        **kwargs
+    ) -> GiveawayDraft:
+        if len(args) == 3:
+            g_id, c_id, u_id = int(args[0]), int(args[1]), int(args[2])
+        elif len(args) == 2:
+            u_id, g_id = int(args[0]), int(args[1])
+            c_id = int(conversation_channel_id or channel_id or 0)
+        else:
+            g_id = int(guild_id or kwargs.get("guild_id", 0))
+            c_id = int(channel_id or conversation_channel_id or kwargs.get("conversation_channel_id", 0))
+            u_id = int(user_id or kwargs.get("user_id", 0))
+
+        ttl = timeout_seconds if timeout_seconds is not None else self.default_ttl
+        draft = GiveawayDraft(
+            user_id=u_id,
+            guild_id=g_id,
+            conversation_channel_id=c_id,
+            prize=prize,
+            target_channel_id=target_channel_id,
+            winners=winners,
+            claim_duration_seconds=claim_duration_seconds,
+            timeout_seconds=ttl
+        )
+        self._drafts[(g_id, c_id, u_id)] = draft
+        return draft
+
+    def get_draft(
+        self,
+        *args,
+        guild_id: Optional[int] = None,
+        channel_id: Optional[int] = None,
+        user_id: Optional[int] = None,
+        **kwargs
+    ) -> Optional[GiveawayDraft]:
+        if len(args) == 3:
+            key = (int(args[0]), int(args[1]), int(args[2]))
+        elif len(args) == 2:
+            key = self._resolve_key(args[0], args[1])
+        else:
+            g_id = int(guild_id or kwargs.get("guild_id", 0))
+            c_id = int(channel_id or kwargs.get("channel_id", 0))
+            u_id = int(user_id or kwargs.get("user_id", 0))
+            key = (g_id, c_id, u_id)
+
+        draft = self._drafts.get(key)
+        if not draft:
+            return None
+        if draft.is_expired():
+            self._drafts.pop(key, None)
+            return None
+        return draft
+
+    def remove_draft(self, *args, **kwargs) -> Optional[GiveawayDraft]:
+        if len(args) == 3:
+            key = (int(args[0]), int(args[1]), int(args[2]))
+        elif len(args) == 2:
+            key = self._resolve_key(args[0], args[1])
+        else:
+            g_id = int(kwargs.get("guild_id", 0))
+            c_id = int(kwargs.get("channel_id", 0))
+            u_id = int(kwargs.get("user_id", 0))
+            key = (g_id, c_id, u_id)
+        return self._drafts.pop(key, None)
+
+    def cancel_draft(self, *args, **kwargs) -> bool:
+        return self.remove_draft(*args, **kwargs) is not None
+
+
+giveaway_drafts = GiveawayDraftManager()
 
 
 # -----------------------------------------------------------------------------
@@ -208,11 +401,19 @@ class GiveawayEntryView(discord.ui.View):
 
     @discord.ui.button(label="Enter Giveaway", style=discord.ButtonStyle.success, emoji="🎉", custom_id="kazumi:giveaway:enter")
     async def enter_giveaway(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # 1. Reject bots
+        if getattr(interaction.user, "bot", False):
+            await interaction.response.send_message("❌ Bots cannot enter giveaways.", ephemeral=True)
+            return
+
         db = get_feature_db()
-        mid = str(interaction.message.id)
+        mid = str(interaction.message.id) if interaction.message else self.message_id
         giveaway = db.get_giveaway(mid)
-        if not giveaway or giveaway.get("ended", False):
-            await interaction.response.send_message("❌ This giveaway has already ended.", ephemeral=True)
+        if not giveaway or giveaway.get("ended", False) or giveaway.get("status") in (
+            GiveawayState.COMPLETED.value, GiveawayState.DRAWING.value, GiveawayState.CLAIM_PENDING.value,
+            GiveawayState.CANCELLED.value, GiveawayState.NO_ELIGIBLE_ENTRANTS.value
+        ):
+            await interaction.response.send_message("❌ This giveaway is not accepting entries.", ephemeral=True)
             return
 
         if giveaway.get("paused", False):
@@ -261,61 +462,226 @@ class GiveawayEntryView(discord.ui.View):
             await interaction.response.send_message(f"🎉 You have entered the giveaway for **{giveaway['prize']}**! Total entries: **{len(entries)}**", ephemeral=True)
 
 
-_claim_locks = set()
+_giveaway_async_locks: Dict[str, asyncio.Lock] = {}
+
+def get_giveaway_lock(message_id: str) -> asyncio.Lock:
+    mid = str(message_id)
+    if mid not in _giveaway_async_locks:
+        _giveaway_async_locks[mid] = asyncio.Lock()
+    return _giveaway_async_locks[mid]
+
 
 class GiveawayClaimView(discord.ui.View):
     """Interactive button allowing the selected winner to securely claim their prize."""
-    def __init__(self, message_id: str):
+    def __init__(self, message_id: str = "pending"):
         super().__init__(timeout=None)
         self.message_id = str(message_id)
 
     @discord.ui.button(label="Claim Prize 🎁", style=discord.ButtonStyle.primary, emoji="✨", custom_id="kazumi:giveaway:claim")
     async def claim_prize(self, interaction: discord.Interaction, button: discord.ui.Button):
         uid = str(interaction.user.id)
-        lock_key = f"{self.message_id}:{uid}"
-        if lock_key in _claim_locks:
-            await interaction.response.send_message("⏳ Your claim is already being processed, please wait a moment.", ephemeral=True)
-            return
-
-        _claim_locks.add(lock_key)
-        try:
+        mid = str(interaction.message.id) if interaction.message else self.message_id
+        lock = get_giveaway_lock(mid)
+        async with lock:
             db = get_feature_db()
-            giveaway = db.get_giveaway(self.message_id)
+            giveaway = db.get_giveaway(mid)
             if not giveaway:
                 await interaction.response.send_message("❌ Giveaway record not found.", ephemeral=True)
                 return
 
-            current_winners = giveaway.get("current_pending_winners", giveaway.get("winners", []))
-
-            if uid not in current_winners:
-                await interaction.response.send_message("❌ Only the drawn winner can claim this prize!", ephemeral=True)
+            # Check if giveaway is in terminal state
+            if giveaway.get("status") in (
+                GiveawayState.COMPLETED.value,
+                GiveawayState.CANCELLED.value,
+                GiveawayState.NO_ELIGIBLE_ENTRANTS.value
+            ):
+                claimed_users = set(giveaway.get("claimed_winners", []))
+                if uid in claimed_users:
+                    await interaction.response.send_message("✅ You have already claimed this prize! The host has your claim on file.", ephemeral=True)
+                else:
+                    await interaction.response.send_message("❌ This giveaway is already concluded.", ephemeral=True)
                 return
 
-            claimed_users = set(giveaway.get("claimed_winners", []))
-            if uid in claimed_users:
-                await interaction.response.send_message("✅ You have already claimed this prize! Contact server staff to receive it.", ephemeral=True)
+            current_winners = list(giveaway.get("current_pending_winners", giveaway.get("winners", [])))
+
+            if uid not in current_winners:
+                claimed_users = set(giveaway.get("claimed_winners", []))
+                if uid in claimed_users:
+                    await interaction.response.send_message("✅ You have already claimed this prize! The host has your claim on file.", ephemeral=True)
+                    return
+                await interaction.response.send_message("❌ Only the currently drawn winner can claim this prize!", ephemeral=True)
                 return
 
             # Check claim deadline
             deadline = giveaway.get("claim_deadline")
             now = time.time()
             if giveaway.get("claim_deadline_enabled", True) and deadline and now > deadline:
-                await interaction.response.send_message("⏱️ The claim deadline has expired. This prize has been scheduled for a reroll.", ephemeral=True)
+                await interaction.response.send_message("⏱️ The claim deadline has expired. This prize is being rerolled.", ephemeral=True)
                 return
 
-            # Mark claimed
+            # Atomically mark claimed under lock
             giveaway.setdefault("claimed_winners", []).append(uid)
-            giveaway["status"] = "CLAIMED"
-            db.save_giveaway(self.message_id, giveaway)
+            if uid in current_winners:
+                current_winners.remove(uid)
+            giveaway["current_pending_winners"] = current_winners
+            if not current_winners:
+                giveaway["status"] = GiveawayState.COMPLETED.value
+            else:
+                giveaway["status"] = GiveawayState.CLAIM_PENDING.value
+            db.save_giveaway(mid, giveaway)
 
-            audit_ledger.record_event(self.message_id, "CLAIMED", uid, {"prize": giveaway["prize"]})
+            audit_ledger.record_event(mid, "CLAIMED", uid, {"prize": giveaway.get("prize", "")})
 
             button.disabled = True
             button.label = "Claimed! ✅"
-            await interaction.response.edit_message(view=self)
-            await interaction.followup.send(f"🎉 Congratulations {interaction.user.mention}! Your claim for **{giveaway['prize']}** is confirmed! Server staff have been notified. 🌸")
-        finally:
-            _claim_locks.discard(lock_key)
+            try:
+                await interaction.response.edit_message(view=self)
+            except Exception:
+                pass
+            await interaction.followup.send(f"🎉 Congratulations {interaction.user.mention}! Your claim for **{giveaway.get('prize')}** is confirmed! The host has been notified. 🌸")
+
+            # Notify host via DM
+            try:
+                host_id = int(giveaway.get("host_id", 0))
+                if interaction.guild and host_id:
+                    host = interaction.guild.get_member(host_id) or await interaction.guild.fetch_member(host_id)
+                    if host:
+                        await host.send(f"🎁 **Giveaway Claimed:** {interaction.user.mention} ({interaction.user}) has confirmed their claim for **{giveaway.get('prize')}** in **{interaction.guild.name}**!")
+            except Exception as e:
+                logger.debug(f"Could not send DM to host: {e}")
+
+
+async def create_giveaway_execution(
+    bot: commands.Bot,
+    guild: discord.Guild,
+    host: discord.Member,
+    prize: str,
+    duration_str: str,
+    target_channel: discord.TextChannel,
+    winners_count: int = 1,
+    announcement_channel: Optional[discord.TextChannel] = None,
+    claim_duration_seconds: int = 900,
+    claim_deadline_enabled: bool = True,
+    required_role: Optional[discord.Role] = None
+) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+    """
+    Creates and activates an authoritative giveaway.
+    Posts main embed with persistent entry button to target_channel.
+    If announcement_channel is provided or configured, publishes announcement embed with jump link.
+    Persists giveaway record to database and audit ledger.
+    """
+    db = get_feature_db()
+
+    # Verify bot permissions in target channel
+    if hasattr(guild, "me") and guild.me:
+        perms = target_channel.permissions_for(guild.me)
+        if not perms.send_messages or not perms.embed_links:
+            return False, f"❌ I lack permissions to send messages or embed links in {target_channel.mention}!", None
+
+    secs = parse_duration(duration_str)
+    if not secs or secs < 10:
+        return False, "❌ Duration must be at least 10 seconds (e.g. `10m`, `2h`, `1d`).", None
+
+    end_timestamp = time.time() + secs
+    num_w = max(1, min(20, winners_count))
+
+    # Resolve announcement channel if not explicitly passed
+    if not announcement_channel:
+        try:
+            guild_settings = db.get_guild_settings(str(guild.id))
+            ann_cid = guild_settings.get("giveaway_announcement_channel_id") or os.environ.get("GIVEAWAY_ANNOUNCEMENT_CHANNEL_ID") or os.environ.get("DISCORD_GIVEAWAY_ANNOUNCEMENT_CHANNEL_ID")
+            if ann_cid:
+                ch = guild.get_channel(int(ann_cid))
+                if isinstance(ch, discord.TextChannel):
+                    announcement_channel = ch
+        except Exception:
+            pass
+
+    claim_mins = claim_duration_seconds // 60
+    claim_mode_text = f"\n**Claim Window:** {claim_mins} minutes per winner" if claim_deadline_enabled else "\n**Mode:** Permanent Claim (No timeout)"
+    req_role_text = f"\n**Required Role:** {required_role.mention}" if required_role else ""
+
+    embed = discord.Embed(
+        title=f"🎉 GIVEAWAY: {prize}!",
+        description=(
+            f"Click **Enter Giveaway** below to participate!\n\n"
+            f"**Prize:** **{prize}**\n"
+            f"**Winners:** `{num_w}`\n"
+            f"**Ends:** <t:{int(end_timestamp)}:R> (<t:{int(end_timestamp)}:f>)\n"
+            f"**Hosted by:** {host.mention}"
+            f"{claim_mode_text}{req_role_text}"
+        ),
+        color=0xf43f5e
+    )
+    embed.set_footer(text="Kazumi Giveaway System 🌸 • Cryptographically Fair")
+
+    entry_view = GiveawayEntryView("pending")
+    main_msg = await target_channel.send(embed=embed, view=entry_view)
+
+    # Publish in announcement channel if configured and distinct
+    ann_msg_id = None
+    ann_cid = None
+    if announcement_channel and announcement_channel.id != target_channel.id:
+        ann_perms = announcement_channel.permissions_for(guild.me) if hasattr(guild, "me") and guild.me else None
+        if not ann_perms or (ann_perms.send_messages and ann_perms.embed_links):
+            try:
+                ann_embed = discord.Embed(
+                    title=f"🎉 NEW GIVEAWAY ANNOUNCEMENT: {prize}!",
+                    description=(
+                        f"A new giveaway has started in {target_channel.mention}!\n\n"
+                        f"**Prize:** **{prize}**\n"
+                        f"**Winners:** `{num_w}`\n"
+                        f"**Ends:** <t:{int(end_timestamp)}:R> (<t:{int(end_timestamp)}:f>)\n"
+                        f"**Hosted by:** {host.mention}\n\n"
+                        f"👉 **[Click here to enter the giveaway!]({main_msg.jump_url})**"
+                    ),
+                    color=0xec4899
+                )
+                ann_embed.set_footer(text="Kazumi Giveaway System 🌸 • Announcements")
+                ann_msg = await announcement_channel.send(embed=ann_embed)
+                ann_msg_id = str(ann_msg.id)
+                ann_cid = str(announcement_channel.id)
+            except Exception as e:
+                logger.warning(f"Failed to post to giveaway announcement channel: {e}")
+
+    giveaway_data = {
+        "id": str(main_msg.id),
+        "message_id": str(main_msg.id),
+        "channel_id": str(target_channel.id),
+        "target_channel_id": str(target_channel.id),
+        "announcement_channel_id": ann_cid,
+        "announcement_message_id": ann_msg_id,
+        "guild_id": str(guild.id),
+        "host_id": str(host.id),
+        "prize": prize,
+        "winners_count": num_w,
+        "winners": [],
+        "current_pending_winners": [],
+        "claimed_winners": [],
+        "disqualified_winners": [],
+        "entries": [],
+        "draw_history": [],
+        "creation_time": time.time(),
+        "end_time": end_timestamp,
+        "claim_deadline_enabled": claim_deadline_enabled,
+        "claim_duration_seconds": claim_duration_seconds,
+        "claim_deadline": None,
+        "required_role_id": str(required_role.id) if required_role else None,
+        "ended": False,
+        "paused": False,
+        "status": GiveawayState.ACTIVE.value
+    }
+    db.save_giveaway(str(main_msg.id), giveaway_data)
+    audit_ledger.record_event(str(main_msg.id), "CREATED", str(host.id), {
+        "prize": prize,
+        "target_channel": str(target_channel.id),
+        "winners": num_w,
+        "end_time": end_timestamp,
+        "claim_duration_seconds": claim_duration_seconds
+    })
+
+    ann_note = f" and announced in {announcement_channel.mention}" if ann_msg_id else ""
+    return True, f"🎉 Giveaway for **{prize}** created successfully in {target_channel.mention}{ann_note}!", giveaway_data
 
 
 # -----------------------------------------------------------------------------
@@ -473,6 +839,8 @@ class GiveawayManager:
     def enter_giveaway(guild_id: str, message_id: str, user_id: Any, db: Any = None, member: Any = None) -> Tuple[bool, str]:
         if db is None:
             db = get_feature_db()
+        if member and getattr(member, "bot", False) is True:
+            return False, "Bots cannot enter giveaways."
         giveaway = db.get_giveaway(message_id)
         if not giveaway:
             return False, "Giveaway not found."
@@ -507,43 +875,50 @@ class GiveawayManager:
         num_picks = min(count, len(unique_pool))
         return sys_random.sample(unique_pool, num_picks)
 
-    _finalizing_locks = set()
-
     @classmethod
     async def finish_giveaway(cls, bot: commands.Bot, message_id: str):
         """Concludes giveaway, selects winner cryptographically, and begins claim window."""
         mid_str = str(message_id)
-        if mid_str in cls._finalizing_locks:
-            return
-        cls._finalizing_locks.add(mid_str)
-        try:
+        lock = get_giveaway_lock(mid_str)
+        async with lock:
             db = get_feature_db()
             giveaway = db.get_giveaway(mid_str)
             if not giveaway or giveaway.get("ended", False):
                 return
 
             giveaway["ended"] = True
-            giveaway["status"] = "DRAWING"
+            giveaway["status"] = GiveawayState.DRAWING.value
             db.save_giveaway(mid_str, giveaway)
 
-            try:
-                guild = bot.get_guild(int(giveaway["guild_id"]))
-                if not guild:
-                    return
-                channel = guild.get_channel(int(giveaway["channel_id"]))
-                if not channel:
-                    return
-                message = await channel.fetch_message(int(message_id))
-            except Exception as e:
-                logger.warning(f"Failed to fetch giveaway message {message_id}: {e}")
-                return
+            guild = bot.get_guild(int(giveaway["guild_id"])) if bot else None
+            channel = guild.get_channel(int(giveaway["channel_id"])) if guild else None
+            message = None
+            if channel:
+                try:
+                    message = await channel.fetch_message(int(message_id))
+                except Exception as e:
+                    logger.warning(f"Failed to fetch giveaway message {message_id}: {e}")
 
-            entries = list(dict.fromkeys(giveaway.get("entries", [])))
+            # Check entries and filter out bots
+            raw_entries = list(dict.fromkeys(giveaway.get("entries", [])))
+            entries = []
+            if guild:
+                for uid in raw_entries:
+                    try:
+                        m = guild.get_member(int(uid))
+                        if m and getattr(m, "bot", False):
+                            continue
+                    except Exception:
+                        pass
+                    entries.append(uid)
+            else:
+                entries = raw_entries
+
             num_winners = max(1, giveaway.get("winners_count", 1))
             prize = giveaway.get("prize", "Surprise Gift")
 
             if not entries:
-                giveaway["status"] = "COMPLETED_NO_ENTRIES"
+                giveaway["status"] = GiveawayState.NO_ELIGIBLE_ENTRANTS.value
                 db.save_giveaway(message_id, giveaway)
                 embed = discord.Embed(
                     title=f"🎉 Giveaway Concluded: {prize}",
@@ -551,27 +926,32 @@ class GiveawayManager:
                     color=0x94a3b8
                 )
                 embed.set_footer(text="Kazumi Giveaway System 🌸 • Cryptographically Fair")
-                try:
-                    await message.edit(embed=embed, view=None)
-                    await channel.send(f"🎉 The giveaway for **{prize}** ended with zero entries.")
-                except Exception:
-                    pass
+                if message:
+                    try:
+                        await message.edit(embed=embed, view=None)
+                    except Exception:
+                        pass
+                if channel:
+                    try:
+                        await channel.send(f"🎉 The giveaway for **{prize}** ended with zero entries.")
+                    except Exception:
+                        pass
                 audit_ledger.record_event(message_id, "CLOSED", "SYSTEM", {"reason": "No entries"})
                 return
 
-            # Select initial winners cryptographically
+            # Select initial winners cryptographically using SystemRandom
             winners = cls.draw_cryptographic_winner(entries, num_winners)
             giveaway["winners"] = winners
             giveaway["current_pending_winners"] = list(winners)
             giveaway["disqualified_winners"] = []
             giveaway["claimed_winners"] = []
 
-            # Claim deadline calculation (Mode A vs Mode B)
+            # Claim deadline calculation (default 15 minutes / 900s if not specified)
             deadline_enabled = giveaway.get("claim_deadline_enabled", True)
-            claim_dur = giveaway.get("claim_duration_seconds", 86400)  # Default 24 hours
+            claim_dur = giveaway.get("claim_duration_seconds", 900)
             claim_deadline = time.time() + claim_dur if deadline_enabled else None
             giveaway["claim_deadline"] = claim_deadline
-            giveaway["status"] = "AWAITING_CLAIM"
+            giveaway["status"] = GiveawayState.CLAIM_PENDING.value
             db.save_giveaway(message_id, giveaway)
 
             audit_ledger.record_event(message_id, "DRAWN", "SYSTEM", {
@@ -596,16 +976,69 @@ class GiveawayManager:
             embed.set_footer(text="Kazumi Giveaway System 🌸 • Cryptographically Fair")
 
             claim_view = GiveawayClaimView(message_id)
-            try:
-                await message.edit(embed=embed, view=claim_view)
-                await channel.send(
-                    f"🎉 Congratulations {', '.join(winner_mentions)}! You have won **{prize}**! Please claim before your window expires: 🎁",
-                    view=claim_view
-                )
-            except Exception as e:
-                logger.warning(f"Failed to post giveaway winner announcement: {e}")
-        finally:
-            cls._finalizing_locks.discard(mid_str)
+            if message:
+                try:
+                    await message.edit(embed=embed, view=claim_view)
+                except Exception:
+                    pass
+            if channel:
+                try:
+                    await channel.send(
+                        f"🎉 Congratulations {', '.join(winner_mentions)}! You have won **{prize}**! Please claim before your window expires: 🎁",
+                        view=claim_view
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to post giveaway winner announcement: {e}")
+
+            # Notify winners via DM
+            jump_url = message.jump_url if message else ""
+            if guild:
+                for w in winners:
+                    try:
+                        w_member = guild.get_member(int(w)) or await guild.fetch_member(int(w))
+                        if w_member and not getattr(w_member, "bot", False):
+                            dm_text = (
+                                f"🎉 **Congratulations! You won the giveaway for {prize} in {guild.name}!**\n"
+                                f"👉 Claim your prize here: {jump_url}\n"
+                            )
+                            if claim_deadline:
+                                dm_text += f"⏳ **Claim Deadline:** <t:{int(claim_deadline)}:R>\n"
+                            await w_member.send(dm_text)
+                    except Exception as dm_err:
+                        logger.debug(f"Could not send DM to winner {w}: {dm_err}")
+
+                # Notify host via DM
+                host_id = int(giveaway.get("host_id", 0))
+                if host_id:
+                    try:
+                        h_member = guild.get_member(host_id) or await guild.fetch_member(host_id)
+                        if h_member:
+                            await h_member.send(
+                                f"🎁 **Giveaway Drawn:** Winner(s) for your **{prize}** giveaway in **{guild.name}** have been drawn: {', '.join(winner_mentions)}!\n"
+                                f"Link: {jump_url}"
+                            )
+                    except Exception as h_err:
+                        logger.debug(f"Could not send DM to host {host_id}: {h_err}")
+
+            # Update announcement channel if present
+            ann_cid = giveaway.get("announcement_channel_id")
+            if guild and ann_cid:
+                try:
+                    ann_ch = guild.get_channel(int(ann_cid))
+                    if ann_ch and isinstance(ann_ch, discord.TextChannel):
+                        ann_embed = discord.Embed(
+                            title=f"🎉 GIVEAWAY WINNER: {prize}!",
+                            description=(
+                                f"Winners have been drawn for **{prize}** in {channel.mention if channel else ''}!\n\n"
+                                f"**Winner(s):** {', '.join(winner_mentions)}\n"
+                                f"👉 **[Click here to view the giveaway and claim]({jump_url})**"
+                            ),
+                            color=0xf59e0b
+                        )
+                        ann_embed.set_footer(text="Kazumi Giveaway System 🌸 • Winner Announcement")
+                        await ann_ch.send(embed=ann_embed)
+                except Exception as ann_err:
+                    logger.debug(f"Could not update announcement channel: {ann_err}")
 
     @classmethod
     async def process_expired_claim_reroll(cls, bot: commands.Bot, message_id: str):
@@ -614,13 +1047,19 @@ class GiveawayManager:
         Marks expired winner, selects new winner from remaining pool, and grants fresh claim window.
         """
         mid_str = str(message_id)
-        if mid_str in cls._finalizing_locks:
-            return
-        cls._finalizing_locks.add(mid_str)
-        try:
+        lock = get_giveaway_lock(mid_str)
+        async with lock:
             db = get_feature_db()
             giveaway = db.get_giveaway(mid_str)
             if not giveaway or not giveaway.get("claim_deadline_enabled", True):
+                return
+
+            # Abort if giveaway is terminal
+            if giveaway.get("status") in (
+                GiveawayState.COMPLETED.value,
+                GiveawayState.CANCELLED.value,
+                GiveawayState.NO_ELIGIBLE_ENTRANTS.value
+            ):
                 return
 
             now = time.time()
@@ -628,8 +1067,9 @@ class GiveawayManager:
             if not deadline or now <= deadline:
                 return
 
-            # Mark state as actively rerolling to prevent concurrent tasks
-            giveaway["status"] = "REROLLING"
+            prior_status = giveaway.get("status")
+            # Mark state as actively drawing to prevent concurrent tasks
+            giveaway["status"] = GiveawayState.DRAWING.value
             db.save_giveaway(mid_str, giveaway)
 
             pending = list(giveaway.get("current_pending_winners", []))
@@ -637,7 +1077,7 @@ class GiveawayManager:
             unclaimed = [u for u in pending if u not in claimed]
 
             if not unclaimed:
-                giveaway["status"] = "COMPLETED"
+                giveaway["status"] = GiveawayState.COMPLETED.value
                 db.save_giveaway(mid_str, giveaway)
                 return
 
@@ -646,36 +1086,70 @@ class GiveawayManager:
             disqualified.extend(unclaimed)
             for u in unclaimed:
                 audit_ledger.record_event(mid_str, "EXPIRED", u, {"reason": "Claim window expired"})
+                giveaway.setdefault("draw_history", []).append({
+                    "user_id": u,
+                    "status": "EXPIRED",
+                    "timestamp": now
+                })
 
             # Pick replacement winners from remaining pool
             all_entries = list(dict.fromkeys(giveaway.get("entries", [])))
             all_past_winners = set(giveaway.get("winners", []) + disqualified + list(claimed))
             remaining_pool = [uid for uid in all_entries if uid not in all_past_winners]
 
-            try:
-                guild = bot.get_guild(int(giveaway["guild_id"]))
-                channel = guild.get_channel(int(giveaway["channel_id"])) if guild else None
-            except Exception:
-                channel = None
+            guild = bot.get_guild(int(giveaway["guild_id"])) if bot else None
+            channel = guild.get_channel(int(giveaway["channel_id"])) if guild else None
+            message = None
+            if channel:
+                try:
+                    message = await channel.fetch_message(int(message_id))
+                except Exception:
+                    pass
+
+            prize = giveaway.get("prize", "Prize")
+            jump_url = message.jump_url if message else ""
 
             if not remaining_pool:
-                giveaway["status"] = "COMPLETED_EXHAUSTED"
+                giveaway["current_pending_winners"] = []
+                unfilled_count = len(unclaimed)
+                giveaway["unfilled_slots"] = giveaway.get("unfilled_slots", 0) + unfilled_count
+                if claimed:
+                    giveaway["status"] = GiveawayState.COMPLETED.value
+                else:
+                    giveaway["status"] = GiveawayState.NO_ELIGIBLE_ENTRANTS.value
                 db.save_giveaway(mid_str, giveaway)
-                audit_ledger.record_event(mid_str, "REROLL_FAILED", "SYSTEM", {"reason": "Eligible pool exhausted"})
+                audit_ledger.record_event(mid_str, "REROLL_FAILED", "SYSTEM", {
+                    "reason": "Eligible pool exhausted",
+                    "unfilled_slots": unfilled_count,
+                    "claimed_count": len(claimed)
+                })
                 if channel:
-                    await channel.send(f"⚠️ Unclaimed prize for **{giveaway['prize']}** expired, but no eligible replacement entrants remain.")
+                    await channel.send(f"⚠️ Unclaimed prize for **{prize}** expired, but no eligible replacement entrants remain.")
+                # Notify host
+                host_id = int(giveaway.get("host_id", 0))
+                if guild and host_id:
+                    try:
+                        h_member = guild.get_member(host_id) or await guild.fetch_member(host_id)
+                        if h_member:
+                            await h_member.send(f"⚠️ **Giveaway Claim Timeout:** The claim for **{prize}** expired, and no eligible alternative entrants remain to reroll.")
+                    except Exception:
+                        pass
                 return
 
-            # Draw replacement
+            # Draw replacement cryptographically
             new_picks = cls.draw_cryptographic_winner(remaining_pool, len(unclaimed))
+            unfilled_diff = len(unclaimed) - len(new_picks)
+            if unfilled_diff > 0:
+                giveaway["unfilled_slots"] = giveaway.get("unfilled_slots", 0) + unfilled_diff
+
             giveaway["current_pending_winners"] = new_picks
             giveaway["winners"].extend(new_picks)
 
             # Fresh claim window
-            claim_dur = giveaway.get("claim_duration_seconds", 86400)
+            claim_dur = giveaway.get("claim_duration_seconds", 900)
             new_deadline = time.time() + claim_dur
             giveaway["claim_deadline"] = new_deadline
-            giveaway["status"] = "AWAITING_CLAIM"
+            giveaway["status"] = "AWAITING_CLAIM" if prior_status == "AWAITING_CLAIM" else GiveawayState.CLAIM_PENDING.value
             db.save_giveaway(mid_str, giveaway)
 
             audit_ledger.record_event(mid_str, "REROLLED", "SYSTEM", {
@@ -683,17 +1157,42 @@ class GiveawayManager:
                 "new_deadline": new_deadline
             })
 
+            mentions = ", ".join([f"<@{w}>" for w in new_picks])
+            claim_view = GiveawayClaimView(mid_str)
             if channel:
-                mentions = ", ".join([f"<@{w}>" for w in new_picks])
-                claim_view = GiveawayClaimView(mid_str)
                 await channel.send(
                     f"🔄 **Replacement Winner Drawn!**\n"
-                    f"The previous claim expired. Congratulations {mentions}! You are the new winner for **{giveaway['prize']}**!\n"
+                    f"The previous claim expired. Congratulations {mentions}! You are the new winner for **{prize}**!\n"
                     f"⏳ Claim Deadline: <t:{int(new_deadline)}:R>",
                     view=claim_view
                 )
-        finally:
-            cls._finalizing_locks.discard(mid_str)
+
+            # Notify new winners via DM
+            if guild:
+                for w in new_picks:
+                    try:
+                        w_member = guild.get_member(int(w)) or await guild.fetch_member(int(w))
+                        if w_member and not getattr(w_member, "bot", False):
+                            await w_member.send(
+                                f"🔄 **You have been drawn as a replacement winner for {prize} in {guild.name}!**\n"
+                                f"👉 Claim your prize here: {jump_url}\n"
+                                f"⏳ Claim Deadline: <t:{int(new_deadline)}:R>"
+                            )
+                    except Exception:
+                        pass
+
+                # Notify host
+                host_id = int(giveaway.get("host_id", 0))
+                if host_id:
+                    try:
+                        h_member = guild.get_member(host_id) or await guild.fetch_member(host_id)
+                        if h_member:
+                            await h_member.send(
+                                f"🔄 **Giveaway Rerolled:** Replacement winner(s) for your **{prize}** giveaway in **{guild.name}** have been selected: {mentions}!\n"
+                                f"Link: {jump_url}"
+                            )
+                    except Exception:
+                        pass
 
     @classmethod
     async def check_active_giveaways(cls, bot: commands.Bot):
@@ -709,7 +1208,7 @@ class GiveawayManager:
                 await cls.finish_giveaway(bot, mid)
 
             # Check claim deadline
-            elif g.get("ended", False) and g.get("claim_deadline_enabled", True) and g.get("status") in ("AWAITING_CLAIM", "REROLLING"):
+            elif g.get("ended", False) and g.get("claim_deadline_enabled", True) and g.get("status") in ("AWAITING_CLAIM", "CLAIM_PENDING", "REROLLING"):
                 deadline = g.get("claim_deadline")
                 if deadline and now > deadline:
                     await cls.process_expired_claim_reroll(bot, mid)
@@ -734,6 +1233,7 @@ class GiveawayManager:
             "claimed_winners": g.get("claimed_winners", []),
             "disqualified_winners": g.get("disqualified_winners", []),
             "current_pending": g.get("current_pending_winners", []),
+            "unfilled_slots": g.get("unfilled_slots", 0),
             "claim_deadline_enabled": g.get("claim_deadline_enabled", True),
             "claim_deadline": g.get("claim_deadline"),
             "cryptographic_algorithm": "Python secrets.SystemRandom CSPRNG",
@@ -746,6 +1246,178 @@ class GiveawayManager:
 
 
 # -----------------------------------------------------------------------------
+# Authoritative Giveaway Execution Function
+# -----------------------------------------------------------------------------
+async def create_giveaway_execution(
+    bot: Any,
+    guild: discord.Guild,
+    target_channel: discord.TextChannel,
+    host_user: Any,
+    prize: str,
+    duration_str: str,
+    winners_count: int = 1,
+    claim_duration_seconds: int = 900,
+    required_role_id: Optional[int] = None,
+    db: Any = None,
+    announcement_channel_id: Optional[int] = None
+) -> Tuple[bool, Optional[discord.Message], Optional[str]]:
+    """
+    Authoritative giveaway creation engine.
+    - Validates duration (>= 10s)
+    - Validates bot permissions in target channel
+    - Posts persistent GiveawayEntryView embed to target channel
+    - Optionally posts announcement with jump link to dedicated announcement channel
+    - Records state atomically in FeatureDatabase and SHA-256 audit ledger
+    """
+    if db is None:
+        db = get_feature_db()
+
+    seconds = parse_duration(duration_str)
+    if not seconds or seconds < 10:
+        return False, None, "Invalid duration. Duration must be at least 10 seconds (e.g. `10m`, `2h`, `1d`)."
+
+    # Permission check for target channel
+    if guild and hasattr(guild, "me") and guild.me:
+        perms = target_channel.permissions_for(guild.me)
+        if not (perms.send_messages and perms.embed_links):
+            return False, None, f"I don't have permission to send messages and embed links in {target_channel.mention}!"
+
+    num_w = max(1, min(20, int(winners_count or 1)))
+    end_timestamp = time.time() + seconds
+
+    embed = discord.Embed(
+        title=f"🎉 GIVEAWAY: {prize}!",
+        description=(
+            f"Click **Enter Giveaway** below to participate!\n\n"
+            f"**Winners:** `{num_w}`\n"
+            f"**Ends:** <t:{int(end_timestamp)}:R> (<t:{int(end_timestamp)}:f>)\n"
+            f"**Hosted by:** {host_user.mention}\n"
+            f"**Mode:** Claim Deadline (15m window + automatic replacement rerolls)"
+        ),
+        color=0xf43f5e
+    )
+    embed.set_footer(text="Kazumi Giveaway System 🌸 • Cryptographically Fair")
+
+    view = GiveawayEntryView("pending")
+    try:
+        msg = await target_channel.send(embed=embed, view=view)
+    except Exception as e:
+        logger.error(f"Failed to post giveaway message to {target_channel.id}: {e}")
+        return False, None, f"Failed to post giveaway to {target_channel.mention}: {e}"
+
+    # Dedicated Announcement Channel routing
+    ann_ch_to_use = None
+    if announcement_channel_id:
+        ann_ch_to_use = guild.get_channel(int(announcement_channel_id))
+
+    if not ann_ch_to_use and db and hasattr(db, "get_guild_settings") and guild:
+        g_settings = db.get_guild_settings(guild.id)
+        g_ann_id = g_settings.get("giveaway_announcement_channel_id")
+        if g_ann_id:
+            ann_ch_to_use = guild.get_channel(int(g_ann_id))
+
+    if not ann_ch_to_use and guild:
+        env_ann = os.environ.get("GIVEAWAY_ANNOUNCEMENT_CHANNEL_ID")
+        if env_ann and env_ann.isdigit():
+            ann_ch_to_use = guild.get_channel(int(env_ann))
+
+    ann_msg = None
+    if ann_ch_to_use and isinstance(ann_ch_to_use, discord.TextChannel) and ann_ch_to_use.id != target_channel.id:
+        try:
+            ann_embed = discord.Embed(
+                title="📢 GIVEAWAY ANNOUNCEMENT!",
+                description=(
+                    f"🎉 A new giveaway has started in {target_channel.mention}!\n\n"
+                    f"**Prize:** {prize}\n"
+                    f"**Host:** {host_user.mention}\n"
+                    f"**Winners:** `{num_w}`\n"
+                    f"**Ends:** <t:{int(end_timestamp)}:R> (<t:{int(end_timestamp)}:f>)\n\n"
+                    f"👉 **[Jump to Giveaway]({msg.jump_url})**"
+                ),
+                color=0x38bdf8
+            )
+            ann_embed.set_footer(text="Kazumi Giveaway Announcements 🌸")
+            ann_msg = await ann_ch_to_use.send(embed=ann_embed)
+        except Exception as ann_err:
+            logger.warning(f"Could not post announcement to channel {ann_ch_to_use.id}: {ann_err}")
+
+    ga_data = {
+        "id": str(msg.id),
+        "message_id": str(msg.id),
+        "channel_id": str(target_channel.id),
+        "guild_id": str(guild.id) if guild else "0",
+        "host_id": str(host_user.id),
+        "prize": prize,
+        "winners_count": num_w,
+        "winners": num_w,
+        "end_time": end_timestamp,
+        "required_role_id": str(required_role_id) if required_role_id else None,
+        "entries": [],
+        "eligible_entries": [],
+        "winners_selected": [],
+        "current_pending_winners": [],
+        "claimed_winners": [],
+        "disqualified_winners": [],
+        "ended": False,
+        "paused": False,
+        "status": GiveawayState.ACTIVE.value,
+        "claim_deadline_enabled": True,
+        "claim_duration_seconds": claim_duration_seconds,
+        "created_at": time.time(),
+        "announcement_channel_id": str(ann_ch_to_use.id) if ann_msg else None,
+        "announcement_message_id": str(ann_msg.id) if ann_msg else None,
+        "draw_history": []
+    }
+    try:
+        saved_ok = True
+        if db:
+            saved_ok = db.save_giveaway(str(msg.id), ga_data)
+        if saved_ok is False:
+            raise RuntimeError(f"Database persistence returned failure for giveaway {msg.id}")
+
+        audit_ledger.record_event(str(msg.id), "CREATED", str(host_user.id), {
+            "prize": prize,
+            "duration": duration_str,
+            "winners": num_w,
+            "target_channel_id": str(target_channel.id),
+            "announcement_channel_id": str(ann_ch_to_use.id) if ann_msg else None
+        })
+    except Exception as persist_err:
+        logger.error(f"Failed to persist giveaway {msg.id} after sending Discord message: {persist_err}")
+        # Roll back database record if saved
+        if db and hasattr(db, "delete_giveaway"):
+            try:
+                db.delete_giveaway(str(msg.id))
+            except Exception as db_rb_err:
+                logger.error(f"Failed to roll back database record for orphaned giveaway {msg.id}: {db_rb_err}")
+
+        # Clean up orphaned Discord messages
+        try:
+            await msg.delete()
+        except Exception as del_err:
+            logger.warning(f"Failed to delete orphaned giveaway message {msg.id} during rollback: {del_err}")
+            try:
+                for child in getattr(view, "children", []):
+                    child.disabled = True
+                await msg.edit(view=view)
+            except Exception as edit_err:
+                logger.warning(f"Failed to disable controls on orphaned giveaway message {msg.id}: {edit_err}")
+
+        if ann_msg:
+            try:
+                await ann_msg.delete()
+            except Exception as ann_del_err:
+                logger.warning(f"Failed to delete orphaned announcement message {ann_msg.id}: {ann_del_err}")
+
+        return False, None, f"Failed to persist giveaway record: {persist_err}"
+
+    return True, msg, None
+
+
+GiveawayManager.create_giveaway = staticmethod(create_giveaway_execution)
+
+
+# -----------------------------------------------------------------------------
 # Slash Commands Registration
 # -----------------------------------------------------------------------------
 def register_giveaway_commands(tree: app_commands.CommandTree, bot: commands.Bot):
@@ -753,22 +1425,20 @@ def register_giveaway_commands(tree: app_commands.CommandTree, bot: commands.Bot
 
     @tree.command(name="giveaway", description="Create and manage secure, fair server giveaways 🎉")
     @app_commands.describe(
-        action="Action (create, end, reroll, pause, resume, cancel, list, info, claim, audit)",
+        action="Action (create, end, reroll, cancel, list, info, claim, audit)",
         duration="Duration for giveaway (e.g. 10m, 2h, 1d) [create]",
         prize="Prize description [create]",
         winners="Number of winners (default 1) [create]",
         claim_mode="Claim window mode ('deadline' for 24h countdown & reroll, 'no_deadline' for permanent claim)",
         channel="Target channel for announcement (default: current) [create]",
         required_role="Role required to participate (optional) [create]",
-        message_id="Message ID of the giveaway (for end, reroll, pause, resume, cancel, info, claim, audit)"
+        message_id="Message ID of the giveaway (for end, reroll, cancel, info, claim, audit)"
     )
     @app_commands.choices(action=[
         app_commands.Choice(name="Create Giveaway", value="create"),
         app_commands.Choice(name="End Giveaway Early", value="end"),
         app_commands.Choice(name="Reroll Winners", value="reroll"),
         app_commands.Choice(name="Claim Prize", value="claim"),
-        app_commands.Choice(name="Pause Giveaway", value="pause"),
-        app_commands.Choice(name="Resume Giveaway", value="resume"),
         app_commands.Choice(name="Cancel Giveaway", value="cancel"),
         app_commands.Choice(name="List Giveaways", value="list"),
         app_commands.Choice(name="Giveaway Info", value="info"),
@@ -827,59 +1497,20 @@ def register_giveaway_commands(tree: app_commands.CommandTree, bot: commands.Bot
                 await interaction.response.send_message("❌ Please specify both `duration` (e.g. `10m`, `2h`, `1d`) and `prize`.", ephemeral=True)
                 return
 
-            seconds = parse_duration(duration)
-            if not seconds or seconds < 10:
-                await interaction.response.send_message("❌ Invalid duration. Minimum duration is 10 seconds (e.g. `10m`, `2h`, `1d`).", ephemeral=True)
-                return
-
-            end_timestamp = time.time() + seconds
-            num_w = max(1, min(20, winners or 1))
-            deadline_enabled = (claim_mode.value != "no_deadline") if claim_mode else True
-
-            claim_mode_text = "\n**Mode:** Claim Deadline (24h window + automatic replacement rerolls)" if deadline_enabled else "\n**Mode:** No Claim Deadline"
-            req_role_text = f"\n**Required Role:** {required_role.mention}" if required_role else ""
-
-            embed = discord.Embed(
-                title=f"🎉 GIVEAWAY: {prize}!",
-                description=f"Click **Enter Giveaway** below to participate!\n\n"
-                            f"**Winners:** `{num_w}`\n"
-                            f"**Ends:** <t:{int(end_timestamp)}:R> (<t:{int(end_timestamp)}:f>)\n"
-                            f"**Hosted by:** {interaction.user.mention}"
-                            f"{claim_mode_text}{req_role_text}",
-                color=0xf43f5e
+            success, gw_msg, err = await create_giveaway_execution(
+                bot=bot,
+                guild=interaction.guild,
+                target_channel=target_channel,
+                host_user=interaction.user,
+                prize=prize,
+                duration_str=duration,
+                winners_count=winners or 1,
+                required_role_id=required_role.id if required_role else None,
+                db=db
             )
-            embed.set_footer(text="Kazumi Giveaway System 🌸 • Cryptographically Fair")
-
-            view = GiveawayEntryView("pending")
-            msg = await target_channel.send(embed=embed, view=view)
-
-            giveaway_data = {
-                "message_id": str(msg.id),
-                "channel_id": str(target_channel.id),
-                "guild_id": str(interaction.guild_id),
-                "host_id": str(interaction.user.id),
-                "prize": prize,
-                "winners_count": num_w,
-                "end_time": end_timestamp,
-                "required_role_id": str(required_role.id) if required_role else None,
-                "entries": [],
-                "winners": [],
-                "current_pending_winners": [],
-                "claimed_winners": [],
-                "disqualified_winners": [],
-                "ended": False,
-                "paused": False,
-                "claim_deadline_enabled": deadline_enabled,
-                "claim_duration_seconds": 86400,
-                "status": "ACTIVE"
-            }
-            db.save_giveaway(str(msg.id), giveaway_data)
-            audit_ledger.record_event(str(msg.id), "CREATED", str(interaction.user.id), {
-                "prize": prize,
-                "winners": num_w,
-                "end_time": end_timestamp,
-                "deadline_enabled": deadline_enabled
-            })
+            if not success:
+                await interaction.response.send_message(f"❌ {err}", ephemeral=True)
+                return
             await interaction.response.send_message(f"✅ Giveaway created in {target_channel.mention}!", ephemeral=True)
 
         elif act == "end":
@@ -936,6 +1567,8 @@ def register_giveaway_commands(tree: app_commands.CommandTree, bot: commands.Bot
             embed.add_field(name="Total Entries", value=f"👥 **{report['total_entries']}**", inline=True)
             embed.add_field(name="Winners Picked", value=f"{len(report['initial_winners'])}", inline=True)
             embed.add_field(name="Claimed", value=f"{len(report['claimed_winners'])}", inline=True)
+            if report.get("unfilled_slots", 0) > 0:
+                embed.add_field(name="Unfilled Slots", value=f"⚠️ **{report['unfilled_slots']}**", inline=True)
             embed.add_field(name="Disqualified/Expired", value=f"{len(report['disqualified_winners'])}", inline=True)
             await interaction.response.send_message(embed=embed)
 
@@ -953,6 +1586,10 @@ def register_giveaway_commands(tree: app_commands.CommandTree, bot: commands.Bot
 
             embed = discord.Embed(title=f"🛡️ Giveaway Fairness & Audit Report • #{message_id}", color=0x10b981)
             embed.add_field(name="Prize", value=report["prize"], inline=True)
+            embed.add_field(name="Status", value=f"**{report['status']}**", inline=True)
+            embed.add_field(name="Claimed", value=f"{len(report['claimed_winners'])}", inline=True)
+            if report.get("unfilled_slots", 0) > 0:
+                embed.add_field(name="Unfilled Slots", value=f"⚠️ **{report['unfilled_slots']}**", inline=True)
             embed.add_field(name="Randomness Source", value=report["cryptographic_algorithm"], inline=True)
             embed.add_field(name="Hash Chain Integrity", value=integrity_str, inline=False)
             embed.add_field(name="Recorded Audit Events", value=f"`{audit_info['verified_events']}` events in immutable ledger", inline=True)

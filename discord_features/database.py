@@ -161,29 +161,35 @@ class FeatureDatabase:
     # --- Guild Settings ---
     def get_guild_settings(self, guild_id: str) -> Dict[str, Any]:
         gid = str(guild_id)
+        default_settings = {
+            "log_channel_id": None,
+            "welcome_channel_id": None,
+            "welcome_message": "Welcome to **{server}**, {user}! 🌸 We're so excited to have you here with us.",
+            "welcome_enabled": True,
+            "goodbye_channel_id": None,
+            "goodbye_message": "{user} has left the server. Take care! 🌸",
+            "goodbye_enabled": True,
+            "autorole_ids": [],
+            "automod": {
+                "enabled": False,
+                "anti_spam": True,
+                "anti_invites": True,
+                "anti_links": False,
+                "anti_mentions": True,
+                "max_mentions": 5,
+                "bad_words": []
+            },
+            "ticket_category_id": None,
+            "ticket_support_role_id": None,
+            "giveaway_announcement_channel_id": None
+        }
         with self._lock:
             if gid not in self.guild_settings:
-                self.guild_settings[gid] = {
-                    "log_channel_id": None,
-                    "welcome_channel_id": None,
-                    "welcome_message": "Welcome to **{server}**, {user}! 🌸 We're so excited to have you here with us.",
-                    "welcome_enabled": True,
-                    "goodbye_channel_id": None,
-                    "goodbye_message": "{user} has left the server. Take care! 🌸",
-                    "goodbye_enabled": True,
-                    "autorole_ids": [],
-                    "automod": {
-                        "enabled": False,
-                        "anti_spam": True,
-                        "anti_invites": True,
-                        "anti_links": False,
-                        "anti_mentions": True,
-                        "max_mentions": 5,
-                        "bad_words": []
-                    },
-                    "ticket_category_id": None,
-                    "ticket_support_role_id": None
-                }
+                self.guild_settings[gid] = default_settings
+            else:
+                for k, v in default_settings.items():
+                    if k not in self.guild_settings[gid]:
+                        self.guild_settings[gid][k] = v
             return dict(self.guild_settings[gid])
 
     def update_guild_settings(self, guild_id: str, updates: Dict[str, Any]) -> None:
@@ -291,12 +297,21 @@ class FeatureDatabase:
         with self._lock:
             return [
                 g for g in self.giveaways.values()
-                if not g.get("ended", False) or g.get("status") in ("AWAITING_CLAIM", "DRAWING", "REROLLING")
+                if not g.get("ended", False) or g.get("status") in ("AWAITING_CLAIM", "CLAIM_PENDING", "DRAWING", "REROLLING")
             ]
 
     def get_guild_giveaways(self, guild_id: str) -> List[Dict[str, Any]]:
         with self._lock:
             return [g for g in self.giveaways.values() if str(g.get("guild_id")) == str(guild_id)]
+
+    def delete_giveaway(self, message_id: str) -> bool:
+        mid = str(message_id)
+        with self._lock:
+            if mid in self.giveaways:
+                del self.giveaways[mid]
+                self._atomic_write(self.giveaways_path, self.giveaways)
+                return True
+            return False
 
     # --- Custom Commands ---
     def add_custom_command(self, guild_id: str, name: str, response: str, creator_id: str) -> None:
