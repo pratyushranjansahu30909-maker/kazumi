@@ -18,6 +18,7 @@ import os
 import time
 import json
 import shutil
+import tempfile
 import unittest
 import threading
 from unittest.mock import MagicMock, AsyncMock
@@ -48,10 +49,8 @@ from person_memory.person_profile import PersonProfile
 class FullSystemStabilizationTests(unittest.TestCase):
 
     def setUp(self):
-        self.test_dir = "isa_memory_stabilization_test"
-        if os.path.exists(self.test_dir):
-            shutil.rmtree(self.test_dir)
-        os.makedirs(self.test_dir, exist_ok=True)
+        self._temp_dir_obj = tempfile.TemporaryDirectory()
+        self.test_dir = self._temp_dir_obj.name
         self.db = FeatureDatabase(persist_dir=self.test_dir)
         self.engine = GameEngine(self.db)
         self.case_mgr = CaseManager(self.db)
@@ -65,10 +64,10 @@ class FullSystemStabilizationTests(unittest.TestCase):
         self.rel_mgr = RelationshipManager()
 
     def tearDown(self):
-        if os.path.exists(self.test_dir):
+        if hasattr(self, "_temp_dir_obj"):
             try:
-                shutil.rmtree(self.test_dir)
-            except Exception:
+                self._temp_dir_obj.cleanup()
+            except Exception as e:
                 pass
 
     # =========================================================================
