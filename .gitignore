@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 *.so
 .Python
+.pytest_cache/
 
 # Virtual environments
 .venv/
@@ -13,16 +14,24 @@ env/
 
 # Environment and secrets
 .env
+*.env
 .env.*
 !.env.example
 
-# Local databases and runtime state
+# Local databases, persistence and runtime state
 isa_memory/
 logs/
 *.log
 *.tmp
 *.bak
+*.corrupted
 *.corrupted.*
+*.db
+*.sqlite
+*.sqlite3
+*.crash_loop_state.json
+.crash_loop_state.json
+bot_health.json
 
 # IDE, OS, and tool state
 .idea/
