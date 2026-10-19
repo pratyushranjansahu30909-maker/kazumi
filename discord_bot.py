@@ -1506,10 +1506,11 @@ async def on_message(message: discord.Message):
             detected_intent = intent_router.detect_intent(clean_text, message)
             if detected_intent:
                 handled, reply_text, reply_embed = await intent_router.execute_intent(detected_intent, message)
+                intent_lbl = detected_intent.get("action") if isinstance(detected_intent, dict) else getattr(detected_intent, "name", "UNKNOWN")
                 logger.info(
                     f"[ROUTER_DIAGNOSTIC] msg_id={message.id} author_id={message.author.id} "
                     f"channel=#{getattr(message.channel, 'name', 'DM')} handler=intent_router "
-                    f"intent={detected_intent.name} handled={handled}"
+                    f"intent={intent_lbl} handled={handled}"
                 )
                 if handled:
                     active_conversations[session_key] = time.time()
@@ -1517,6 +1518,46 @@ async def on_message(message: discord.Message):
                         await message.reply(embed=reply_embed, mention_author=False)
                     elif reply_text:
                         await message.reply(reply_text, mention_author=False)
+                    return
+
+        # Check active conversational Giveaway Drafts (e.g. user replying "2h" or "cancel")
+        if message.guild:
+            from discord_features.giveaways import giveaway_drafts, parse_duration, create_giveaway_execution
+            draft = giveaway_drafts.get_draft(message.guild.id, message.channel.id, message.author.id)
+            if draft:
+                # 1. Cancellation
+                if clean_text.lower() in ("cancel", "stop", "abort", "nevermind", "nvm"):
+                    giveaway_drafts.cancel_draft(message.guild.id, message.channel.id, message.author.id)
+                    active_conversations[session_key] = time.time()
+                    await message.reply("Giveaway setup cancelled! 🌸", mention_author=False)
+                    return
+
+                # 2. Duration response (e.g. "2h", "10m", "1d", "for 2 hours")
+                dur_secs = parse_duration(clean_text)
+                if dur_secs and dur_secs >= 10:
+                    giveaway_drafts.remove_draft(message.guild.id, message.channel.id, message.author.id)
+                    target_ch = message.guild.get_channel(draft.target_channel_id) if draft.target_channel_id else message.channel
+                    if not target_ch or not isinstance(target_ch, discord.TextChannel):
+                        target_ch = message.channel
+
+                    db_inst = kazumi_features.get("db")
+                    success, gw_msg, err = await create_giveaway_execution(
+                        bot=bot,
+                        guild=message.guild,
+                        target_channel=target_ch,
+                        host_user=message.author,
+                        prize=draft.prize,
+                        duration_str=clean_text,
+                        winners_count=draft.winners,
+                        claim_duration_seconds=draft.claim_duration_seconds,
+                        db=db_inst
+                    )
+                    active_conversations[session_key] = time.time()
+                    if success:
+                        dest_text = f" in {target_ch.mention}"
+                        await message.reply(f"🎉 Giveaway created successfully for **{draft.prize}**{dest_text}!", mention_author=False)
+                    else:
+                        await message.reply(f"⚠️ {err or 'Failed to create giveaway.'}", mention_author=False)
                     return
 
         logger.info(

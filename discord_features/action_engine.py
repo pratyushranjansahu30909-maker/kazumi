@@ -412,6 +412,31 @@ class AutonomousActionEngine:
         ga_match = re.search(r"\b(?:host|start|create|run|launch|set\s*up)\s+a?\s*(?:gw|giveaway)\b(?:\s+(?:for\s+)?(.+))?", lower)
         if ga_match:
             rest = (ga_match.group(1) or "").strip()
+
+            # Extract target channel if specified: e.g. 'in this channel #giveaways', 'in #giveaways', '<#123>', '#giveaways'
+            ch_raw = None
+            ch_match = re.search(r"\b(?:in\s+this\s+channel\s+|in\s+channel\s+|in\s+)(<#\d+>|#[\w-]+|\d{17,20})\b", rest, re.IGNORECASE)
+            if ch_match:
+                ch_raw = ch_match.group(1).strip()
+                rest = rest[:ch_match.start()] + " " + rest[ch_match.end():]
+                rest = re.sub(r"\s+", " ", rest).strip()
+            else:
+                hash_match = re.search(r"(<#\d+>|#[\w-]+)", rest)
+                if hash_match:
+                    ch_raw = hash_match.group(1).strip()
+                    rest = rest[:hash_match.start()] + " " + rest[hash_match.end():]
+                    rest = re.sub(r"\s+", " ", rest).strip()
+                else:
+                    here_match = re.search(r"\b(?:in\s+this\s+channel|here)\b", rest, re.IGNORECASE)
+                    if here_match:
+                        ch_raw = "here"
+                        rest = rest[:here_match.start()] + " " + rest[here_match.end():]
+                        rest = re.sub(r"\s+", " ", rest).strip()
+
+            # Strip residual channel phrasing
+            rest = re.sub(r"\b(?:in\s+this\s+channel|in\s+channel|in)\b", "", rest, flags=re.IGNORECASE).strip()
+            rest = re.sub(r"\s+", " ", rest).strip()
+
             # Extract duration if present: e.g. 'for 24h', '10m', '2h', '1d'
             dur_match = re.search(r"\b(?:for\s+)?(\d+\s*(?:s|m|h|d|w|min|mins|minutes?|hours?|days?|weeks?))\b", rest, re.IGNORECASE)
             duration = None
@@ -443,7 +468,7 @@ class AutonomousActionEngine:
             if not prize:
                 prize = "Mystery Prize 🎁"
 
-            return ("giveaway_create", {"prize": prize, "duration": duration, "winners": winners})
+            return ("giveaway_create", {"prize": prize, "duration": duration, "winners": winners, "channel": ch_raw})
 
         # 8. Moderation: Timeout
         timeout_m = re.search(r"\b(?:timeout|mute)\s+<@!?(\d+)>\s+(?:for\s+)?(\d+[smhd])(?:\s+(?:for\s+)?(.+))?", lower)
@@ -794,68 +819,56 @@ class AutonomousActionEngine:
         return ActionExecutionResult(success=True, action_name="giveaway_status", embed=embed, data={"count": len(active)})
 
     async def _handle_giveaway_create(self, params: Dict[str, Any], message: discord.Message) -> ActionExecutionResult:
-        giveaway_mgr = self.features.get("giveaways")
-        if not giveaway_mgr or not message.guild:
-            return ActionExecutionResult(success=False, action_name="giveaway_create", error="Giveaway module unavailable.")
+        guild = message.guild
+        if not guild:
+            return ActionExecutionResult(success=False, action_name="giveaway_create", error="Giveaways can only be hosted in a server.")
 
-        prize = params["prize"]
+        prize = params.get("prize", "Mystery Prize 🎁")
         dur_str = params.get("duration")
+        winners = max(1, min(20, int(params.get("winners", 1))))
+        ch_raw = params.get("channel")
+
+        from .giveaways import resolve_target_channel, giveaway_drafts, create_giveaway_execution
+
+        target_channel, ch_err = resolve_target_channel(guild, ch_raw, default_channel=message.channel)
+        if ch_err or not target_channel:
+            return ActionExecutionResult(success=False, action_name="giveaway_create", error=ch_err or "Specified channel not found.")
+
         if not dur_str:
+            giveaway_drafts.create_draft(
+                user_id=message.author.id,
+                guild_id=guild.id,
+                conversation_channel_id=message.channel.id,
+                prize=prize,
+                target_channel_id=target_channel.id,
+                winners=winners
+            )
+            ch_mention = f" in {target_channel.mention}" if target_channel.id != message.channel.id else ""
             return ActionExecutionResult(
                 success=True,
                 action_name="giveaway_create",
-                message=f"I'd love to set up that giveaway for **{prize}**! 🎁 How long should it run? (e.g., `10m`, `2h`, or `1d`)"
+                message=f"I'd love to set up that giveaway for **{prize}**{ch_mention}! 🎁 How long should it run? (e.g., `10m`, `2h`, or `1d`)"
             )
 
-        winners = params.get("winners", 1)
-        dur_secs = self._parse_duration_to_seconds(dur_str)
-
-        if not dur_secs or dur_secs < 10:
-            return ActionExecutionResult(success=False, action_name="giveaway_create", error="Duration must be at least 10 seconds (e.g. 10m, 2h, 1d).")
-
-        # Create giveaway message & record
-        end_time = time.time() + dur_secs
-        embed = discord.Embed(
-            title="🎉 GIVEAWAY 🎉",
-            description=f"**Prize:** {prize}\n**Hosted By:** {message.author.mention}\n**Winners:** `{winners}`\n**Ends:** <t:{int(end_time)}:R>",
-            color=0xec4899
+        success, gw_msg, err = await create_giveaway_execution(
+            bot=self.bot,
+            guild=guild,
+            target_channel=target_channel,
+            host_user=message.author,
+            prize=prize,
+            duration_str=dur_str,
+            winners_count=winners,
+            db=self.db
         )
-        embed.set_footer(text="Click the button below to enter!")
 
-        from .giveaways import GiveawayEntryView
-        view = GiveawayEntryView()
-        msg = await message.channel.send(embed=embed, view=view)
+        if not success:
+            return ActionExecutionResult(success=False, action_name="giveaway_create", error=err or "Failed to create giveaway.")
 
-        ga_data = {
-            "id": str(msg.id),
-            "message_id": str(msg.id),
-            "channel_id": str(message.channel.id),
-            "guild_id": str(message.guild.id),
-            "host_id": str(message.author.id),
-            "prize": prize,
-            "winners": winners,
-            "end_time": end_time,
-            "entries": [],
-            "ended": False,
-            "claim_deadline_enabled": True,
-            "claim_duration_seconds": 86400
-        }
-        self.db.save_giveaway(str(msg.id), ga_data)
-
-        # Audit ledger event
-        if hasattr(giveaway_mgr, "audit_ledger") and giveaway_mgr.audit_ledger:
-            try:
-                giveaway_mgr.audit_ledger.record_event(
-                    event_type="GIVEAWAY_CREATED_VIA_ACTION_ENGINE",
-                    payload={"giveaway_id": str(msg.id), "prize": prize, "host_id": str(message.author.id), "duration": dur_str}
-                )
-            except Exception as e:
-                logger.warning(f"Failed to record giveaway to audit ledger: {e}")
-
+        dest_text = f" in {target_channel.mention}"
         return ActionExecutionResult(
             success=True,
             action_name="giveaway_create",
-            message=f"🎉 Giveaway created successfully for **{prize}** in {message.channel.mention}!"
+            message=f"🎉 Giveaway created successfully for **{prize}**{dest_text}!"
         )
 
     async def _handle_mod_timeout(self, params: Dict[str, Any], message: discord.Message) -> ActionExecutionResult:

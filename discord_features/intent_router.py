@@ -201,6 +201,31 @@ class NaturalIntentRouter:
         ga_match = re.search(r"\b(?:host|start|create|run|launch|set\s*up)\s+a?\s*(?:gw|giveaway)\b(?:\s+(?:for\s+)?(.+))?", lower)
         if ga_match:
             rest = (ga_match.group(1) or "").strip()
+
+            # Extract target channel if specified: e.g. 'in this channel #giveaways', 'in #giveaways', '<#123>', '#giveaways'
+            ch_raw = None
+            ch_match = re.search(r"\b(?:in\s+this\s+channel\s+|in\s+channel\s+|in\s+)(<#\d+>|#[\w-]+|\d{17,20})\b", rest, re.IGNORECASE)
+            if ch_match:
+                ch_raw = ch_match.group(1).strip()
+                rest = rest[:ch_match.start()] + " " + rest[ch_match.end():]
+                rest = re.sub(r"\s+", " ", rest).strip()
+            else:
+                hash_match = re.search(r"(<#\d+>|#[\w-]+)", rest)
+                if hash_match:
+                    ch_raw = hash_match.group(1).strip()
+                    rest = rest[:hash_match.start()] + " " + rest[hash_match.end():]
+                    rest = re.sub(r"\s+", " ", rest).strip()
+                else:
+                    here_match = re.search(r"\b(?:in\s+this\s+channel|here)\b", rest, re.IGNORECASE)
+                    if here_match:
+                        ch_raw = "here"
+                        rest = rest[:here_match.start()] + " " + rest[here_match.end():]
+                        rest = re.sub(r"\s+", " ", rest).strip()
+
+            # Strip residual channel phrasing
+            rest = re.sub(r"\b(?:in\s+this\s+channel|in\s+channel|in)\b", "", rest, flags=re.IGNORECASE).strip()
+            rest = re.sub(r"\s+", " ", rest).strip()
+
             # Extract duration if present: e.g. 'for 24h', '10m', '2h', '1d', '24 hours', '1 day'
             dur_match = re.search(r"\b(?:for\s+)?(\d+\s*(?:s|m|h|d|w|min|mins|minutes?|hours?|days?|weeks?))\b", rest, re.IGNORECASE)
             duration = None
@@ -237,7 +262,8 @@ class NaturalIntentRouter:
                 "action": "create",
                 "prize": prize,
                 "duration": duration,
-                "winners": winners
+                "winners": winners,
+                "channel": ch_raw
             }
 
         # =====================================================================
@@ -613,58 +639,43 @@ class NaturalIntentRouter:
                 prize = intent.get("prize", "Mystery Prize 🎁")
                 dur_str = intent.get("duration")
                 winners_count = max(1, min(20, int(intent.get("winners", 1))))
+                ch_raw = intent.get("channel")
+
+                from .giveaways import resolve_target_channel, giveaway_drafts, create_giveaway_execution
+                target_channel, ch_err = resolve_target_channel(guild, ch_raw, default_channel=message.channel)
+                if ch_err or not target_channel:
+                    return True, f"❌ {ch_err or 'Specified channel not found.'}", None
 
                 if not dur_str:
+                    giveaway_drafts.create_draft(
+                        user_id=author.id,
+                        guild_id=guild.id,
+                        conversation_channel_id=message.channel.id,
+                        prize=prize,
+                        target_channel_id=target_channel.id,
+                        winners=winners_count
+                    )
+                    ch_mention = f" in {target_channel.mention}" if target_channel.id != message.channel.id else ""
                     return True, (
-                        f"I'd love to host a giveaway for **{prize}**! 🎉 How long should it run (e.g. `10m`, `2h`, `1d`), "
+                        f"I'd love to host a giveaway for **{prize}**{ch_mention}! 🎉 How long should it run (e.g. `10m`, `2h`, `1d`), "
                         f"and how many winners? You can also use the `/giveaway action:create` slash command!\n\n"
                         f"*(Note: I manage entries and draw winners cryptographically, but prize distribution must be handled by server staff).* 🌸"
                     ), None
 
-                secs = parse_duration(dur_str)
-                if not secs or secs < 10:
-                    return True, "❌ Invalid duration. Please provide a duration like `10m`, `2h`, or `24h`.", None
-
-                end_timestamp = time.time() + secs
-
-                embed = discord.Embed(
-                    title=f"🎉 GIVEAWAY: {prize}!",
-                    description=(
-                        f"Click **Enter Giveaway** below to participate!\n\n"
-                        f"**Winners:** `{winners_count}`\n"
-                        f"**Ends:** <t:{int(end_timestamp)}:R> (<t:{int(end_timestamp)}:f>)\n"
-                        f"**Hosted by:** {author.mention}\n"
-                        f"**Mode:** Claim Deadline (24h window + automatic replacement rerolls)"
-                    ),
-                    color=0xf43f5e
+                success, gw_msg, err = await create_giveaway_execution(
+                    bot=self.bot,
+                    guild=guild,
+                    target_channel=target_channel,
+                    host_user=author,
+                    prize=prize,
+                    duration_str=dur_str,
+                    winners_count=winners_count,
+                    db=self.db
                 )
-                embed.set_footer(text="Kazumi Giveaway System 🌸 • Cryptographically Fair")
+                if not success:
+                    return True, f"❌ {err or 'Failed to create giveaway.'}", None
 
-                from .giveaways import GiveawayEntryView, audit_ledger
-                view = GiveawayEntryView("pending")
-                msg = await message.channel.send(embed=embed, view=view)
-
-                ga_data = {
-                    "message_id": str(msg.id),
-                    "channel_id": str(message.channel.id),
-                    "guild_id": str(guild.id),
-                    "host_id": str(author.id),
-                    "prize": prize,
-                    "winners_count": winners_count,
-                    "end_time": end_timestamp,
-                    "required_role_id": None,
-                    "min_account_days": 0,
-                    "min_server_days": 0,
-                    "entries": [],
-                    "ended": False,
-                    "paused": False,
-                    "winners": [],
-                    "claim_deadline_enabled": True,
-                    "claim_duration_seconds": 86400
-                }
-                self.db.set_giveaway(str(msg.id), ga_data)
-                audit_ledger.record_event(str(msg.id), "CREATED", str(author.id), {"prize": prize, "duration": dur_str, "winners": winners_count})
-                return True, f"🎉 Giveaway for **{prize}** created successfully in {message.channel.mention}!", None
+                return True, f"🎉 Giveaway for **{prize}** created successfully in {target_channel.mention}!", None
 
             elif action == "list":
                 active_gas = [g for g in self.db.get_guild_giveaways(str(guild.id)) if not g.get("ended")]
