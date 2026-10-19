@@ -22,16 +22,25 @@ except ImportError:
 logger = logging.getLogger("KazumiConfig")
 
 # Sensitive data redaction regex patterns
-TOKEN_RE = re.compile(r"([a-zA-Z0-9_-]{24,32}\.[a-zA-Z0-9_-]{6,12}\.[a-zA-Z0-9_-]{10,45}|sk-[a-zA-Z0-9_-]{20,})")
+OPENAI_RE = re.compile(r"sk-[a-zA-Z0-9_\-]{15,}")
+DISCORD_TOKEN_RE = re.compile(r"[a-zA-Z0-9_-]{24,32}\.[a-zA-Z0-9_-]{6,12}\.[a-zA-Z0-9_-]{10,45}")
+BEARER_RE = re.compile(r"(?:Bearer\s+|authorization:\s+)[a-zA-Z0-9_\-\.]{15,}", re.IGNORECASE)
+HF_RE = re.compile(r"hf_[a-zA-Z0-9]{20,}")
+CRED_URL_RE = re.compile(r"(https?://)[^:\s]+:[^@\s]+@")
 WEBHOOK_RE = re.compile(r"https://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/\d+/[a-zA-Z0-9_-]+")
 
 
 def sanitize_secrets(text: str) -> str:
-    """Masks API keys, bot tokens, and webhook URLs from any text or log output."""
+    """Masks API keys, bot tokens, auth headers, and webhook URLs from any text or log output."""
     if not text:
         return text
-    clean = WEBHOOK_RE.sub("[REDACTED_WEBHOOK_URL]", str(text))
-    clean = TOKEN_RE.sub("[REDACTED_SECRET]", clean)
+    clean = str(text)
+    clean = CRED_URL_RE.sub(r"\1[REDACTED_AUTH]@", clean)
+    clean = WEBHOOK_RE.sub("[REDACTED_WEBHOOK_URL]", clean)
+    clean = BEARER_RE.sub("Bearer [REDACTED_SECRET]", clean)
+    clean = OPENAI_RE.sub("[REDACTED_SECRET]", clean)
+    clean = HF_RE.sub("[REDACTED_SECRET]", clean)
+    clean = DISCORD_TOKEN_RE.sub("[REDACTED_SECRET]", clean)
     return clean
 
 

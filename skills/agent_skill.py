@@ -59,9 +59,10 @@ User Query: {query}
             try:
                 # Retrieve LLM client from bot controller
                 client = getattr(self.bot.controller, "client", None)
-                from kazumi import API_KEY
+                from openai_reliability import get_reliability_guard
+                guard = get_reliability_guard()
                 
-                if client is None or not API_KEY or API_KEY in ("your_api_key_here", ""):
+                if client is None or not guard.is_available():
                     return "(Kazumi shrugs...) The AI engine is currently offline or lacks API credentials, so I can only perform single-step commands. 🌸"
                 
                 messages = [
@@ -69,12 +70,17 @@ User Query: {query}
                     {"role": "user", "content": current_prompt}
                 ]
                 
-                response = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=messages,
-                    max_tokens=250,
-                    temperature=0.0
-                )
+                def _call_agent():
+                    return client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=messages,
+                        max_tokens=250,
+                        temperature=0.0
+                    )
+
+                response = guard.execute_completion(_call_agent, max_retries=1)
+                if not response or not getattr(response, "choices", None):
+                    return "(Kazumi shrugs...) The AI engine encountered an error or reached quota limits, so I couldn't complete the step. 🌸"
                 output = response.choices[0].message.content
                 
                 # Check for Final Answer

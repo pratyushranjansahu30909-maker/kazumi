@@ -76,6 +76,13 @@ class TextRecognitionEngine:
 
     def is_available(self) -> bool:
         """Returns True if the recognition engine is ready to transcribe images."""
+        try:
+            from openai_reliability import get_reliability_guard
+            guard = get_reliability_guard()
+            if not guard.is_available():
+                return False
+        except Exception:
+            pass
         return bool(OPENAI_AVAILABLE and self.client is not None and self.api_key)
 
     def extract_text_from_bytes(
@@ -177,12 +184,26 @@ class TextRecognitionEngine:
                 }
             ]
 
-            response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=messages,
-                max_tokens=800,
-                temperature=0.2
-            )
+            from openai_reliability import get_reliability_guard
+            guard = get_reliability_guard()
+            def _call_vision():
+                return self.client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=messages,
+                    max_tokens=800,
+                    temperature=0.2
+                )
+
+            response = guard.execute_completion(_call_vision, max_retries=1)
+            if not response or not getattr(response, "choices", None):
+                return {
+                    "success": False,
+                    "text": "",
+                    "has_text": False,
+                    "filename": filename,
+                    "type": "image",
+                    "error": "OpenAI Vision API unavailable or rate limited."
+                }
 
             result_text = response.choices[0].message.content.strip()
 

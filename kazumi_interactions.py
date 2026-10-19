@@ -445,7 +445,7 @@ def process_interaction_input(bot, clean_text, text):
             has_client = hasattr(bot, "controller") and bot.controller is not None and getattr(bot.controller, "client", None) is not None
             # We import at root level in kazumi.py, let's verify if OPENAI_AVAILABLE is accessible
             # We can check bot.controller.client and environment variables
-            openai_key = os.environ.get("API_KEY", "")
+            openai_key = (os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY", "")).strip()
             if not openai_key and hasattr(bot, "controller") and bot.controller:
                 openai_key = getattr(bot.controller, "client", None)
             
@@ -460,14 +460,19 @@ def process_interaction_input(bot, clean_text, text):
                         {"role": "system", "content": "You are Kazumi, an exceptionally articulate, logical, and deeply caring companion. Provide a highly thoughtful, structured, and strategic analysis of the user's dilemma based on their listed pros and cons. Keep your tone supportive, but deliver clear, strategic, and balanced reflections (2-3 sentences max) to guide them toward a wise decision."},
                         {"role": "user", "content": prompt}
                     ]
-                    response = bot.controller.client.chat.completions.create(
-                        model=getattr(bot.controller, "diary_model_name", "gpt-3.5-turbo"),
-                        messages=messages,
-                        temperature=0.7,
-                        max_tokens=150,
-                        timeout=8.0
-                    )
-                    verdict = response.choices[0].message.content.strip()
+                    from openai_reliability import get_reliability_guard
+                    guard = get_reliability_guard()
+                    def _call_dilemma():
+                        return bot.controller.client.chat.completions.create(
+                            model=getattr(bot.controller, "diary_model_name", "gpt-3.5-turbo"),
+                            messages=messages,
+                            temperature=0.7,
+                            max_tokens=150,
+                            timeout=8.0
+                        )
+                    resp = guard.execute_completion(_call_dilemma)
+                    if resp and resp.choices:
+                        verdict = resp.choices[0].message.content.strip()
                 except Exception:
                     pass
             

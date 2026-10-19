@@ -141,6 +141,11 @@ def write_health_status(status: str, connected: bool = False, extra: Optional[di
         }
         if extra:
             payload.update(extra)
+        try:
+            from openai_reliability import get_reliability_guard
+            payload["openai_telemetry"] = get_reliability_guard().get_health_telemetry()
+        except Exception:
+            pass
         tmp_file = f"{HEALTH_STATUS_FILE}.tmp"
         with open(tmp_file, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2)
@@ -165,6 +170,15 @@ try:
     # Ensure pure chat bot mode
     kazumi_core.voice_enabled = False
     logger.info("[STARTUP] Kazumi core engine loaded successfully.")
+    try:
+        from openai_reliability import get_reliability_guard
+        guard = get_reliability_guard()
+        if guard.is_valid:
+            logger.info(f"[STARTUP] OpenAI Cognitive Engine: {guard.validation_msg}")
+        else:
+            logger.warning(f"[STARTUP] OpenAI Cognitive Engine: {guard.validation_msg} (Kazumi will utilize rich local personality fallbacks).")
+    except Exception as e:
+        logger.warning(f"[STARTUP] Could not inspect OpenAI status: {e}")
 except Exception as e:
     logger.error(f"[STARTUP] Failed to load Kazumi core engine: {e}")
     kazumi_core = None

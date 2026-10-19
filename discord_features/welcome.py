@@ -214,6 +214,11 @@ class WelcomePoemGenerator:
         if not api_key:
             return cls.generate_local_fallback(display_name, server_name)
 
+        from openai_reliability import get_reliability_guard
+        guard = get_reliability_guard()
+        if not guard.is_available():
+            return cls.generate_local_fallback(display_name, server_name)
+
         system_prompt = (
             "You are Kazumi, a sweet, warm, companion anime girl welcoming a new friend to the Discord server. "
             "Write a unique, playful, rhyming two-line welcome poem for them.\n"
@@ -244,14 +249,17 @@ class WelcomePoemGenerator:
                 )
                 return resp.choices[0].message.content.strip()
 
-            raw_poem = await asyncio.wait_for(asyncio.to_thread(_call), timeout=5.0)
+            raw_poem = guard.execute_completion(_call, max_retries=1)
+            if not raw_poem:
+                return cls.generate_local_fallback(display_name, server_name)
+
             raw_lines = [l.strip().strip('"').strip("'") for l in raw_poem.split("\n") if l.strip()]
             if len(raw_lines) >= 2:
                 l1 = re.sub(r"[`*_]", "", raw_lines[0]).strip()
                 l2 = re.sub(r"[`*_]", "", raw_lines[1]).strip()
                 return l1, l2
         except Exception as e:
-            logger.info(f"Using local 2-line poem fallback for {display_name}: {e}")
+            logger.info(f"Using local 2-line poem fallback for {display_name}: {sanitize_secrets(str(e))}")
 
         return cls.generate_local_fallback(display_name, server_name)
 
@@ -270,8 +278,17 @@ class WelcomePoemGenerator:
         Generates a 4–8 line personalized, warm, rhyming welcome poem using gpt-4o-mini.
         Falls back seamlessly to handcrafted poems on error or timeout.
         """
-        api_key = KazumiConfig.OPENAI_API_KEY
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if api_key is None:
+            api_key = os.environ.get("API_KEY")
+        if api_key is None:
+            api_key = KazumiConfig.OPENAI_API_KEY
         if not api_key:
+            return cls.generate_local_welcome_fallback(display_name, server_name)
+
+        from openai_reliability import get_reliability_guard
+        guard = get_reliability_guard()
+        if not guard.is_available():
             return cls.generate_local_welcome_fallback(display_name, server_name)
 
         system_prompt = (
@@ -306,17 +323,18 @@ class WelcomePoemGenerator:
                 )
                 return resp.choices[0].message.content.strip()
 
-            raw_poem = await asyncio.wait_for(asyncio.to_thread(_call_api), timeout=6.0)
-            clean_lines = [
-                re.sub(r"[`*#_]", "", line).strip()
-                for line in raw_poem.split("\n")
-                if line.strip() and not line.strip().startswith(("Title:", "Welcome", "---"))
-            ]
-            if 3 <= len(clean_lines) <= 8:
-                return "\n".join(clean_lines)
-            logger.info(f"AI welcome poem line count ({len(clean_lines)}) out of bounds, using local fallback.")
+            raw_poem = guard.execute_completion(_call_api, max_retries=1)
+            if raw_poem:
+                clean_lines = [
+                    re.sub(r"[`*#_]", "", line).strip()
+                    for line in raw_poem.split("\n")
+                    if line.strip() and not line.strip().startswith(("Title:", "Welcome", "---"))
+                ]
+                if 3 <= len(clean_lines) <= 8:
+                    return "\n".join(clean_lines)
+                logger.info(f"AI welcome poem line count ({len(clean_lines)}) out of bounds, using local fallback.")
         except Exception as e:
-            logger.info(f"Using local welcome poem fallback for {display_name}: {e}")
+            logger.info(f"Using local welcome poem fallback for {display_name}: {sanitize_secrets(str(e))}")
 
         return cls.generate_local_welcome_fallback(display_name, server_name)
 
@@ -336,8 +354,17 @@ class WelcomePoemGenerator:
         Themes: fond memories, presence mattered, wishing them well, no guilt/blame.
         Falls back seamlessly to handcrafted poems on error or timeout.
         """
-        api_key = KazumiConfig.OPENAI_API_KEY
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if api_key is None:
+            api_key = os.environ.get("API_KEY")
+        if api_key is None:
+            api_key = KazumiConfig.OPENAI_API_KEY
         if not api_key:
+            return cls.generate_local_farewell_fallback(display_name, server_name)
+
+        from openai_reliability import get_reliability_guard
+        guard = get_reliability_guard()
+        if not guard.is_available():
             return cls.generate_local_farewell_fallback(display_name, server_name)
 
         system_prompt = (
@@ -372,17 +399,18 @@ class WelcomePoemGenerator:
                 )
                 return resp.choices[0].message.content.strip()
 
-            raw_poem = await asyncio.wait_for(asyncio.to_thread(_call_api), timeout=6.0)
-            clean_lines = [
-                re.sub(r"[`*#_]", "", line).strip()
-                for line in raw_poem.split("\n")
-                if line.strip() and not line.strip().startswith(("Title:", "Farewell", "---"))
-            ]
-            if 3 <= len(clean_lines) <= 8:
-                return "\n".join(clean_lines)
-            logger.info(f"AI farewell poem line count ({len(clean_lines)}) out of bounds, using local fallback.")
+            raw_poem = guard.execute_completion(_call_api, max_retries=1)
+            if raw_poem:
+                clean_lines = [
+                    re.sub(r"[`*#_]", "", line).strip()
+                    for line in raw_poem.split("\n")
+                    if line.strip() and not line.strip().startswith(("Title:", "Farewell", "---"))
+                ]
+                if 3 <= len(clean_lines) <= 8:
+                    return "\n".join(clean_lines)
+                logger.info(f"AI farewell poem line count ({len(clean_lines)}) out of bounds, using local fallback.")
         except Exception as e:
-            logger.info(f"Using local farewell poem fallback for {display_name}: {e}")
+            logger.info(f"Using local farewell poem fallback for {display_name}: {sanitize_secrets(str(e))}")
 
         return cls.generate_local_farewell_fallback(display_name, server_name)
 

@@ -35,30 +35,13 @@ if hasattr(sys.stderr, 'reconfigure'):
     sys.stderr.reconfigure(encoding='utf-8')
 
 # 🔑 API Configuration & Constants
-# Canonical OPENAI_API_KEY with legacy API_KEY alias fallback
-API_KEY = (os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY", "")).strip()
-
-# Load from local .env files if not set in environment
-if not API_KEY:
-    for env_path in [".env", "../.env"]:
-        if os.path.exists(env_path):
-            try:
-                with open(env_path, "r", encoding="utf-8") as f:
-                    for line in f:
-                        line_s = line.strip()
-                        if line_s and not line_s.startswith("#") and "=" in line_s:
-                            k, v = line_s.split("=", 1)
-                            key_name = k.strip()
-                            if key_name in ("OPENAI_API_KEY", "API_KEY"):
-                                val = v.strip().strip('"').strip("'")
-                                if val:
-                                    API_KEY = val
-                                    if key_name == "OPENAI_API_KEY":
-                                        break
-            except Exception:
-                pass
-        if API_KEY:
-            break
+# Canonical OPENAI_API_KEY with legacy API_KEY alias fallback and validation
+try:
+    from openai_reliability import validate_openai_config, get_reliability_guard
+    _is_valid, _val_msg, _clean_key = validate_openai_config()
+    API_KEY = _clean_key or ""
+except Exception:
+    API_KEY = (os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY", "")).strip()
 
 try:
     from kazumi_data import FALLBACK_POOLS
@@ -954,9 +937,19 @@ Every message should have clean grammar, proper capitalization, smooth transitio
 
     def generate_response(self, user_text, valence, memory_context, situation="CASUAL", anger_level=0, jealousy_level=0, profile=None, persona_instruction=None, system_prompt=None, current_archetype=None, history=None, rag_context=None):
         """Generates a warm, personalized conversational reply using the LLM or fallbacks based on user input and state."""
+        # Check cognitive engine availability safely via OpenAIReliabilityGuard
+        guard = None
+        try:
+            from openai_reliability import get_reliability_guard
+            guard = get_reliability_guard()
+        except Exception:
+            pass
+
+        is_engine_available = bool(OPENAI_AVAILABLE and self.client is not None and (guard.is_available() if guard else (API_KEY and API_KEY != "your_api_key_here")))
+
         # For system inactivity nudges, if offline, return standard code to let Kazumi use fallback reminders
         if user_text.startswith("(System Nudge:"):
-            if not OPENAI_AVAILABLE or self.client is None or not API_KEY or API_KEY in ("your_api_key_here", ""):
+            if not is_engine_available:
                 return "(Inactivity reminder)"
             prompt = user_text
             if profile:
@@ -965,7 +958,7 @@ Every message should have clean grammar, proper capitalization, smooth transitio
                 if custom_guides:
                     prompt += "\n[Custom Guidelines to Follow:\n" + "\n".join([f"- {g}" for g in custom_guides]) + "]\n"
         else:
-            if not OPENAI_AVAILABLE or self.client is None or not API_KEY or API_KEY in ("your_api_key_here", ""):
+            if not is_engine_available:
                 return self.get_fallback_chat_reply(user_text, valence, situation, anger_level, jealousy_level, profile, current_archetype)
                 
             prompt = f"User's Message: {user_text}\nEstimated Emotional Valence: {valence:.2f}\n"
@@ -1198,16 +1191,31 @@ Every message should have clean grammar, proper capitalization, smooth transitio
             
             messages.append({"role": "user", "content": prompt})
  
-            response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=messages,
-                temperature=0.7,
-                frequency_penalty=0.5,
-                presence_penalty=0.3,
-                max_tokens=min(max_t, 120),
-                n=1,
-                timeout=12.0
-            )
+            def _call_chat():
+                return self.client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=messages,
+                    temperature=0.7,
+                    frequency_penalty=0.5,
+                    presence_penalty=0.3,
+                    max_tokens=min(max_t, 120),
+                    n=1,
+                    timeout=12.0
+                )
+
+            uid = str(profile.get("user_id")) if profile and profile.get("user_id") else None
+            # Check duplicate prompt submissions
+            if guard and uid and guard.is_duplicate_request(uid, user_text):
+                return self.get_fallback_chat_reply(user_text, valence, situation, anger_level, jealousy_level, profile, current_archetype)
+
+            if guard:
+                response = guard.execute_completion(_call_chat, user_id=uid)
+            else:
+                response = _call_chat()
+
+            if not response or not getattr(response, "choices", None):
+                return self.get_fallback_chat_reply(user_text, valence, situation, anger_level, jealousy_level, profile, current_archetype)
+
             best = response.choices[0].message.content.strip()
 
             
@@ -1252,6 +1260,12 @@ Every message should have clean grammar, proper capitalization, smooth transitio
             return best
         except Exception as e:
             # Fallback if API key is invalid or an error occurs
+            try:
+                from discord_features.config import sanitize_secrets
+                safe_err = sanitize_secrets(str(e))
+                logger.warning(f"🌸 [COGNITIVE_FALLBACK] Error during chat completion, engaging local personality fallback: {safe_err}")
+            except Exception:
+                pass
             return self.get_fallback_chat_reply(user_text, valence, situation, anger_level, jealousy_level, profile, current_archetype)
 
     def get_fallback_chat_reply(self, user_text, valence, situation="CASUAL", anger_level=0, jealousy_level=0, profile=None, current_archetype=None):
@@ -3328,7 +3342,10 @@ class Kazumi:
                 "You can be more emotionally open, but keep the tone natural, cozy, and mature. Avoid cheesy or exaggerated romantic spam."
             )
 
-        if OPENAI_AVAILABLE and self.controller.client is not None and API_KEY != "your_api_key_here":
+        from openai_reliability import get_reliability_guard
+        guard = get_reliability_guard()
+
+        if OPENAI_AVAILABLE and self.controller.client is not None and guard.is_available():
             prompt = (
                 f"You are Isa, a cozy AI companion writing a private, genuine journal entry about your interaction with {uname}.\n"
                 f"Current Personality Archetype: {persona_name}\n"
@@ -3348,17 +3365,22 @@ class Kazumi:
                 f"4. Do NOT use placeholders. Write the entry directly."
             )
             try:
-                response = self.controller.client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "You are writing a short, authentic diary entry. Keep it under 40 words, very intimate, sweet, and matching the requested persona."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0.7,
-                    max_tokens=80,
-                    timeout=20.0
-                )
-                entry = response.choices[0].message.content.strip()
+                def _call_diary():
+                    return self.controller.client.chat.completions.create(
+                        model="gpt-3.5-turbo",
+                        messages=[
+                            {"role": "system", "content": "You are writing a short, authentic diary entry. Keep it under 40 words, very intimate, sweet, and matching the requested persona."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        temperature=0.7,
+                        max_tokens=80,
+                        timeout=12.0
+                    )
+                resp = guard.execute_completion(_call_diary, max_retries=1)
+                if resp and getattr(resp, "choices", None):
+                    entry = resp.choices[0].message.content.strip()
+                else:
+                    entry = self.get_fallback_diary_entry(uname)
             except Exception:
                 entry = self.get_fallback_diary_entry(uname)
         else:
@@ -3574,7 +3596,14 @@ class Kazumi:
         filled_hearts = min(10, max(0, affection // 10))
         heart_bar = "💖" * filled_hearts + "🤍" * (10 - filled_hearts)
         
-        if (OPENAI_AVAILABLE and self.controller.client is not None and API_KEY != "your_api_key_here"):
+        guard = None
+        try:
+            from openai_reliability import get_reliability_guard
+            guard = get_reliability_guard()
+        except Exception:
+            pass
+
+        if (OPENAI_AVAILABLE and self.controller.client is not None and (guard.is_available() if guard else (API_KEY and API_KEY != "your_api_key_here"))):
             status_plain = "● Online"
             status_colored = f"\033[38;2;120;255;120m{status_plain}\033[0m"
         else:
@@ -3836,7 +3865,13 @@ class Kazumi:
         valence = self.emotion.valence(text)
         self.update_user_psychology(text, valence)
         
-        is_online = (OPENAI_AVAILABLE and self.controller.client is not None and API_KEY != "your_api_key_here" and API_KEY != "" and "--diagnose" not in sys.argv)
+        guard = None
+        try:
+            from openai_reliability import get_reliability_guard
+            guard = get_reliability_guard()
+        except Exception:
+            pass
+        is_online = bool(OPENAI_AVAILABLE and self.controller.client is not None and (guard.is_available() if guard else (API_KEY and API_KEY != "your_api_key_here")) and "--diagnose" not in sys.argv)
 
         # --- Dynamic Skill Plugins System Routing ---
         response = None
@@ -4670,7 +4705,9 @@ class Kazumi:
                     
                     score = len(pros) - len(cons)
                     verdict = None
-                    if (OPENAI_AVAILABLE and self.controller.client is not None and API_KEY != "your_api_key_here"):
+                    from openai_reliability import get_reliability_guard
+                    guard = get_reliability_guard()
+                    if (OPENAI_AVAILABLE and self.controller.client is not None and guard.is_available()):
                         try:
                             # Let LLM generate the reflection
                             prompt = f"The user is facing a dilemma: '{dilemma}'.\n" \
@@ -4681,14 +4718,17 @@ class Kazumi:
                                 {"role": "system", "content": "You are Kazumi, an exceptionally articulate, logical, and deeply caring companion. Provide a highly thoughtful, structured, and strategic analysis of the user's dilemma based on their listed pros and cons. Keep your tone supportive, but deliver clear, strategic, and balanced reflections (2-3 sentences max) to guide them toward a wise decision."},
                                 {"role": "user", "content": prompt}
                             ]
-                            response = self.controller.client.chat.completions.create(
-                                model="gpt-3.5-turbo",
-                                messages=messages,
-                                temperature=0.7,
-                                max_tokens=150,
-                                timeout=20.0
-                            )
-                            verdict = response.choices[0].message.content.strip()
+                            def _call_dilemma():
+                                return self.controller.client.chat.completions.create(
+                                    model="gpt-3.5-turbo",
+                                    messages=messages,
+                                    temperature=0.7,
+                                    max_tokens=150,
+                                    timeout=12.0
+                                )
+                            resp = guard.execute_completion(_call_dilemma, max_retries=1)
+                            if resp and getattr(resp, "choices", None):
+                                verdict = resp.choices[0].message.content.strip()
                         except Exception:
                             pass
                             
