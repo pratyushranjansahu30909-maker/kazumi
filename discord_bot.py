@@ -748,6 +748,25 @@ async def on_connect():
 
 
 @bot.event
+async def on_disconnect():
+    logger.info("[CONNECTION] Discord Gateway disconnected. Automatic reconnection managed by discord.py...")
+    if "kazumi_features" in globals() and kazumi_features and kazumi_features.get("monitoring"):
+        kazumi_features["monitoring"].record_disconnect()
+
+
+@bot.event
+async def on_resumed():
+    logger.info("[CONNECTION] Discord Gateway session successfully resumed.")
+    if "kazumi_features" in globals() and kazumi_features and kazumi_features.get("monitoring"):
+        kazumi_features["monitoring"].record_resume()
+
+
+@bot.event
+async def on_error(event_method, *args, **kwargs):
+    logger.error(f"[EVENT_ERROR] Unhandled exception in event handler '{event_method}'", exc_info=sys.exc_info())
+
+
+@bot.event
 async def on_ready():
     global _tree_synced, _background_feature_task
     bot_name = bot.user.name if bot.user else "Kazumi"
@@ -756,6 +775,14 @@ async def on_ready():
     logger.info(f"[CONNECTION] Discord Gateway connected as {bot_name}#{bot_disc} (ID: {bot_id})")
     logger.info(f"[CONNECTION] Connected to {len(bot.guilds) if getattr(bot, 'guilds', None) else 0} server(s).")
     logger.info(f"[BUILD] Kazumi active build commit: {get_git_commit()}")
+
+    # Clear rapid startup failure history after healthy gateway connection
+    try:
+        from restart_protector import RestartLoopProtector
+        state_file = os.path.join(ISA_MEMORY_DIR, ".crash_loop_state.json")
+        RestartLoopProtector(state_file=state_file).record_healthy()
+    except Exception:
+        pass
 
     # Record Gateway Ready & Launch Background Health Monitor Loop (initial startup only)
     if "kazumi_features" in globals() and kazumi_features and kazumi_features.get("monitoring"):
@@ -2947,8 +2974,66 @@ def respawn_process():
         time.sleep(5)
 
 
+def setup_process_safety_net():
+    """Installs top-level unhandled exception hooks and guarded signal handlers."""
+    def handle_sys_exception(exc_type, exc_value, exc_traceback):
+        if issubclass(exc_type, (KeyboardInterrupt, SystemExit)):
+            sys.__excepthook__(exc_type, exc_value, exc_traceback)
+            return
+        logger.critical(f"Unhandled fatal exception in main thread: {exc_value}", exc_info=(exc_type, exc_value, exc_traceback))
+        release_single_instance_lock()
+        sys.exit(1)
+
+    sys.excepthook = handle_sys_exception
+
+    if hasattr(threading, "excepthook"):
+        def handle_thread_exception(args):
+            if issubclass(args.exc_type, (KeyboardInterrupt, SystemExit)):
+                return
+            logger.critical(
+                f"Unhandled fatal exception in worker thread '{args.thread.name}': {args.exc_value}",
+                exc_info=(args.exc_type, args.exc_value, args.exc_traceback)
+            )
+        threading.excepthook = handle_thread_exception
+
+    import signal
+    def handle_shutdown_signal(signum, frame):
+        sig_name = signal.Signals(signum).name if hasattr(signal, "Signals") else str(signum)
+        logger.info(f"[SHUTDOWN] Received signal {sig_name}. Performing clean shutdown...")
+        release_single_instance_lock()
+        sys.exit(0)
+
+    try:
+        signal.signal(signal.SIGINT, handle_shutdown_signal)
+    except Exception:
+        pass
+    try:
+        signal.signal(signal.SIGTERM, handle_shutdown_signal)
+    except Exception:
+        pass
+    if hasattr(signal, "SIGBREAK"):
+        try:
+            signal.signal(signal.SIGBREAK, handle_shutdown_signal)
+        except Exception:
+            pass
+
+
 def main():
     global DISCORD_BOT_TOKEN
+    setup_process_safety_net()
+
+    # Persistent crash-loop protection across restarts
+    try:
+        from restart_protector import RestartLoopProtector
+        state_file = os.path.join(ISA_MEMORY_DIR, ".crash_loop_state.json")
+        protector = RestartLoopProtector(state_file=state_file)
+        startup_delay = protector.record_boot_and_get_delay()
+        if startup_delay > 0:
+            logger.warning(f"⚠️ [RESTART_DELAY] Backing off for {startup_delay:.2f}s due to recent rapid crashes...")
+            time.sleep(startup_delay)
+    except Exception as prot_err:
+        logger.warning(f"Failed to check restart loop protection: {prot_err}")
+
     logger.info(f"[HOST] Runtime Host: {DEPLOY_ENV['name']} (Remote: {DEPLOY_ENV['is_remote']})")
     logger.info(f"[STARTUP] Kazumi Discord Bot process started. DISCORD_BOT_TOKEN configured: {bool(DISCORD_BOT_TOKEN)}")
     is_valid_cfg, config_errors = KazumiConfig.validate_startup_config()
@@ -2988,9 +3073,8 @@ def main():
         logger.info(f"[STARTUP] Connecting to Discord Gateway (prefix: {PREFIX}, channel: {DISCORD_CHANNEL_ID or 'all'})...")
         try:
             bot.run(DISCORD_BOT_TOKEN, log_handler=None)
-            logger.info("[RECONNECT] Discord bot run loop finished. Respawning in 5 seconds...")
-            time.sleep(5)
-            respawn_process()
+            logger.info("[SHUTDOWN] Discord bot run loop finished cleanly.")
+            break
         except discord.errors.LoginFailure as lf:
             logger.error(f"❌ Fatal login failure: Invalid Discord Bot Token: {lf}")
             sys.exit(1)
@@ -2999,10 +3083,9 @@ def main():
             release_single_instance_lock()
             sys.exit(0)
         except Exception as e:
-            logger.error(f"[RECONNECT] Discord connection dropped or failed: {e}. Auto-reconnecting in {retry_delay}s...", exc_info=True)
+            logger.error(f"[GATEWAY_FAILURE] Discord connection terminated: {e}. Auto-reconnecting in {retry_delay}s...", exc_info=True)
             time.sleep(retry_delay)
             retry_delay = min(max_delay, int(retry_delay * 1.5))
-            respawn_process()
 
 
 if __name__ == "__main__":

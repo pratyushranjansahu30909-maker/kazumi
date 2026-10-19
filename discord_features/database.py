@@ -75,50 +75,66 @@ class FeatureDatabase:
         self.load_all()
 
     def _atomic_write(self, file_path: str, data: Any) -> bool:
-        """Atomically saves data with .bak backup and fsync."""
-        try:
-            if os.path.exists(file_path):
-                try:
-                    shutil.copy2(file_path, file_path + ".bak")
-                except Exception:
-                    pass
+        """Atomically saves data with .bak backup and fsync under lock."""
+        with self._lock:
+            try:
+                if os.path.exists(file_path):
+                    try:
+                        shutil.copy2(file_path, file_path + ".bak")
+                    except Exception:
+                        pass
 
-            tmp_path = file_path + ".tmp"
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-                f.flush()
-                os.fsync(f.fileno())
+                tmp_path = file_path + ".tmp"
+                with open(tmp_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
 
-            # Retry on Windows if file is momentarily held
-            for attempt in range(4):
-                try:
-                    os.replace(tmp_path, file_path)
-                    return True
-                except (PermissionError, OSError):
-                    if attempt < 3:
-                        time.sleep(0.05 * (attempt + 1))
-                    else:
-                        raise
-            return True
-        except Exception as e:
-            logger.error(f"Failed atomic write to {file_path}: {e}")
-            tmp_path = file_path + ".tmp"
-            if os.path.exists(tmp_path):
-                try:
-                    os.remove(tmp_path)
-                except Exception:
-                    pass
-            return False
+                # Retry on Windows if file is momentarily held
+                for attempt in range(4):
+                    try:
+                        os.replace(tmp_path, file_path)
+                        return True
+                    except (PermissionError, OSError):
+                        if attempt < 3:
+                            time.sleep(0.05 * (attempt + 1))
+                        else:
+                            raise
+                return True
+            except Exception as e:
+                logger.error(f"Failed atomic write to {file_path}: {e}")
+                tmp_path = file_path + ".tmp"
+                if os.path.exists(tmp_path):
+                    try:
+                        os.remove(tmp_path)
+                    except Exception:
+                        pass
+                return False
 
     def _safe_read(self, file_path: str, default: Any) -> Any:
-        """Reads JSON safely, falling back to .bak if primary is corrupted."""
-        for path in [file_path, file_path + ".bak"]:
-            if os.path.exists(path) and os.path.getsize(path) > 0:
-                try:
-                    with open(path, "r", encoding="utf-8") as f:
+        """Reads JSON safely, quarantining corrupt primary and falling back to .bak."""
+        if os.path.exists(file_path):
+            try:
+                if os.path.getsize(file_path) > 0:
+                    with open(file_path, "r", encoding="utf-8") as f:
                         return json.load(f)
-                except Exception as e:
-                    logger.warning(f"Failed to read {path}: {e}")
+            except Exception as e:
+                logger.warning(f"Failed to read primary {file_path}: {e}. Quarantining corrupt file.")
+                corrupted_path = f"{file_path}.corrupted.{int(time.time())}"
+                try:
+                    os.rename(file_path, corrupted_path)
+                except Exception:
+                    pass
+
+        bak_path = file_path + ".bak"
+        if os.path.exists(bak_path):
+            try:
+                if os.path.getsize(bak_path) > 0:
+                    with open(bak_path, "r", encoding="utf-8") as f:
+                        return json.load(f)
+            except Exception as e:
+                logger.warning(f"Failed to read backup {bak_path}: {e}")
+
         return default
 
     def load_all(self) -> None:

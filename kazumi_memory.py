@@ -56,8 +56,16 @@ class ChromaMemory:
                     f.flush()
                     os.fsync(f.fileno())
                 
-                # Step 3: Atomic replacement
-                os.replace(tmp_path, file_path)
+                # Step 3: Atomic replacement with bounded retry for file-lock resilience
+                for attempt in range(4):
+                    try:
+                        os.replace(tmp_path, file_path)
+                        return True
+                    except (PermissionError, OSError):
+                        if attempt < 3:
+                            time.sleep(0.05 * (attempt + 1))
+                        else:
+                            raise
                 return True
             except Exception as e:
                 tmp_path = file_path + ".tmp"
