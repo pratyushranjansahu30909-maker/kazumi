@@ -748,20 +748,6 @@ async def on_connect():
 
 
 @bot.event
-async def on_disconnect():
-    logger.info("[CONNECTION] Discord Gateway disconnected. Automatic reconnection managed by discord.py...")
-    if "kazumi_features" in globals() and kazumi_features and kazumi_features.get("monitoring"):
-        kazumi_features["monitoring"].record_disconnect()
-
-
-@bot.event
-async def on_resumed():
-    logger.info("[CONNECTION] Discord Gateway session successfully resumed.")
-    if "kazumi_features" in globals() and kazumi_features and kazumi_features.get("monitoring"):
-        kazumi_features["monitoring"].record_resume()
-
-
-@bot.event
 async def on_error(event_method, *args, **kwargs):
     logger.error(f"[EVENT_ERROR] Unhandled exception in event handler '{event_method}'", exc_info=sys.exc_info())
 
